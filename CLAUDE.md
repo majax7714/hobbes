@@ -69,25 +69,30 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M2 (graph render + diff) — built, pending Max's exit
-review** (build-plan exit bar: a real PR/commit range produces a correct
-edge-level delta). Do not start M3 until that review has happened.
+**Active milestone: M3 (Terraform extractor) — built, pending Max's exit
+review** (build-plan exit bar: app+infra graph for one repo, one
+cross-layer edge verified by hand — done on SELENEX, awaiting Max's
+confirmation). Do not start M4 until that review has happened.
 
-Done through M2:
+Done through M3:
 - M0 (reviewed, passed): policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy
-  passthrough, dogfood repo policy. 52 Go test cases.
-- M1 (reviewed, passed): deterministic extractor in
-  `pipeline/src/hobbes/extract/` — tree-sitter walk (ADR-005;
-  **tree-sitter pinned <0.26**, 0.26.0 core segfaults), typed module/symbol
-  graph (`imports`/`env-read`/`calls`, rules in ADR-007), route inventory,
-  pytest inventory with static reach, SHA+dirty-stamped deterministic
-  artifacts (ADR-006). `hobbes ingest` / `hobbes init`.
-- M2: Mermaid module-graph export (`hobbes render`, ADR-008) and the graph
-  diff (`hobbes diff <base>..<head> [--json]`, ADR-009 — git-archive ref
-  extraction, exit codes mirroring diff(1)). Validated against this repo's
-  real history (extractor-introduction and CLI-wiring ranges hand-checked;
-  docs-only range exits 0). 99 pytest cases total.
+  passthrough, dogfood repo policy.
+- M1 (reviewed, passed): deterministic Python extractor (ADR-005/006/007;
+  **tree-sitter pinned <0.26**, 0.26.0 core segfaults). `hobbes ingest` /
+  `hobbes init`.
+- M2 (reviewed, passed): Mermaid export (`hobbes render`, ADR-008), graph
+  diff (`hobbes diff <base>..<head>`, ADR-009). Deferred ideas live in
+  `docs/future_additions.md`.
+- M3: Terraform/HCL extractor (`extract/terraform.py`, ADR-010) —
+  `tf:` nodes (resource/data/tf-module), `references` edges,
+  cross-layer joins (`env-set` → `env:VAR` ← `env-read`, and `packages`
+  path joins onto discovered modules), optional `--tf-plan` enrichment
+  (tfstate lookalikes refused). graph.json schema v2 (`languages` list).
+  Builtin tfstate deny floor in the Go engine (ADR-011). 119 pytest +
+  55 Go test cases. Test repos (Max-sanctioned): `~/SELENEX`
+  (Py+JS+TF; cross-layer `packages` edge verified by hand at
+  infra-core/lambda.tf:5 → handler.py) and `~/qwen-pathology` (Python).
 
-Next (after review): M3 — Terraform/HCL extractor with cross-layer
-env-var joins; `.tfstate` deny in the default box policy.
+Next (after review): M4 — policy proxy + sandbox + flight recorder (the
+daemon; the hard one).

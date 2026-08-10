@@ -161,3 +161,63 @@ commits in place of a PR):
 
 **M2 exit criteria:** a real commit range produces a correct edge-level
 delta ✔ (three ranges hand-verified above) — **pending your review**.
+
+---
+
+## 2026-08-10 (fourth session) — M3: Terraform extractor
+
+M2 review passed; both M2 flags parked in `docs/future_additions.md` (new —
+the parking lot for reviewed-and-deferred ideas). Test repos sanctioned:
+`~/qwen-pathology` and `~/SELENEX`.
+
+**Built:**
+
+- ADRs 010–011: the HCL extractor model (nodes, `references`, the two
+  cross-layer joins, plan consumption, schema v2) and the builtin tfstate
+  deny floor in the Go engine.
+- Go: `LoadChain` now prepends a synthetic `builtin:tfstate-floor` box
+  file denying `*.tfstate*` — present with zero policies configured,
+  unshadowable, no off switch (ADR-011). 55 Go test cases.
+- `hobbes.extract.terraform` (tree-sitter-hcl): `tf:` nodes for
+  resource/data/module blocks; `references` edges from traversal chains
+  that resolve to *declared* blocks only; `env-set` edges from literal
+  `environment { variables }` and `env { name }` patterns, landing on the
+  same `env:VAR` nodes the app side uses — the §4.1 join is id equality;
+  `packages` edges from string paths (after `${path.module}`) resolving to
+  discovered app modules; optional `terraform show -json` enrichment
+  (`hobbes ingest --tf-plan`, refusing tfstate lookalikes).
+- graph.json schema v2: `language` → `languages` (dated note in ADR-006);
+  render gained shapes + directory clustering for infra kinds. 119 pytest
+  cases.
+
+**Changed from plan:**
+
+- The `packages` path join is *additive beyond* the plan's named env-var
+  join. Surveying SELENEX showed its TF sets no env vars and uses no
+  `var.` — its only real app↔infra coupling is `archive_file.source_file`
+  packaging `lambda/pretoken/handler.py`. Without the path join, the M3
+  exit would only ever be fixture-provable. Rationale in ADR-010.
+
+**Validated (the M3 exit bar):**
+
+- SELENEX ingest: 200 nodes / 591 module edges / hcl+python in one
+  artifact; 22 tf nodes. Cross-layer edge verified by hand:
+  `packages tf:data.archive_file.pretoken → handler [infra-core/lambda.tf:5]`
+  — line 5 is exactly the `source_file` path; infra `references` edges
+  (cognito→lambda, clients→pool, pool→ses) all match the source.
+- Env-var join (`env-set` + `env-read` meeting at `env:VAR`) verified on
+  the fixture, where both sides exist by construction.
+- qwen-pathology ingest: 19 nodes / 24 edges, spot-looked sane.
+- Both test repos left untouched except untracked `.hobbes/derived/`.
+
+**Open questions for Max:**
+
+1. SELENEX's `handler.py` node is just `handler` — a standalone script's
+   id is its stem (ADR-006), which is honest but bare in listings (the
+   node's `path` field carries the context). Cosmetic; flag if it bothers
+   you in review and it can join future_additions.
+2. Confirm the cross-layer verification above to close M3's exit.
+
+**M3 exit criteria:** app+infra graph for one repo ✔ (SELENEX) · one
+cross-layer edge verified by hand ✔ (lambda.tf:5 → handler) · tfstate
+deny baked in ✔ — **pending your review**.

@@ -6,11 +6,14 @@ dependencies: `tree-sitter` + `tree-sitter-python` only (ADR-005).
 
 Surface:
 
-- `hobbes ingest [--repo PATH]` — runs the extractors and writes the three
-  SHA-stamped artifacts (ADR-006) to `.hobbes/derived/`: `graph.json`
-  (module nodes + symbol layer, `imports`/`env-read`/`calls` typed edges),
-  `tests.json` (pytest inventory with static test→symbol reach), and
-  `interfaces.json` (FastAPI/Flask routes, CLI entry points).
+- `hobbes ingest [--repo PATH] [--tf-plan FILE]` — runs the extractors and
+  writes the three SHA-stamped artifacts (ADR-006, schema v2) to
+  `.hobbes/derived/`: `graph.json` (app modules + symbol layer + Terraform
+  infra layer in one graph — `imports`/`env-read`/`calls` plus
+  `references`/`env-set`/`packages` per ADR-010), `tests.json` (pytest
+  inventory with static reach), and `interfaces.json` (FastAPI/Flask
+  routes, CLI entry points). `--tf-plan` enriches the infra layer from a
+  `terraform show -json` file; anything that looks like state is refused.
 - `hobbes init [--repo PATH]` — scaffolds `.hobbes/` (policies/, invariants/,
   starter repo.policy, gitignore entries). Idempotent.
 - `hobbes render` — prints the ingested module graph as a Mermaid

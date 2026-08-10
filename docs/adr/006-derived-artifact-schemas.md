@@ -11,6 +11,12 @@ file, but leave the concrete JSON shapes and identifier conventions open.
 
 ## Decision
 
+> **Note (2026-08-10, M3):** schema_version is now **2** — graph.json's
+> `"language": "python"` became `"languages": ["hcl", "python"]` (sorted)
+> when the infra layer joined (ADR-010), and node kinds grew `resource`,
+> `data`, `tf-module`, with module-edge types `references`, `env-set`,
+> `packages`. Everything else below is unchanged.
+
 All three files share a stamp: `schema_version` (integer, starts at 1),
 `sha` (the repo HEAD the extraction read), and `dirty` (true when the
 working tree had uncommitted changes — provenance stays honest instead of
