@@ -11,6 +11,7 @@ authors = [{ name = "Max Marrujo" }]
 # clean with the same code and grammar). Revisit the pin on a new release.
 dependencies = [
     "tree-sitter>=0.25,<0.26",
+    "tree-sitter-hcl>=1.2.0",
     "tree-sitter-python>=0.25.0",
 ]
 
