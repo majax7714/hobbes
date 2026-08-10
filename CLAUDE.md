@@ -66,6 +66,9 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 - No speculative abstraction — build what the current milestone needs.
 - **Never read or write `.tfstate` files. Never commit anything under
   `.hobbes/derived/`.**
+- **Hobbes files are personal (ADR-012):** in Max's repos, the entire
+  `.hobbes/` directory is gitignored — `ingest`/`init` enforce it
+  automatically. Only this repo (dogfooding §10) versions its `.hobbes/`.
 
 ## Current status
 

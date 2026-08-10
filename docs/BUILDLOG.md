@@ -221,3 +221,34 @@ the parking lot for reviewed-and-deferred ideas). Test repos sanctioned:
 **M3 exit criteria:** app+infra graph for one repo ✔ (SELENEX) · one
 cross-layer edge verified by hand ✔ (lambda.tf:5 → handler) · tfstate
 deny baked in ✔ — **pending your review**.
+
+---
+
+## 2026-08-10 (fifth session) — ADR-012: Hobbes files are personal
+
+M3 review passed across both test repos. Max's directive: always gitignore
+Hobbes files in his repos — they are personal-environment artifacts, and
+an accidental push would be a mess.
+
+**Built:**
+
+- ADR-012 + `ensure_hobbes_ignored` in `extract/emit.py`: both
+  `hobbes ingest` and `hobbes init` now guarantee the target repo
+  gitignores the **entire `.hobbes/` directory** before doing anything
+  else (the edit is reported by the CLI and honestly flips the stamp's
+  `dirty` flag on that first run). Exception: a repo already *tracking*
+  `.hobbes/` content — the hobbes repo dogfooding §10 — keeps its
+  versioning; only `derived/` is ensured there. This refines §10's
+  "policies/ versioned" for v1 single-dev use; the files still live at
+  the §10 paths and the policy engine still loads them.
+- Applied to both test repos by re-running the new ingest (dogfooding the
+  mechanism): `.hobbes/` appended to each `.gitignore`, committed locally
+  in each repo (`chore: gitignore .hobbes/ …`) — **not pushed**, pushes
+  stay Max's. 124 pytest cases.
+
+**Changed from plan:** §10's versioned-policies posture is deliberately
+narrowed for v1 (ADR-012 documents the reconciliation and the
+`git add -f` path back if policies ever become team-shared).
+
+**Next:** M4 — policy proxy + sandbox + flight recorder. Not started;
+reported back first per Max's instruction, since M4 is the big one.
