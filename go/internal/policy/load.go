@@ -23,6 +23,23 @@ type Chain struct {
 	Files []*File
 }
 
+// builtinFloor is the engine's own box-level floor, prepended to every
+// LoadChain result (ADR-011): Terraform state carries secrets and is denied
+// unconditionally. Deny is unshadowable (ADR-002), so no repo or folder
+// policy can override this, and there is deliberately no off switch.
+func builtinFloor() *File {
+	return &File{
+		Version: 1,
+		Rules: []Rule{{
+			Pattern:  "*.tfstate*",
+			Decision: Deny,
+			Reason:   "tfstate carries secrets (built-in floor, ADR-011)",
+		}},
+		Source: "builtin:tfstate-floor",
+		Level:  "box",
+	}
+}
+
 // LoadChain assembles the policy chain for a command running in dir, which
 // must be inside repoRoot (repoRoot itself is allowed).
 //
@@ -35,8 +52,11 @@ type Chain struct {
 //
 // Any file whose declared scope disagrees with the level it is loaded at is
 // an error.
+//
+// Every chain starts with the engine's built-in tfstate deny floor
+// (ADR-011), before any configured box policy.
 func LoadChain(boxPath, repoRoot, dir string) (*Chain, error) {
-	var chain Chain
+	chain := Chain{Files: []*File{builtinFloor()}}
 
 	add := func(path, level string) error {
 		f, err := LoadFile(path)
