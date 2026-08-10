@@ -9,9 +9,11 @@ layer is never rendered here (architecture §10: render module-level).
 
 from __future__ import annotations
 
+import posixpath
+
 #: Edge types with dedicated arrow styles; anything new renders labeled so
 #: it is visible before it earns bespoke styling (ADR-008).
-_EDGE_ARROWS = {"imports": "-->", "env-read": "-.->"}
+_EDGE_ARROWS = {"imports": "-->", "env-read": "-.->", "env-set": "-.->"}
 
 
 def to_mermaid(graph: dict) -> str:
@@ -25,29 +27,44 @@ def to_mermaid(graph: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: Kinds clustered into subgraphs: app modules by top-level package, infra
+#: blocks by the directory of their defining .tf file.
+_GROUPED_KINDS = {"module", "package", "resource", "data", "tf-module"}
+
+
 def _declaration(node: dict, token: str) -> str:
     label = node["id"].replace('"', "'")
-    if node["kind"] == "external":
+    kind = node["kind"]
+    if kind == "external":
         return f'{token}[["{label}"]]'
-    if node["kind"] == "env":
+    if kind == "env":
         return f'{token}(["{label}"])'
+    if kind == "resource":
+        return f'{token}{{{{"{label}"}}}}'
+    if kind == "data":
+        return f'{token}[("{label}")]'
+    if kind == "tf-module":
+        return f'{token}[/"{label}"/]'
     return f'{token}["{label}"]'
 
 
-def _group_key(node_id: str) -> str:
-    """Top-level package of an internal node id. Root-disambiguated ids
-    (``pipeline:tests.test_cli``) keep their prefix with the first dotted
-    component, so the two ``tests`` packages cluster separately."""
-    return node_id.split(".", 1)[0]
+def _group_key(node: dict) -> str:
+    """Cluster key: app modules use the top-level package of their id
+    (root-disambiguated ids like ``pipeline:tests.test_cli`` keep their
+    prefix, so the two ``tests`` packages cluster separately); infra nodes
+    use their .tf file's directory."""
+    if node["kind"] in ("module", "package"):
+        return node["id"].split(".", 1)[0]
+    return posixpath.dirname(node.get("path", "")) or "infra"
 
 
 def _node_lines(nodes: list[dict], tokens: dict[str, str]) -> list[str]:
-    internal = [n for n in nodes if n["kind"] in ("module", "package")]
-    other = [n for n in nodes if n["kind"] not in ("module", "package")]
+    internal = [n for n in nodes if n["kind"] in _GROUPED_KINDS]
+    other = [n for n in nodes if n["kind"] not in _GROUPED_KINDS]
 
     groups: dict[str, list[dict]] = {}
     for node in internal:
-        groups.setdefault(_group_key(node["id"]), []).append(node)
+        groups.setdefault(_group_key(node), []).append(node)
 
     lines = []
     for i, (key, members) in enumerate(sorted(groups.items())):

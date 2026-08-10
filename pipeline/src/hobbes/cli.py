@@ -62,11 +62,12 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     """Run the extractors and write the derived artifacts."""
     from hobbes.extract import ingest
     from hobbes.extract.emit import StampError
+    from hobbes.extract.terraform import PlanError
 
     repo_root = _repo_root_from(args)
     try:
-        paths = ingest(repo_root)
-    except StampError as exc:
+        paths = ingest(repo_root, tf_plan=Path(args.tf_plan) if args.tf_plan else None)
+    except (StampError, PlanError) as exc:
         print(f"hobbes ingest: {exc}", file=sys.stderr)
         return 1
     docs = {p.name: json.loads(p.read_text()) for p in paths}
@@ -76,7 +77,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         docs["interfaces.json"],
     )
     dirty = " (dirty tree)" if graph["dirty"] else ""
-    print(f"ingested {repo_root} @ {graph['sha'][:12]}{dirty}")
+    languages = ", ".join(graph["languages"])
+    print(f"ingested {repo_root} @ {graph['sha'][:12]}{dirty} [{languages}]")
     print(
         f"  graph.json:      {len(graph['nodes'])} nodes, "
         f"{len(graph['module_edges'])} module edges, "
@@ -226,6 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument(
         "--repo", help="repo root (default: auto-detected via .git)"
+    )
+    ingest_parser.add_argument(
+        "--tf-plan",
+        help="a `terraform show -json` file to enrich the infra graph "
+        "(never .tfstate)",
     )
 
     render_parser = sub.add_parser(

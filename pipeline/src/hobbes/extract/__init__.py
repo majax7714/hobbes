@@ -23,9 +23,12 @@ from hobbes.extract.emit import repo_stamp, write_artifacts
 from hobbes.extract.graph import build_graph
 from hobbes.extract.interfaces import extract_cli_entry_points, extract_routes
 from hobbes.extract.pysource import parse_source
+from hobbes.extract.terraform import extract_terraform
 from hobbes.extract.testmap import collect_tests
 
-SCHEMA_VERSION = 1
+#: v2 (M3): "language" became "languages" when the infra layer joined
+#: (ADR-010); consumers reject versions they don't know (ADR-006).
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -37,12 +40,13 @@ class Extraction:
     interfaces: dict
 
 
-def extract_repo(repo_root: Path) -> Extraction:
-    """Extract the knowledge skeleton of the Python code under *repo_root*.
+def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
+    """Extract the knowledge skeleton (app + infra layers) under *repo_root*.
 
     Pure with respect to the working tree: no git access, no writes — the
     stamp and the emission live in :func:`ingest` so tests can exercise
-    extraction on unversioned fixtures.
+    extraction on unversioned fixtures. *tf_plan* optionally names a
+    ``terraform show -json`` file for plan enrichment (ADR-010).
     """
     repo_root = Path(repo_root).resolve()
     modules = discover_modules(repo_root)
@@ -50,8 +54,22 @@ def extract_repo(repo_root: Path) -> Extraction:
         m.id: parse_source((repo_root / m.path).read_bytes()) for m in modules
     }
     graph = build_graph(modules, parsed)
+
+    infra = extract_terraform(repo_root, modules, tf_plan=tf_plan)
+    languages = ["python"]
+    if infra["tf_file_count"]:
+        languages.append("hcl")
+        nodes = {n["id"]: n for n in graph["nodes"]}
+        for node in infra["nodes"]:
+            nodes.setdefault(node["id"], node)
+        graph["nodes"] = sorted(nodes.values(), key=lambda n: n["id"])
+        graph["module_edges"] = sorted(
+            graph["module_edges"] + infra["module_edges"],
+            key=lambda e: (e["from"], e["to"], e["type"]),
+        )
+
     return Extraction(
-        graph={"language": "python", **graph},
+        graph={"languages": sorted(languages), **graph},
         tests={
             "framework": "pytest",
             "tests": collect_tests(modules, parsed, graph["symbol_edges"]),
@@ -63,7 +81,7 @@ def extract_repo(repo_root: Path) -> Extraction:
     )
 
 
-def ingest(repo_root: Path) -> list[Path]:
+def ingest(repo_root: Path, tf_plan: Path | None = None) -> list[Path]:
     """Extract *repo_root*, stamp with its git SHA, write the artifacts.
 
     Returns the written paths (``.hobbes/derived/{graph,tests,interfaces}.json``).
@@ -71,7 +89,7 @@ def ingest(repo_root: Path) -> list[Path]:
     is the provenance every downstream claim pins to (P3).
     """
     repo_root = Path(repo_root).resolve()
-    extraction = extract_repo(repo_root)
+    extraction = extract_repo(repo_root, tf_plan=tf_plan)
     stamp = {"schema_version": SCHEMA_VERSION, **repo_stamp(repo_root)}
     return write_artifacts(
         repo_root,

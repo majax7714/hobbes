@@ -62,6 +62,28 @@ class TestIngest:
         assert cli.main(["ingest", "--repo", str(tmp_path)]) == 1
         assert "git repo" in capsys.readouterr().err
 
+    def test_tf_plan_enriches_graph(self, git_fixture, capsys):
+        plan = Path(__file__).parent / "fixtures" / "plans" / "miniapp-plan.json"
+        code = cli.main(
+            ["ingest", "--repo", str(git_fixture), "--tf-plan", str(plan)]
+        )
+        assert code == 0
+        doc = json.loads(
+            (git_fixture / ".hobbes" / "derived" / "graph.json").read_text()
+        )
+        assert any(
+            n["id"] == "tf:aws_cloudwatch_log_group.worker" for n in doc["nodes"]
+        )
+
+    def test_tfstate_plan_refused(self, git_fixture, tmp_path, capsys):
+        lookalike = tmp_path / "prod.tfstate"
+        lookalike.write_text("{}")
+        code = cli.main(
+            ["ingest", "--repo", str(git_fixture), "--tf-plan", str(lookalike)]
+        )
+        assert code == 1
+        assert "state" in capsys.readouterr().err
+
 
 class TestRender:
     def test_renders_after_ingest(self, git_fixture, capsys):

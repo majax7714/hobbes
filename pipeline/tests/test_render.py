@@ -79,6 +79,31 @@ class TestStructure:
         assert 'n0["lonely"]' in out
 
 
+class TestInfraNodes:
+    def test_tf_shapes_and_directory_clustering(self):
+        doc = {
+            "nodes": [
+                {"id": "tf:aws_iam_role.w", "kind": "resource", "path": "infra/main.tf"},
+                {"id": "tf:data.archive_file.w", "kind": "data", "path": "infra/main.tf"},
+                {"id": "tf:module.vpc", "kind": "tf-module", "path": "infra/net.tf"},
+            ],
+            "module_edges": [
+                {
+                    "from": "tf:data.archive_file.w",
+                    "to": "tf:aws_iam_role.w",
+                    "type": "references",
+                    "evidence": [],
+                }
+            ],
+        }
+        out = to_mermaid(doc)
+        assert re.search(r'subgraph sg\d+\["infra"\]', out)
+        assert re.search(r'n\d+\{\{"tf:aws_iam_role\.w"\}\}', out)
+        assert re.search(r'n\d+\[\("tf:data\.archive_file\.w"\)\]', out)
+        assert re.search(r'n\d+\[/"tf:module\.vpc"/\]', out)
+        assert '--"references"-->' in out
+
+
 class TestDeterminism:
     def test_byte_identical(self, graph):
         assert to_mermaid(graph) == to_mermaid(graph)

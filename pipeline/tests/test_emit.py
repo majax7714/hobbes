@@ -68,7 +68,7 @@ class TestIngest:
         sha = repo_stamp(git_fixture)["sha"]
         for path in paths:
             doc = json.loads(path.read_text())
-            assert doc["schema_version"] == 1
+            assert doc["schema_version"] == 2
             assert doc["sha"] == sha
             assert doc["dirty"] is False
 
@@ -82,6 +82,24 @@ class TestIngest:
         doc = json.loads(
             (git_fixture / ".hobbes" / "derived" / "graph.json").read_text()
         )
-        assert doc["language"] == "python"
+        assert doc["languages"] == ["hcl", "python"]
         node_ids = {n["id"] for n in doc["nodes"]}
-        assert {"miniapp.core", "ext:fastapi", "env:MINIAPP_MODE"} <= node_ids
+        assert {
+            "miniapp.core",
+            "ext:fastapi",
+            "env:MINIAPP_MODE",
+            "tf:aws_lambda_function.worker",
+        } <= node_ids
+
+    def test_cross_layer_env_join_present(self, git_fixture):
+        """The §4.1 join: infra env-set and app env-read meet at env:VAR."""
+        ingest(git_fixture)
+        doc = json.loads(
+            (git_fixture / ".hobbes" / "derived" / "graph.json").read_text()
+        )
+        edges = {(e["from"], e["to"], e["type"]) for e in doc["module_edges"]}
+        env = "env:MINIAPP_MODE"
+        assert ("tf:aws_lambda_function.worker", env, "env-set") in edges
+        assert ("miniapp.core", env, "env-read") in edges
+        # And the packages path join: the archive bundles miniapp.cli.
+        assert ("tf:data.archive_file.worker", "miniapp.cli", "packages") in edges
