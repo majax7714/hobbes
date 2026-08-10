@@ -61,3 +61,52 @@ changed from plan, open questions. Never edit old entries.
 **M0 exit criteria:** policy merge tests green (shadowing, deny-wins,
 precedence, escalate tier) ✔ · repo scaffolded ✔ · docs written ✔.
 Awaiting review before M1.
+
+---
+
+## 2026-08-10 (second session) — M1: Python extractor
+
+M0 review passed (ADRs confirmed); commits pushed by Max.
+
+**Built:**
+
+- ADRs 005–007: tree-sitter packages over stdlib `ast` (uniformity with
+  M3/M6), the three artifact schemas + id conventions + no-timestamp
+  determinism, and the static resolution strategy (what resolves, what is
+  deliberately omitted).
+- `hobbes.extract` package: `discover` (import identities, collision
+  disambiguation), `pysource` (tree-sitter walk: imports, symbols with
+  decorators, call sites, env reads), `graph` (typed module/symbol edges —
+  `imports`, `env-read`, `calls`; external `ext:` nodes for third-party,
+  stdlib dropped; `env:` nodes as M3 join keys), `interfaces`
+  (FastAPI/Flask routes from decorator sites only, `[project.scripts]`
+  entry points), `testmap` (pytest defaults, transitive call-closure
+  reach), `emit` (SHA+dirty stamp, sorted deterministic JSON).
+- `hobbes ingest` and `hobbes init` wired for real; `diff` stays an honest
+  M2 stub. 75 pytest cases against a committed fixture repo
+  (`tests/fixtures/miniapp`), including byte-identical-rerun and
+  git-integration tests.
+- Dogfood: `hobbes ingest` on this repo — 35 nodes, 52 module edges,
+  189 symbols, 159 call edges, 73 tests; hobbes.* edges hand-verified.
+
+**Changed from plan:**
+
+- `tree-sitter` pinned `<0.26`: the 0.26.0 core segfaulted mid-walk on
+  ~300-line files (reproduced against this repo's own sources; same code
+  and grammar clean on 0.25.x). Noted in ADR-005; revisit on a new
+  upstream release.
+
+**Open questions for Max:**
+
+1. The M1 exit bar wants the spot-check on a *real repo of yours*. The
+   dogfood run on hobbes itself gives 52 module edges / 73 tests — enough
+   material, but it's code written this session. Point me at one of your
+   Python repos for an independent ingest, or bless the dogfood run as the
+   exit check.
+2. Static reach through the CLI is honest but broad (a CLI test reaches
+   every subcommand path via `main`). If that reads as noise once you see
+   it in the UI, per-test reach depth or entry-point trimming is a cheap
+   M5-era refinement — flagging, not proposing, for now.
+
+**M1 exit criteria:** extractor built with tests ✔ · artifacts SHA-stamped
+and deterministic ✔ · spot-check on a real repo — **pending your review**.

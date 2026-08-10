@@ -18,9 +18,12 @@ graph.
   proxy/supervisor/recorder daemon will live here too and import the same
   package.
 - `pipeline/` — Python package `hobbes` (uv-managed, src layout). The `hobbes`
-  CLI (`src/hobbes/cli.py`) and the shell-out wrapper for the Go policy binary
-  (`src/hobbes/policy.py`). Extractors and invariant compiler land here in
-  M1+.
+  CLI (`src/hobbes/cli.py`), the shell-out wrapper for the Go policy binary
+  (`src/hobbes/policy.py`), and the deterministic extractors
+  (`src/hobbes/extract/`: discover → pysource (tree-sitter walk) → graph /
+  interfaces / testmap → emit). The invariant compiler lands at M8. Test
+  fixture repo: `tests/fixtures/miniapp/` (excluded from pytest collection
+  via `norecursedirs`).
 - `web/` — empty until M7 (Vite + React + Cytoscape.js).
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
   `docs/BUILDLOG.md` (append-only session log).
@@ -65,21 +68,23 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M0 (skeleton + policy semantics) — complete, pending
-Max's review.** Do not start M1 until that review has happened.
+**Active milestone: M1 (Python extractor) — built, pending Max's exit
+review** (the build-plan exit bar: spot-check 20 edges + 10 test mappings by
+hand on a real repo, ≥90% correct at module level). Do not start M2 until
+that review has happened.
 
-Done in M0:
-- Monorepo scaffolded (`go/`, `pipeline/`, `web/` placeholder, `docs/`,
-  `.hobbes/`), docs moved to `docs/`, ADRs 001–004 written.
-- Policy file YAML format defined (ADR-001) and the Go merge engine
-  implemented in `go/internal/policy/` with the table-driven battery covering
-  shadowing, deny-wins, folder-over-repo-over-box precedence, and the
-  escalate tier.
-- `hobbes-policy resolve` CLI (exit codes: 0 allow / 10 deny / 20 escalate,
-  JSON on stdout — ADR-003).
-- Python `hobbes` CLI skeleton: `init`/`ingest`/`diff` stubs plus
-  `hobbes policy resolve` shelling out to the Go binary.
-- Dogfood `.hobbes/policies/repo.policy` for this repo.
+Done through M1:
+- M0 (reviewed, passed): policy YAML format (ADR-001/002), Go merge engine +
+  `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy
+  passthrough, dogfood repo policy. 52 Go test cases.
+- M1: deterministic extractor in `pipeline/src/hobbes/extract/` —
+  tree-sitter walk (ADR-005; **tree-sitter pinned <0.26**, 0.26.0 core
+  segfaults), typed module/symbol graph with `imports`/`env-read`/`calls`
+  edges (resolution rules ADR-007), FastAPI/Flask route inventory, pytest
+  inventory with static reach, SHA+dirty-stamped deterministic JSON
+  artifacts (schemas ADR-006). `hobbes ingest` and `hobbes init` are real;
+  `hobbes diff` stays stubbed until M2. 75 pytest cases; dogfood ingest of
+  this repo verified by hand.
 
-Next (after review): M1 — Python extractor (tree-sitter symbols, module
-graph, routes, pytest inventory → `derived/graph.json` etc.).
+Next (after review): M2 — graph render (Mermaid) + graph diff
+(`hobbes diff <base>..<head>`).

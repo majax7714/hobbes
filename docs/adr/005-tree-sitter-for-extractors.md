@@ -40,3 +40,7 @@ toolchain at install time.
   yield partial extractions (good for ingesting real repos mid-edit).
 - We accept tracking upstream py-tree-sitter API changes (its Language/Parser
   API has shifted between releases; pinned via uv.lock).
+- **Note (2026-08-10):** `tree-sitter` is pinned `<0.26` in pyproject — the
+  0.26.0 core segfaulted mid-walk on files a few hundred lines long
+  (reproduced on this repo's own sources; identical code and grammar are
+  clean on 0.25.x). Revisit the pin when a fixed release appears.

@@ -1,20 +1,30 @@
 # pipeline/ — Python package `hobbes`
 
-The `hobbes` CLI, and — from M1 on — the deterministic extractors and (M8)
-the invariant compiler. uv-managed, src layout, zero runtime dependencies
-(ADR-004).
+The `hobbes` CLI and the deterministic extraction pipeline (M1); the
+invariant compiler joins at M8. uv-managed, src layout (ADR-004). Runtime
+dependencies: `tree-sitter` + `tree-sitter-python` only (ADR-005).
 
-M0 surface:
+Surface:
 
-- `hobbes init` / `hobbes ingest` / `hobbes diff` — stubs; they name the
-  milestone that delivers them (M1, M1, M2) and exit non-zero.
-- `hobbes policy resolve "<command>"` — working passthrough to the Go
-  `hobbes-policy` binary: prints its JSON resolution, propagates its
-  decision-coded exit (0 allow / 10 deny / 20 escalate, ADR-003). The binary
-  is found via `$HOBBES_POLICY_BIN`, else `hobbes-policy` on `$PATH`.
+- `hobbes ingest [--repo PATH]` — runs the extractors and writes the three
+  SHA-stamped artifacts (ADR-006) to `.hobbes/derived/`: `graph.json`
+  (module nodes + symbol layer, `imports`/`env-read`/`calls` typed edges),
+  `tests.json` (pytest inventory with static test→symbol reach), and
+  `interfaces.json` (FastAPI/Flask routes, CLI entry points).
+- `hobbes init [--repo PATH]` — scaffolds `.hobbes/` (policies/, invariants/,
+  starter repo.policy, gitignore entries). Idempotent.
+- `hobbes policy resolve "<command>"` — passthrough to the Go `hobbes-policy`
+  binary: prints its JSON resolution, propagates its decision-coded exit
+  (0 allow / 10 deny / 20 escalate, ADR-003). Found via
+  `$HOBBES_POLICY_BIN`, else `$PATH`.
+- `hobbes diff` — stub until M2.
+
+Layout: `src/hobbes/cli.py` (argparse front-end), `src/hobbes/policy.py`
+(policy shell-out), `src/hobbes/extract/` (discover → pysource → graph /
+interfaces / testmap → emit; resolution rules in ADR-007).
 
 ```sh
 uv sync         # venv + dev deps
-uv run pytest   # hermetic — fakes the Go binary, no Go toolchain needed
-uv run hobbes policy resolve "git push --force origin main"
+uv run pytest   # hermetic: fixture repo under tests/fixtures/miniapp
+uv run hobbes ingest --repo /path/to/repo
 ```

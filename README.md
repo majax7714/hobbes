@@ -31,12 +31,14 @@ go build -o bin/hobbes-policy ./cmd/hobbes-policy
 ./bin/hobbes-policy resolve --dir . "git push --force origin main"
 ```
 
-### Python — hobbes CLI
+### Python — hobbes CLI + extraction pipeline
 
 ```sh
 cd pipeline
 uv sync                                        # create venv, install deps
-uv run pytest                                  # CLI tests
+uv run pytest                                  # extractor + CLI tests
+uv run hobbes ingest                           # extract repo -> .hobbes/derived/*.json
+uv run hobbes init                             # scaffold .hobbes/ in a repo
 uv run hobbes policy resolve "terraform apply" # shells out to hobbes-policy
 ```
 
