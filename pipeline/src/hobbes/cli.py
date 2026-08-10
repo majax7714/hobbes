@@ -32,8 +32,9 @@ rules:
     reason: "tfstate carries secrets"
 """
 
-#: Lines `hobbes init` guarantees are present in the repo's .gitignore.
-_GITIGNORE_LINES = [".hobbes/derived/", "*.tfstate", "*.tfstate.*"]
+#: Lines `hobbes init` guarantees are present in the repo's .gitignore,
+#: in addition to the .hobbes/ protection from ADR-012.
+_GITIGNORE_LINES = ["*.tfstate", "*.tfstate.*"]
 
 
 def _detect_repo_root(start: Path) -> Path | None:
@@ -64,7 +65,12 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     from hobbes.extract.emit import StampError
     from hobbes.extract.terraform import PlanError
 
+    from hobbes.extract.emit import ensure_hobbes_ignored
+
     repo_root = _repo_root_from(args)
+    ignored = ensure_hobbes_ignored(repo_root)
+    if ignored:
+        print(f"{ignored} (Hobbes files stay out of version control, ADR-012)")
     try:
         paths = ingest(repo_root, tf_plan=Path(args.tf_plan) if args.tf_plan else None)
     except (StampError, PlanError) as exc:
@@ -97,8 +103,13 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 def _cmd_init(args: argparse.Namespace) -> int:
     """Scaffold the .hobbes/ layout (architecture §10). Idempotent."""
+    from hobbes.extract.emit import ensure_hobbes_ignored
+
     root = Path(args.repo).resolve() if args.repo else Path.cwd()
     actions: list[str] = []
+    ignored = ensure_hobbes_ignored(root)
+    if ignored:
+        actions.append(f"{ignored} (ADR-012)")
 
     for sub in ("policies", "invariants"):
         directory = root / ".hobbes" / sub

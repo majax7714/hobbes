@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hobbes.extract.discover import discover_modules
-from hobbes.extract.emit import repo_stamp, write_artifacts
+from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
 from hobbes.extract.graph import build_graph
 from hobbes.extract.interfaces import extract_cli_entry_points, extract_routes
 from hobbes.extract.pysource import parse_source
@@ -86,9 +86,12 @@ def ingest(repo_root: Path, tf_plan: Path | None = None) -> list[Path]:
 
     Returns the written paths (``.hobbes/derived/{graph,tests,interfaces}.json``).
     Requires *repo_root* to be a git repo with at least one commit — the SHA
-    is the provenance every downstream claim pins to (P3).
+    is the provenance every downstream claim pins to (P3). Always ensures
+    the repo gitignores Hobbes files first (ADR-012), so the stamp's
+    ``dirty`` flag reflects that edit when it happens.
     """
     repo_root = Path(repo_root).resolve()
+    ensure_hobbes_ignored(repo_root)
     extraction = extract_repo(repo_root, tf_plan=tf_plan)
     stamp = {"schema_version": SCHEMA_VERSION, **repo_stamp(repo_root)}
     return write_artifacts(

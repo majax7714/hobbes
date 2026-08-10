@@ -19,7 +19,7 @@ class TestInit:
         assert (tmp_path / ".hobbes" / "policies" / "repo.policy").is_file()
         assert (tmp_path / ".hobbes" / "invariants").is_dir()
         gitignore = (tmp_path / ".gitignore").read_text()
-        assert ".hobbes/derived/" in gitignore
+        assert ".hobbes/" in gitignore.splitlines()  # ADR-012: the whole dir
         assert "*.tfstate" in gitignore
 
     def test_idempotent_and_preserves_existing(self, tmp_path, capsys):
@@ -35,7 +35,7 @@ class TestInit:
         assert policy_path.read_text() == marker
         gitignore = (tmp_path / ".gitignore").read_text()
         assert gitignore.startswith("node_modules/\n")
-        assert gitignore.count(".hobbes/derived/") == 1
+        assert gitignore.count(".hobbes/") == 1
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def git_fixture(tmp_path):
     """The miniapp fixture as a real git repo with one commit."""
     repo = tmp_path / "miniapp"
     shutil.copytree(FIXTURE, repo)
-    (repo / ".gitignore").write_text(".hobbes/derived/\n")
+    (repo / ".gitignore").write_text(".hobbes/\n")
     git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run([*git[:3], "init", "-q"], check=True)
     subprocess.run([*git, "add", "."], check=True)

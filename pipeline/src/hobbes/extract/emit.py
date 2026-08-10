@@ -22,6 +22,32 @@ class StampError(RuntimeError):
     no commits yet, or git itself missing)."""
 
 
+def ensure_hobbes_ignored(repo_root: Path) -> str | None:
+    """Guarantee the repo gitignores Hobbes files (ADR-012).
+
+    Hobbes artifacts are personal-environment files: target repos get the
+    entire ``.hobbes/`` directory ignored so they can never be pushed by
+    accident. A repo that already *tracks* content under ``.hobbes/`` (the
+    hobbes repo dogfooding architecture §10) keeps that choice — only
+    ``.hobbes/derived/`` is ensured there. Returns a description of the
+    change made, or None when nothing was needed.
+    """
+    repo_root = Path(repo_root)
+    try:
+        tracked = _git(repo_root, "ls-files", ".hobbes")
+    except (subprocess.CalledProcessError, OSError):
+        tracked = ""  # not a git repo (hobbes init outside git): target posture
+    line = ".hobbes/derived/" if tracked else ".hobbes/"
+    gitignore = repo_root / ".gitignore"
+    text = gitignore.read_text() if gitignore.exists() else ""
+    if line in text.splitlines():
+        return None
+    if text and not text.endswith("\n"):
+        text += "\n"
+    gitignore.write_text(text + line + "\n")
+    return f"added {line} to .gitignore"
+
+
 def repo_stamp(repo_root: Path) -> dict:
     """``{"sha": …, "dirty": …}`` for the working tree at *repo_root*."""
     try:
