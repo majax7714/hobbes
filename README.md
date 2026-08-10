@@ -38,6 +38,8 @@ cd pipeline
 uv sync                                        # create venv, install deps
 uv run pytest                                  # extractor + CLI tests
 uv run hobbes ingest                           # extract repo -> .hobbes/derived/*.json
+uv run hobbes render > graph.mmd               # module graph as Mermaid
+uv run hobbes diff main..HEAD                  # architecture delta between refs
 uv run hobbes init                             # scaffold .hobbes/ in a repo
 uv run hobbes policy resolve "terraform apply" # shells out to hobbes-policy
 ```

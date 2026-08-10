@@ -19,11 +19,12 @@ graph.
   package.
 - `pipeline/` — Python package `hobbes` (uv-managed, src layout). The `hobbes`
   CLI (`src/hobbes/cli.py`), the shell-out wrapper for the Go policy binary
-  (`src/hobbes/policy.py`), and the deterministic extractors
+  (`src/hobbes/policy.py`), the deterministic extractors
   (`src/hobbes/extract/`: discover → pysource (tree-sitter walk) → graph /
-  interfaces / testmap → emit). The invariant compiler lands at M8. Test
-  fixture repo: `tests/fixtures/miniapp/` (excluded from pytest collection
-  via `norecursedirs`).
+  interfaces / testmap → emit), the Mermaid export (`src/hobbes/render.py`),
+  and the graph-diff engine (`src/hobbes/graphdiff.py`). The invariant
+  compiler lands at M8. Test fixture repo: `tests/fixtures/miniapp/`
+  (excluded from pytest collection via `norecursedirs`).
 - `web/` — empty until M7 (Vite + React + Cytoscape.js).
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
   `docs/BUILDLOG.md` (append-only session log).
@@ -68,23 +69,25 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M1 (Python extractor) — built, pending Max's exit
-review** (the build-plan exit bar: spot-check 20 edges + 10 test mappings by
-hand on a real repo, ≥90% correct at module level). Do not start M2 until
-that review has happened.
+**Active milestone: M2 (graph render + diff) — built, pending Max's exit
+review** (build-plan exit bar: a real PR/commit range produces a correct
+edge-level delta). Do not start M3 until that review has happened.
 
-Done through M1:
+Done through M2:
 - M0 (reviewed, passed): policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy
   passthrough, dogfood repo policy. 52 Go test cases.
-- M1: deterministic extractor in `pipeline/src/hobbes/extract/` —
-  tree-sitter walk (ADR-005; **tree-sitter pinned <0.26**, 0.26.0 core
-  segfaults), typed module/symbol graph with `imports`/`env-read`/`calls`
-  edges (resolution rules ADR-007), FastAPI/Flask route inventory, pytest
-  inventory with static reach, SHA+dirty-stamped deterministic JSON
-  artifacts (schemas ADR-006). `hobbes ingest` and `hobbes init` are real;
-  `hobbes diff` stays stubbed until M2. 75 pytest cases; dogfood ingest of
-  this repo verified by hand.
+- M1 (reviewed, passed): deterministic extractor in
+  `pipeline/src/hobbes/extract/` — tree-sitter walk (ADR-005;
+  **tree-sitter pinned <0.26**, 0.26.0 core segfaults), typed module/symbol
+  graph (`imports`/`env-read`/`calls`, rules in ADR-007), route inventory,
+  pytest inventory with static reach, SHA+dirty-stamped deterministic
+  artifacts (ADR-006). `hobbes ingest` / `hobbes init`.
+- M2: Mermaid module-graph export (`hobbes render`, ADR-008) and the graph
+  diff (`hobbes diff <base>..<head> [--json]`, ADR-009 — git-archive ref
+  extraction, exit codes mirroring diff(1)). Validated against this repo's
+  real history (extractor-introduction and CLI-wiring ranges hand-checked;
+  docs-only range exits 0). 99 pytest cases total.
 
-Next (after review): M2 — graph render (Mermaid) + graph diff
-(`hobbes diff <base>..<head>`).
+Next (after review): M3 — Terraform/HCL extractor with cross-layer
+env-var joins; `.tfstate` deny in the default box policy.

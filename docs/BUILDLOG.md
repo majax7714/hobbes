@@ -110,3 +110,54 @@ M0 review passed (ADRs confirmed); commits pushed by Max.
 
 **M1 exit criteria:** extractor built with tests ✔ · artifacts SHA-stamped
 and deterministic ✔ · spot-check on a real repo — **pending your review**.
+
+---
+
+## 2026-08-10 (third session) — M2: graph render + diff
+
+M1 review passed (derived artifacts spot-checked by Max); commits pushed.
+
+**Built:**
+
+- ADRs 008–009: Mermaid render conventions (flowchart LR, synthetic node
+  ids, package clustering, kind shapes, type-styled edges) and graph-diff
+  semantics (identity = node id / edge (from,to,type); evidence changes
+  are not deltas; ref extraction via `git archive` + the pure extractor;
+  exit codes mirror diff(1); `--json` for the M7/M8 consumers).
+- `hobbes.render.to_mermaid` — deterministic module-level Mermaid export;
+  `hobbes render` reads the ingest artifact and prints it.
+- `hobbes.graphdiff` — `extract_at_ref` (git archive → scratch dir → pure
+  extraction, checkout untouched), `diff_graphs` (both layers),
+  `format_delta` (module-level lines + symbol-layer counts).
+- `hobbes diff <base>..<head> [--json]` wired; bare `<base>` means
+  `..HEAD`; three-dot ranges rejected. The last CLI stub is gone.
+- 99 pytest cases total (24 new: render shape/determinism, delta
+  semantics, ref extraction, CLI exit codes).
+
+**Validated on real history** (the M2 exit bar, using this repo's own
+commits in place of a PR):
+
+- `hobbes diff 9158c43..f8a15f3` (the M1 CLI-wiring commit) →
+  exactly `+ imports hobbes.cli -> hobbes.extract` and
+  `-> hobbes.extract.emit` with correct evidence lines; exit 1.
+- `hobbes diff 312f153..9158c43` (extractor introduction) → all new
+  modules/externals/env nodes; also correctly surfaced the id
+  re-disambiguation (`tests` → `pipeline:tests` +
+  `pipeline/tests/fixtures/miniapp:tests`) as remove+add — the ADR-006
+  collision rule made visible.
+- Docs-only range → "no architectural changes", exit 0.
+
+**Changed from plan:** nothing.
+
+**Open questions for Max:**
+
+1. A package *rename* (or an id re-disambiguation like the `tests` case
+   above) appears as `- old` + `+ new` — identity is by id, so renames
+   aren't tracked. Fine for v1? Rename detection (path-based matching)
+   would be an M7-era nicety if the remove+add pairs read poorly in review.
+2. `hobbes diff` sees only committed trees (`git archive`); uncommitted
+   work is invisible. ADR-009 sketches a `--worktree` mode if you find
+   yourself wanting `main..working-tree` diffs in practice.
+
+**M2 exit criteria:** a real commit range produces a correct edge-level
+delta ✔ (three ranges hand-verified above) — **pending your review**.
