@@ -1,4 +1,4 @@
-"""Tests for the hobbes CLI: init/ingest behavior, stubs, passthrough."""
+"""Tests for the hobbes CLI: init/ingest/render/diff behavior, passthrough."""
 
 import json
 import shutil
@@ -11,15 +11,6 @@ from hobbes import cli
 from tests.conftest import FAKE_RESOLUTION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "miniapp"
-
-
-class TestStubs:
-    @pytest.mark.parametrize("name", ["diff"])
-    def test_stub_exits_nonzero_and_names_milestone(self, name, capsys):
-        assert cli.main([name]) == cli.EXIT_NOT_IMPLEMENTED
-        err = capsys.readouterr().err
-        assert "not implemented" in err
-        assert cli._STUB_MILESTONES[name] in err
 
 
 class TestInit:
@@ -47,18 +38,20 @@ class TestInit:
         assert gitignore.count(".hobbes/derived/") == 1
 
 
-class TestIngest:
-    @pytest.fixture
-    def git_fixture(self, tmp_path):
-        repo = tmp_path / "miniapp"
-        shutil.copytree(FIXTURE, repo)
-        (repo / ".gitignore").write_text(".hobbes/derived/\n")
-        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
-        subprocess.run([*git[:3], "init", "-q"], check=True)
-        subprocess.run([*git, "add", "."], check=True)
-        subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
-        return repo
+@pytest.fixture
+def git_fixture(tmp_path):
+    """The miniapp fixture as a real git repo with one commit."""
+    repo = tmp_path / "miniapp"
+    shutil.copytree(FIXTURE, repo)
+    (repo / ".gitignore").write_text(".hobbes/derived/\n")
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
+    return repo
 
+
+class TestIngest:
     def test_ingests_and_summarizes(self, git_fixture, capsys):
         assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
         out = capsys.readouterr().out
@@ -68,6 +61,64 @@ class TestIngest:
     def test_non_git_repo_is_a_clear_error(self, tmp_path, capsys):
         assert cli.main(["ingest", "--repo", str(tmp_path)]) == 1
         assert "git repo" in capsys.readouterr().err
+
+
+class TestRender:
+    def test_renders_after_ingest(self, git_fixture, capsys):
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        capsys.readouterr()
+        assert cli.main(["render", "--repo", str(git_fixture)]) == 0
+        out = capsys.readouterr().out
+        assert out.startswith("flowchart LR")
+        assert '"miniapp.core"' in out
+
+    def test_missing_artifact_says_run_ingest(self, git_fixture, capsys):
+        assert cli.main(["render", "--repo", str(git_fixture)]) == 1
+        assert "hobbes ingest" in capsys.readouterr().err
+
+
+class TestDiff:
+    @pytest.fixture
+    def two_commit_fixture(self, git_fixture):
+        git = ["git", "-C", str(git_fixture), "-c", "user.name=t", "-c", "user.email=t@t"]
+        (git_fixture / "src" / "miniapp" / "extra.py").write_text(
+            "from miniapp import util\n"
+        )
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "add extra"], check=True)
+        return git_fixture
+
+    def test_delta_prints_and_exits_one(self, two_commit_fixture, capsys):
+        code = cli.main(["diff", "HEAD~1..HEAD", "--repo", str(two_commit_fixture)])
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "+ module miniapp.extra" in out
+        assert "+ imports miniapp.extra -> miniapp.util" in out
+
+    def test_bare_base_means_head(self, two_commit_fixture, capsys):
+        assert cli.main(["diff", "HEAD~1", "--repo", str(two_commit_fixture)]) == 1
+        assert "miniapp.extra" in capsys.readouterr().out
+
+    def test_no_delta_exits_zero(self, two_commit_fixture, capsys):
+        code = cli.main(["diff", "HEAD..HEAD", "--repo", str(two_commit_fixture)])
+        assert code == 0
+        assert "no architectural changes" in capsys.readouterr().out
+
+    def test_json_output(self, two_commit_fixture, capsys):
+        code = cli.main(
+            ["diff", "HEAD~1..HEAD", "--json", "--repo", str(two_commit_fixture)]
+        )
+        assert code == 1
+        delta = json.loads(capsys.readouterr().out)
+        assert [n["id"] for n in delta["nodes_added"]] == ["miniapp.extra"]
+
+    def test_bad_ref_exits_two(self, git_fixture, capsys):
+        assert cli.main(["diff", "nope..HEAD", "--repo", str(git_fixture)]) == 2
+        assert "nope" in capsys.readouterr().err
+
+    def test_three_dot_range_rejected(self, git_fixture):
+        with pytest.raises(SystemExit, match="three-dot"):
+            cli.main(["diff", "a...b", "--repo", str(git_fixture)])
 
 
 class TestPolicyResolve:

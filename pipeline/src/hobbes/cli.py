@@ -1,10 +1,12 @@
 """The ``hobbes`` command-line interface.
 
-M1 surface: ``ingest`` runs the deterministic extractors and writes the
-SHA-stamped artifacts into ``.hobbes/derived/``; ``init`` scaffolds the
-``.hobbes/`` layout in a repo; ``policy resolve`` passes through to the Go
-``hobbes-policy`` binary — JSON on stdout, decision exit code propagated
-(ADR-003). ``diff`` remains a stub until M2. argparse per ADR-004.
+M2 surface: ``ingest`` runs the deterministic extractors into
+``.hobbes/derived/``; ``init`` scaffolds the ``.hobbes/`` layout;
+``render`` prints the module graph as Mermaid (ADR-008);
+``diff <base>..<head>`` prints the architecture delta between two refs
+(ADR-009 — exit 0 no delta / 1 delta / 2 trouble, mirroring diff(1));
+``policy resolve`` passes through to the Go ``hobbes-policy`` binary
+(ADR-003). argparse per ADR-004.
 """
 
 from __future__ import annotations
@@ -15,14 +17,6 @@ import sys
 from pathlib import Path
 
 from hobbes import __version__, policy
-
-#: Exit code for stub subcommands that are not implemented yet.
-EXIT_NOT_IMPLEMENTED = 2
-
-#: Which milestone delivers each stub, for honest error messages.
-_STUB_MILESTONES = {
-    "diff": "M2",
-}
 
 #: Starter repo policy written by `hobbes init` (format per ADR-001).
 _STARTER_POLICY = """\
@@ -40,17 +34,6 @@ rules:
 
 #: Lines `hobbes init` guarantees are present in the repo's .gitignore.
 _GITIGNORE_LINES = [".hobbes/derived/", "*.tfstate", "*.tfstate.*"]
-
-
-def _stub(name: str) -> int:
-    """Report a not-yet-implemented subcommand without pretending otherwise."""
-    milestone = _STUB_MILESTONES[name]
-    print(
-        f"hobbes {name}: not implemented yet (lands in {milestone} "
-        "per docs/hobbes-build-plan.md)",
-        file=sys.stderr,
-    )
-    return EXIT_NOT_IMPLEMENTED
 
 
 def _detect_repo_root(start: Path) -> Path | None:
@@ -146,6 +129,60 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_render(args: argparse.Namespace) -> int:
+    """Print the ingested module graph as Mermaid (ADR-008)."""
+    from hobbes.render import to_mermaid
+
+    repo_root = _repo_root_from(args)
+    artifact = repo_root / ".hobbes" / "derived" / "graph.json"
+    if not artifact.is_file():
+        print(
+            f"hobbes render: {artifact} not found — run `hobbes ingest` first",
+            file=sys.stderr,
+        )
+        return 1
+    print(to_mermaid(json.loads(artifact.read_text())), end="")
+    return 0
+
+
+def _parse_range(spec: str) -> tuple[str, str]:
+    """``base..head`` (bare ``base`` means ``base..HEAD``); rejects ``...``."""
+    if "..." in spec:
+        raise SystemExit(
+            "hobbes diff: three-dot ranges are not supported; use <base>..<head>"
+        )
+    base, sep, head = spec.partition("..")
+    if not base:
+        raise SystemExit(f"hobbes diff: invalid range {spec!r}; use <base>..<head>")
+    return base, (head if sep and head else "HEAD")
+
+
+def _cmd_diff(args: argparse.Namespace) -> int:
+    """Print the architecture delta between two refs (ADR-009)."""
+    from hobbes.graphdiff import (
+        RefError,
+        diff_graphs,
+        extract_at_ref,
+        format_delta,
+        has_changes,
+    )
+
+    repo_root = _repo_root_from(args)
+    base_ref, head_ref = _parse_range(args.range)
+    try:
+        base = extract_at_ref(repo_root, base_ref)
+        head = extract_at_ref(repo_root, head_ref)
+    except RefError as exc:
+        print(f"hobbes diff: {exc}", file=sys.stderr)
+        return 2
+    delta = diff_graphs(base, head)
+    if args.json:
+        print(json.dumps(delta, indent=2, sort_keys=True))
+    else:
+        print(format_delta(delta, base_ref, head_ref), end="")
+    return 1 if has_changes(delta) else 0
+
+
 def _cmd_policy_resolve(args: argparse.Namespace) -> int:
     """Pass through to `hobbes-policy resolve`, propagating its exit code."""
     try:
@@ -191,7 +228,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--repo", help="repo root (default: auto-detected via .git)"
     )
 
-    sub.add_parser("diff", help="architecture delta between two refs (M2)")
+    render_parser = sub.add_parser(
+        "render",
+        help="print the ingested module graph as Mermaid",
+        description=(
+            "Reads .hobbes/derived/graph.json (run `hobbes ingest` first) and "
+            "prints a module-level Mermaid flowchart to stdout."
+        ),
+    )
+    render_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+
+    diff_parser = sub.add_parser(
+        "diff",
+        help="architecture delta between two refs",
+        description=(
+            "Extracts the graph at <base> and <head> and prints the typed "
+            "edge-level delta. Exit codes mirror diff(1): 0 no differences, "
+            "1 differences, 2 trouble."
+        ),
+    )
+    diff_parser.add_argument(
+        "range",
+        metavar="<base>..<head>",
+        help="refs to compare; a bare <base> compares against HEAD",
+    )
+    diff_parser.add_argument(
+        "--json", action="store_true", help="emit the full delta as JSON"
+    )
+    diff_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
 
     policy_parser = sub.add_parser("policy", help="policy engine front-end")
     policy_sub = policy_parser.add_subparsers(dest="policy_command", required=True)
@@ -226,15 +294,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
     args = build_parser().parse_args(argv)
-    if args.command in _STUB_MILESTONES:
-        return _stub(args.command)
-    if args.command == "init":
-        return _cmd_init(args)
-    if args.command == "ingest":
-        return _cmd_ingest(args)
-    if args.command == "policy":
-        return _cmd_policy_resolve(args)
-    raise AssertionError(f"unhandled command {args.command!r}")
+    handlers = {
+        "init": _cmd_init,
+        "ingest": _cmd_ingest,
+        "render": _cmd_render,
+        "diff": _cmd_diff,
+        "policy": _cmd_policy_resolve,
+    }
+    return handlers[args.command](args)
 
 
 if __name__ == "__main__":
