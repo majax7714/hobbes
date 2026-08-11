@@ -26,7 +26,10 @@ INVARIANTS_FILE = f"{DOCS_DIR}/invariants.inferred.yaml"
 SCHEMA_VERSION = 1
 
 #: Artifact filenames come from graph node ids; anything else is refused.
-_SAFE_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._:-]*$")
+#: TS/JS module ids are repo-relative paths (ADR-021), so ``/`` is legal
+#: and artifacts nest under docs/ mirroring the repo tree — traversal is
+#: blocked by the segment check in :func:`_safe_id`.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._:/-]*$")
 
 
 class ValidationError(ValueError):
@@ -54,7 +57,9 @@ def invariants_path(repo_root: Path) -> Path:
 
 
 def _safe_id(module_id: str) -> str:
-    if not _SAFE_ID.match(module_id):
+    if not _SAFE_ID.match(module_id) or any(
+        part in (".", "..", "") for part in module_id.split("/")
+    ):
         raise ValueError(f"unsafe artifact id: {module_id!r}")
     return module_id
 
@@ -337,7 +342,7 @@ def load_artifacts(repo_root: Path) -> list[dict]:
     repo_root = Path(repo_root)
     artifacts: list[dict] = []
     for directory in (MODULE_DOCS_DIR, TEST_DOCS_DIR):
-        for file in sorted((repo_root / directory).glob("*.json")):
+        for file in sorted((repo_root / directory).rglob("*.json")):
             try:
                 artifacts.append(json.loads(file.read_text()))
             except (OSError, json.JSONDecodeError) as exc:

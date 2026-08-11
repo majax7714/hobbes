@@ -254,3 +254,23 @@ class TestLoadArtifacts:
         broken.write_text("{not json")
         entries = load_artifacts(git_repo)
         assert {a["kind"] for a in entries} == {"module-doc", "unreadable"}
+
+
+class TestSlashIds:
+    """TS/JS module ids are paths (ADR-021): artifacts nest under docs/."""
+
+    def test_nested_id_writes_nested_file(self, git_repo):
+        path = write_module_doc(git_repo, "src/app", "app.py", module_payload(), STAMP)
+        assert path == module_doc_path(git_repo, "src/app")
+        assert path.parent.name == "src"
+        assert json.loads(path.read_text())["id"] == "src/app"
+
+    def test_nested_artifacts_are_loaded(self, git_repo):
+        write_module_doc(git_repo, "src/app", "app.py", module_payload(), STAMP)
+        (entry,) = load_artifacts(git_repo)
+        assert entry["id"] == "src/app"
+
+    @pytest.mark.parametrize("bad", ["../evil", "a/../b", "a//b", "a/./b", "/abs"])
+    def test_traversal_ids_still_refused(self, git_repo, bad):
+        with pytest.raises(ValueError, match="unsafe artifact id"):
+            write_module_doc(git_repo, bad, "app.py", module_payload(), STAMP)

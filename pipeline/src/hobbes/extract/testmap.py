@@ -44,6 +44,7 @@ def collect_tests(
                     {
                         "id": node_id,
                         "file": module.path,
+                        "framework": "pytest",
                         "line": symbol.line,
                         "symbol": f"{module.id}.{symbol.qualname}",
                     },

@@ -117,7 +117,7 @@ class TestIngest:
         sha = repo_stamp(git_fixture)["sha"]
         for path in paths:
             doc = json.loads(path.read_text())
-            assert doc["schema_version"] == 2
+            assert doc["schema_version"] == 3
             assert doc["sha"] == sha
             assert doc["dirty"] is False
 

@@ -25,10 +25,15 @@ from hobbes.extract.interfaces import extract_cli_entry_points, extract_routes
 from hobbes.extract.pysource import parse_source
 from hobbes.extract.terraform import extract_terraform
 from hobbes.extract.testmap import collect_tests
+from hobbes.extract.tssource import extract_ts
 
 #: v2 (M3): "language" became "languages" when the infra layer joined
-#: (ADR-010); consumers reject versions they don't know (ADR-006).
-SCHEMA_VERSION = 2
+#: (ADR-010). v3 (M6, ADR-021): tests carry a per-test "framework" field
+#: (a repo now mixes pytest with JS frameworks) and the global
+#: tests.json "framework" field is gone; "languages" may include
+#: typescript/javascript. Consumers reject versions they don't know
+#: (ADR-006).
+SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -54,30 +59,50 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
         m.id: parse_source((repo_root / m.path).read_bytes()) for m in modules
     }
     graph = build_graph(modules, parsed)
+    tests = collect_tests(modules, parsed, graph["symbol_edges"])
+    routes = extract_routes(modules, parsed)
 
     infra = extract_terraform(repo_root, modules, tf_plan=tf_plan)
     languages = ["python"]
     if infra["tf_file_count"]:
         languages.append("hcl")
-        nodes = {n["id"]: n for n in graph["nodes"]}
-        for node in infra["nodes"]:
-            nodes.setdefault(node["id"], node)
-        graph["nodes"] = sorted(nodes.values(), key=lambda n: n["id"])
-        graph["module_edges"] = sorted(
-            graph["module_edges"] + infra["module_edges"],
+        _merge_layer(graph, infra["nodes"], infra["module_edges"])
+
+    ts = extract_ts(repo_root)
+    if ts:
+        languages += ts["languages"]
+        _merge_layer(graph, ts["nodes"], ts["module_edges"])
+        graph["symbols"] = sorted(
+            graph["symbols"] + ts["symbols"], key=lambda s: s["id"]
+        )
+        graph["symbol_edges"] = sorted(
+            graph["symbol_edges"] + ts["symbol_edges"],
             key=lambda e: (e["from"], e["to"], e["type"]),
+        )
+        tests = sorted(tests + ts["tests"], key=lambda t: t["id"])
+        routes = sorted(
+            routes + ts["routes"], key=lambda r: (r["file"], r.get("line", 0))
         )
 
     return Extraction(
         graph={"languages": sorted(languages), **graph},
-        tests={
-            "framework": "pytest",
-            "tests": collect_tests(modules, parsed, graph["symbol_edges"]),
-        },
+        tests={"tests": tests},
         interfaces={
-            "routes": extract_routes(modules, parsed),
+            "routes": routes,
             "cli_entry_points": extract_cli_entry_points(repo_root),
         },
+    )
+
+
+def _merge_layer(graph: dict, nodes: list[dict], module_edges: list[dict]) -> None:
+    """Merge another language layer's nodes and module edges into *graph*."""
+    merged = {n["id"]: n for n in graph["nodes"]}
+    for node in nodes:
+        merged.setdefault(node["id"], node)
+    graph["nodes"] = sorted(merged.values(), key=lambda n: n["id"])
+    graph["module_edges"] = sorted(
+        graph["module_edges"] + module_edges,
+        key=lambda e: (e["from"], e["to"], e["type"]),
     )
 
 

@@ -318,11 +318,52 @@ func TestModuleDocNoneGeneratedSaysRunNarrate(t *testing.T) {
 	}
 }
 
-func TestModuleDocRejectsPathishIds(t *testing.T) {
+func TestModuleDocRejectsTraversalIds(t *testing.T) {
 	repo := fixtureRepo(t)
-	for _, id := range []string{"../evil", "a/b", "..", "x/../y"} {
+	// "/"-bearing ids are legal (TS/JS path ids, ADR-021); traversal is not.
+	for _, id := range []string{"../evil", "..", "x/../y", "/abs", `a\b`, "a//b", "a/./b", ""} {
 		if _, err := Open(repo).ModuleDoc(id); err == nil {
 			t.Errorf("id %q should be rejected", id)
 		}
+	}
+}
+
+func TestModuleDocNestedTsId(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeModuleDoc(t, repo) // creates docs/modules/app.core.json too
+	doc := map[string]any{
+		"schema_version": 1, "kind": "module-doc",
+		"id": "src/flow", "path": "src/flow.js",
+		"sha": "beef000000000000000000000000000000000000", "dirty": false,
+		"sources": []map[string]any{},
+		"purpose": map[string]any{
+			"text": "pure auth-flow logic",
+			"pins": []map[string]any{{"path": "src/app/core.py", "line": 1}},
+		},
+		"responsibilities": []map[string]any{},
+		"gotchas":          []map[string]any{},
+	}
+	dir := filepath.Join(repo, ".hobbes", "derived", "docs", "modules", "src")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(filepath.Join(dir, "flow.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Open(repo).ModuleDoc("src/flow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "module src/flow (src/flow.js)") {
+		t.Errorf("nested id not rendered:\n%s", out)
+	}
+	// The nested id shows up in near-miss suggestions too.
+	miss, err := Open(repo).ModuleDoc("flow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(miss, "src/flow") {
+		t.Errorf("nested id missing from suggestions:\n%s", miss)
 	}
 }

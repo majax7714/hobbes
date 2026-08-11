@@ -331,13 +331,16 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
     const args = node.getArguments();
     const handlerArg = args[args.length - 1];
     let handler = "<inline>";
+    let handlerPath = null;
     if (Node.isIdentifier(handlerArg)) {
       const target = resolveExpressionTarget(handlerArg, repoRoot, fileSet);
       handler = target ? target.qualname : handlerArg.getText();
+      handlerPath = target ? target.path : null;
     }
     routes.push({
       framework: "express",
       handler,
+      handler_path: handlerPath,
       line: node.getStartLineNumber(),
       method: verb.toUpperCase(),
       path: routePath,
@@ -361,6 +364,7 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
         routes.push({
           framework: "nest",
           handler: `${cls.getName()}.${method.getName()}`,
+          handler_path: relPath(repoRoot, sourceFile),
           line: method.getStartLineNumber(),
           method: httpMethod,
           path: "/" + parts.join("/"),

@@ -191,10 +191,10 @@ test("express routes: verb + slash literal + express-ish receiver", () => {
   });
   const routes = byPath(extractRepo(root), "src/server.js").routes;
   assert.deepEqual(
-    routes.map((r) => [r.method, r.path, r.handler]),
+    routes.map((r) => [r.method, r.path, r.handler, r.handler_path]),
     [
-      ["GET", "/items", "listItems"],
-      ["POST", "/items", "<inline>"],
+      ["GET", "/items", "listItems", "src/server.js"],
+      ["POST", "/items", "<inline>", null],
     ]
   );
 });

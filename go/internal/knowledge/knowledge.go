@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -341,11 +343,15 @@ type moduleDoc struct {
 // skeleton tools use: docs regenerate per cited file, so HEAD moving
 // on its own proves nothing about this doc.
 func (s *Store) ModuleDoc(nodeID string) (string, error) {
-	if nodeID != filepath.Base(nodeID) || strings.Contains(nodeID, "..") {
+	// TS/JS module ids are repo-relative paths (ADR-021), so "/" is
+	// legal and artifacts nest under docs/modules/; traversal is not.
+	if nodeID == "" || strings.HasPrefix(nodeID, "/") ||
+		strings.Contains(nodeID, "\\") || path.Clean(nodeID) != nodeID ||
+		slices.Contains(strings.Split(nodeID, "/"), "..") {
 		return "", fmt.Errorf("%q is not a module id", nodeID)
 	}
 	dir := filepath.Join(s.repoRoot, ".hobbes", "derived", "docs", "modules")
-	data, err := os.ReadFile(filepath.Join(dir, nodeID+".json"))
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(nodeID)+".json"))
 	if os.IsNotExist(err) {
 		ids := docIDs(dir)
 		if len(ids) == 0 {
@@ -389,18 +395,21 @@ func (s *Store) ModuleDoc(nodeID string) (string, error) {
 	return b.String(), nil
 }
 
-// docIDs lists the module ids with docs on disk, for near-miss answers.
+// docIDs lists the module ids with docs on disk (nested dirs included,
+// ADR-021), for near-miss answers.
 func docIDs(dir string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
 	var ids []string
-	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() {
-			ids = append(ids, name)
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
 		}
-	}
+		if rel, relErr := filepath.Rel(dir, p); relErr == nil {
+			if name, ok := strings.CutSuffix(filepath.ToSlash(rel), ".json"); ok {
+				ids = append(ids, name)
+			}
+		}
+		return nil
+	})
 	return ids
 }
 

@@ -60,7 +60,7 @@ def _load_derived(repo_root: Path) -> tuple[dict, dict, dict]:
 
 
 def _fallback_id(path: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._:-]", "_", path)
+    sanitized = re.sub(r"[^A-Za-z0-9._:/-]", "_", path)
     return sanitized if schema._SAFE_ID.match(sanitized) else f"f_{sanitized}"
 
 
