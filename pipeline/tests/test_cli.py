@@ -176,3 +176,77 @@ def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["--version"])
     assert exc.value.code == 0
+
+
+class TestInvariantsCommand:
+    """`hobbes invariants list | check | compile` (ADR-024)."""
+
+    def _repo(self, tmp_path, record):
+        import yaml
+
+        directory = tmp_path / ".hobbes" / "invariants"
+        directory.mkdir(parents=True)
+        (directory / "I-1-x.yaml").write_text(yaml.safe_dump(record, sort_keys=False))
+        return tmp_path
+
+    def _record(self, **overrides):
+        record = {
+            "id": "I-1",
+            "statement": "Only the parser parses.",
+            "scope": "src",
+            "status": "confirmed",
+            "compile": {
+                "target": "import-linter",
+                "rule": {
+                    "kind": "forbidden-import",
+                    "importers": ["*"],
+                    "imported": ["ext:tree_sitter"],
+                },
+            },
+            "guarded_by": [],
+        }
+        record.update(overrides)
+        return record
+
+    def test_check_passes_on_valid_records(self, tmp_path, capsys):
+        repo = self._repo(tmp_path, self._record())
+        assert cli.main(["invariants", "check", "--repo", str(repo)]) == 0
+        assert "1 record(s) valid" in capsys.readouterr().out
+
+    def test_check_exits_one_and_names_every_problem(self, tmp_path, capsys):
+        repo = self._repo(tmp_path, {"id": "I-1", "compile": {"target": "nope"}})
+        assert cli.main(["invariants", "check", "--repo", str(repo)]) == 1
+        err = capsys.readouterr().err
+        assert "problem(s)" in err
+        assert "compile.target" in err
+
+    def test_list_hides_unconfirmed_unless_asked(self, tmp_path, capsys):
+        repo = self._repo(tmp_path, self._record(status="retired"))
+        cli.main(["invariants", "list", "--repo", str(repo)])
+        assert "no confirmed invariants" in capsys.readouterr().out
+        cli.main(["invariants", "list", "--repo", str(repo), "--all"])
+        assert "I-1" in capsys.readouterr().out
+
+    def test_compile_without_ingest_says_so(self, tmp_path, capsys):
+        repo = self._repo(tmp_path, self._record())
+        assert cli.main(["invariants", "compile", "--repo", str(repo)]) == 1
+        assert "hobbes ingest" in capsys.readouterr().err
+
+    def test_compile_writes_configs_and_a_manifest(self, tmp_path, capsys):
+        repo = self._repo(tmp_path, self._record())
+        derived = repo / ".hobbes" / "derived"
+        derived.mkdir(parents=True, exist_ok=True)
+        (derived / "graph.json").write_text(
+            json.dumps(
+                {
+                    "sha": "abc",
+                    "dirty": False,
+                    "nodes": [{"id": "app.core", "kind": "module", "path": "src/core.py"}],
+                    "module_edges": [],
+                }
+            )
+        )
+        assert cli.main(["invariants", "compile", "--repo", str(repo)]) == 0
+        assert "importlinter.ini" in capsys.readouterr().out
+        manifest = json.loads((derived / "compiled" / "manifest.json").read_text())
+        assert manifest["outputs"][0]["invariants"] == ["I-1"]

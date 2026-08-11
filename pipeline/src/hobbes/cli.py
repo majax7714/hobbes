@@ -281,6 +281,108 @@ def _cmd_policy_resolve(args: argparse.Namespace) -> int:
     return resolution.exit_code
 
 
+def _load_invariants(repo_root, strict_guards: bool = True):
+    """Load records, checking guarded_by against tests.json when present.
+
+    A guard naming a test that no longer exists is a false reassurance,
+    so the check is on by default — but a repo that has not been ingested
+    has no inventory to check against, and that is not the record's fault.
+    """
+    from hobbes.invariants import load_all
+
+    known = None
+    if strict_guards:
+        tests_path = repo_root / ".hobbes" / "derived" / "tests.json"
+        if tests_path.is_file():
+            known = {t["id"] for t in json.loads(tests_path.read_text())["tests"]}
+    return load_all(repo_root, known_tests=known)
+
+
+def _read_graph(repo_root):
+    """Load graph.json, or None when the repo has not been ingested."""
+    path = repo_root / ".hobbes" / "derived" / "graph.json"
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
+def _cmd_invariants(args: argparse.Namespace) -> int:
+    """`hobbes invariants list | check | compile` (ADR-024)."""
+    from hobbes.invariants import ValidationError
+
+    repo_root = _repo_root_from(args)
+    try:
+        records = _load_invariants(repo_root)
+    except ValidationError as exc:
+        print(f"hobbes invariants: {len(exc.problems)} problem(s)", file=sys.stderr)
+        for problem in exc.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+    for record in records:
+        for warning in record.warnings:
+            print(f"WARNING: {warning}", file=sys.stderr)
+
+    if args.invariants_command == "check":
+        # Loading is the check; getting here means every record is valid.
+        if args.json:
+            print(json.dumps({"records": len(records), "ok": True}, indent=2))
+        else:
+            confirmed = sum(1 for r in records if r.confirmed)
+            print(f"invariants: {len(records)} record(s) valid, {confirmed} confirmed")
+        return 0
+
+    if args.invariants_command == "list":
+        rows = [
+            {
+                "id": r.id,
+                "status": r.status,
+                "target": r.target,
+                "scope": r.scope,
+                "statement": r.statement,
+                "guarded_by": r.guarded_by,
+                "source": r.source,
+            }
+            for r in records
+            if args.all or r.confirmed
+        ]
+        if args.json:
+            print(json.dumps(rows, indent=2, sort_keys=True))
+            return 0
+        if not rows:
+            print("no confirmed invariants — see .hobbes/invariants/README.md")
+            return 0
+        for row in rows:
+            print(f"  {row['id']:<6} {row['status']:<9} {row['target']:<13} {row['scope']}")
+            print(f"         {row['statement']}")
+            if row["guarded_by"]:
+                print(f"         guarded by {len(row['guarded_by'])} test(s)")
+        print(f"invariants: {len(rows)} shown")
+        return 0
+
+    # compile
+    from hobbes.invariants.compile import compile_all
+
+    graph = _read_graph(repo_root)
+    if graph is None:
+        print(
+            "hobbes invariants compile: no graph.json — run `hobbes ingest` first "
+            "(wildcards expand over the module graph)",
+            file=sys.stderr,
+        )
+        return 1
+    manifest = compile_all(repo_root, records, graph)
+    if args.json:
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        return 0
+    if not manifest["outputs"]:
+        print("nothing to compile — every confirmed record is soft")
+    for output in manifest["outputs"]:
+        ids = ", ".join(output["invariants"])
+        print(f"  wrote {output['path']}  ({ids})")
+        print(f"        run: {output['run']}")
+    for skip in manifest["skipped"]:
+        print(f"  skipped {skip['id']}: {skip['why']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the hobbes argument parser (exposed for tests)."""
     parser = argparse.ArgumentParser(
@@ -408,6 +510,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="emit the rows as JSON"
     )
 
+    invariants_parser = sub.add_parser(
+        "invariants",
+        help="confirmed invariant records: list, validate, compile to CI configs",
+        description=(
+            "Records live in .hobbes/invariants/ (ADR-024). `check` validates "
+            "them, `list` shows them, and `compile` emits one CI config per "
+            "target into .hobbes/derived/compiled/ — no target's toolchain "
+            "needs to be installed to compile for it."
+        ),
+    )
+    invariants_sub = invariants_parser.add_subparsers(
+        dest="invariants_command", required=True
+    )
+    for name, help_text in (
+        ("list", "show records"),
+        ("check", "validate every record and exit non-zero on any problem"),
+        ("compile", "emit CI configs into .hobbes/derived/compiled/"),
+    ):
+        p = invariants_sub.add_parser(name, help=help_text)
+        p.add_argument("--repo", help="repo root (default: auto-detected via .git)")
+        p.add_argument("--json", action="store_true", help="machine-readable output")
+        if name == "list":
+            p.add_argument(
+                "--all",
+                action="store_true",
+                help="include inferred and retired records, not just confirmed",
+            )
+
     policy_parser = sub.add_parser("policy", help="policy engine front-end")
     policy_sub = policy_parser.add_subparsers(dest="policy_command", required=True)
     resolve_parser = policy_sub.add_parser(
@@ -448,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
         "diff": _cmd_diff,
         "narrate": _cmd_narrate,
         "docs": _cmd_docs_status,
+        "invariants": _cmd_invariants,
         "policy": _cmd_policy_resolve,
     }
     return handlers[args.command](args)
