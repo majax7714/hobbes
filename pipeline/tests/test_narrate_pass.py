@@ -443,3 +443,31 @@ def _derived(repo):
         json.loads((derived / name).read_text())
         for name in ("graph.json", "tests.json", "interfaces.json")
     )
+
+
+class TestSubstantiveUnits:
+    def test_package_with_code_gets_a_doc_unit(self, skeleton_repo):
+        graph, tests, _ = _derived(skeleton_repo)
+        graph["nodes"].append(
+            {"id": "pkg", "kind": "package", "path": "pkg/__init__.py"}
+        )
+        (skeleton_repo / "pkg").mkdir()
+        (skeleton_repo / "pkg" / "__init__.py").write_text("VERSION = 1\n")
+        from hobbes.narrate import substantive_units
+
+        units = substantive_units(skeleton_repo, plan_units(graph, tests))
+        assert ("module", "pkg") in [(u.kind, u.id) for u in units]
+
+    def test_empty_init_is_planned_out(self, skeleton_repo):
+        graph, tests, _ = _derived(skeleton_repo)
+        graph["nodes"].append(
+            {"id": "empty", "kind": "package", "path": "empty/__init__.py"}
+        )
+        (skeleton_repo / "empty").mkdir()
+        (skeleton_repo / "empty" / "__init__.py").write_text("\n")
+        from hobbes.narrate import substantive_units
+
+        units = substantive_units(skeleton_repo, plan_units(graph, tests))
+        ids = [u.id for u in units]
+        assert "empty" not in ids
+        assert INVARIANTS_UNIT_ID in ids  # pathless units always survive

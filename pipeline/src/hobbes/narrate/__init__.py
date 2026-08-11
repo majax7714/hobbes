@@ -68,14 +68,19 @@ def plan_units(graph: dict, tests: dict, *, invariants: bool = True) -> list[Uni
     """Every potential work unit, in execution order.
 
     Module docs first, then behavior indexes, invariants last — the
-    invariants prompt reads the freshly written module purposes. A
-    module that *is* a test file gets a behavior index, not a module
-    doc.
+    invariants prompt reads the freshly written module purposes. Any
+    source-backed module *or package* node gets a doc (a package's
+    ``__init__.py`` can carry real code — hobbes.narrate's orchestrator
+    does); a node that *is* a test file gets a behavior index instead.
     """
     by_file: dict[str, list[dict]] = {}
     for test in tests["tests"]:
         by_file.setdefault(test["file"], []).append(test)
-    modules = [n for n in graph["nodes"] if n.get("kind") == "module"]
+    modules = [
+        n
+        for n in graph["nodes"]
+        if n.get("kind") in ("module", "package") and n.get("path")
+    ]
     path_to_id = {n["path"]: n["id"] for n in modules}
     units = [
         Unit("module", node["id"], node["path"])
@@ -94,6 +99,25 @@ def plan_units(graph: dict, tests: dict, *, invariants: bool = True) -> list[Uni
     if invariants:
         units.append(Unit("invariants", INVARIANTS_UNIT_ID))
     return units
+
+
+def substantive_units(repo_root: Path, units: Iterable[Unit]) -> list[Unit]:
+    """Drop units whose subject file has nothing to pin.
+
+    An empty ``__init__.py`` can't yield a valid doc — every claim
+    needs a pin — so planning it out beats burning two failed calls.
+    """
+    kept = []
+    for unit in units:
+        if unit.path is not None:
+            try:
+                text = (Path(repo_root) / unit.path).read_text(errors="replace")
+            except OSError:
+                continue
+            if not any(line.strip() for line in text.splitlines()):
+                continue
+        kept.append(unit)
+    return kept
 
 
 def select_units(
@@ -160,7 +184,11 @@ def plan_status(
 ) -> list[tuple[Unit, bool, str]]:
     """The dry-run view: every selected unit with its due/fresh verdict."""
     graph, tests, _ = _load_derived(repo_root)
-    units = select_units(plan_units(graph, tests, invariants=invariants), only, exclude)
+    units = select_units(
+        substantive_units(repo_root, plan_units(graph, tests, invariants=invariants)),
+        only,
+        exclude,
+    )
     return [
         (unit, *((True, "forced") if force_all else unit_status(repo_root, unit)))
         for unit in units
@@ -251,7 +279,11 @@ def run_pass(
     """
     repo_root = Path(repo_root)
     graph, tests, interfaces = _load_derived(repo_root)
-    units = select_units(plan_units(graph, tests, invariants=invariants), only, exclude)
+    units = select_units(
+        substantive_units(repo_root, plan_units(graph, tests, invariants=invariants)),
+        only,
+        exclude,
+    )
     stamp = repo_stamp(repo_root)
     summary: dict = {"generated": [], "skipped": [], "failed": {}}
     for unit in units:
