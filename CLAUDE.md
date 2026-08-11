@@ -36,9 +36,15 @@ graph.
   the graph-diff engine (`src/hobbes/graphdiff.py`), and the M5 narrative
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
-  behind `hobbes narrate` / `hobbes docs status`). The invariant
-  compiler lands at M8. Test fixture repo: `tests/fixtures/miniapp/`
-  (excluded from pytest collection via `norecursedirs`).
+  behind `hobbes narrate` / `hobbes docs status`). `extract/tssource.py`
+  joins the tsextract helper's facts (M6, ADR-021). The invariant
+  compiler lands at M8. Test fixture repos: `tests/fixtures/miniapp/`
+  (Python) and `tests/fixtures/minits/` (TS/JS), both excluded from
+  pytest collection via `norecursedirs`.
+- `tsextract/` — Node helper (ADR-021): ts-morph walk emitting facts
+  JSON for the Python join; own `node --test` suite (`npm test`);
+  `node_modules/` gitignored, lockfile committed. Only external dep:
+  ts-morph.
 - `web/` — empty until M7 (Vite + React + Cytoscape.js).
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
   `docs/BUILDLOG.md` (append-only session log).
@@ -47,8 +53,9 @@ graph.
 
 ## Build & test
 
-Go and uv are user-local installs: `~/.local/go/bin` and `~/.local/bin`
-(ensure both are on `PATH`).
+Go, uv, and Node are user-local installs: `~/.local/go/bin` and
+`~/.local/bin` (ensure both are on `PATH`). One-time for TS extraction:
+`cd tsextract && npm install`.
 
 ```sh
 # Go
@@ -87,38 +94,46 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M5 (narrative pass) — built; the M5 exit check
-passed 3/3 on the dogfood repo. Pending Max's review** (including the
-6 inferred invariants awaiting confirmation). Do not start M6
-(TypeScript extractor) until reviewed.
+**Active milestone: M6 (TypeScript extractor) — built; the M6 exit
+check passed on SELENEX (20/20 edges, 10/10 test mappings hand-verified
+against a 90% bar). Pending Max's review.** Do not start M7 (web
+surface) until reviewed.
 
-- ADR-019: narrative artifacts under `.hobbes/derived/docs/` — module
-  docs (one per source-backed module/package node), per-test-file
-  behavior indexes, `invariants.inferred.yaml` (§10 shape, ids +
-  `status: inferred` assigned at write time; confirmation = Max moves a
-  record into versioned `.hobbes/invariants/`). Claims are
-  `{text, pins}` validated against the working tree before anything is
-  written. Artifacts stamp repo SHA + per-cited-file git blob SHAs;
-  **staleness is blob-level** (any cited blob changed/gone — uncommitted
-  edits count; deliberately stricter than the build plan's graph-node
-  trigger).
-- ADR-020: `hobbes narrate` = one headless `claude -p --output-format
-  json --tools ""` call per unit (no tools — no I/O surface; the
-  pipeline is the only writer). Parse → validate → one corrective retry
-  carrying the problem list → or unit fails, run continues. Incremental
-  (missing-or-stale) by default; `--all`/`--only`/`--exclude`/
-  `--dry-run`; `--model`; `HOBBES_CLAUDE_BIN` overrides the binary.
-  `hobbes docs status` prints stale badges. Sandboxed cartographer
-  sessions + system narrative deferred to `future_additions.md`
-  (Max-confirmed).
-- `get_module_doc` joined the proxy's knowledge tools (ADR-017 deferral
-  due with its data); blob-level stale warnings, logged
-  `builtin:knowledge-read`. Still deferred to its data:
-  `list_invariants` (M8).
-- Exit check (2026-08-11): 37/37 units, 0 failed — 396 pinned claims on
-  the hobbes repo (fixture tree excluded); 10/10 sampled claims resolve
-  to supporting lines; an uncommitted `render.py` edit flips exactly the
-  `hobbes.render` badge. 197 pytest / 146 Go test cases.
+- ADR-021: TS/JS extraction via the `tsextract/` Node helper (ts-morph)
+  invoked as a subprocess — the ADR-003 pattern; supersedes ADR-005's
+  tree-sitter-for-M6 aside per the source docs. Facts JSON in,
+  artifacts out: checker-resolved imports/calls (false edges worse than
+  missing; nested declarations omitted), path-based module ids
+  (`src/flow`), `ext:`/`env:` nodes on M3 conventions (env joins now
+  span Py+TF+JS), Express/Nest routes, test inventory for
+  vitest/jest/**node:test** with file-level static reach.
+  `HOBBES_TSEXTRACT_CMD` overrides; TS files + no helper = hard error,
+  never a silent skip.
+- **Schema v3**: per-test `framework` field (global one gone);
+  `languages` may include typescript/javascript. Slash-bearing ids nest
+  narrative artifacts under `docs/modules/`; `get_module_doc` follows,
+  traversal blocked both sides.
+- Exit check (2026-08-11): SELENEX ingest (207 nodes, 602 module edges,
+  hcl+javascript+python); all 11 JS module edges + 9 call edges and 9
+  node:test mappings (reach exactly the 8 imported flow.js symbols) +
+  1 pytest mapping verified by hand — 100%. The spot-check caught and
+  fixed a nested-declaration call-edge leak. 224 pytest / 147 Go /
+  15 node --test cases. Deferred: per-package tsconfigs, per-test JS
+  reach, jest-globals detection, package.json bin (future_additions).
+
+- M5 (reviewed, passed): narrative pass — ADR-019 artifacts
+  (`.hobbes/derived/docs/`: module docs, behavior indexes,
+  `invariants.inferred.yaml`; claims `{text, pins}` validated before
+  write; blob-level staleness, uncommitted edits count), ADR-020
+  `hobbes narrate` (headless tool-less `claude -p`, one call per unit,
+  incremental missing-or-stale, one corrective retry;
+  `HOBBES_CLAUDE_BIN` override) + `hobbes docs status`, and
+  `get_module_doc` on the proxy. Exit 3/3 on the dogfood repo: 37/37
+  units (396 pinned claims), 10/10 sampled claims resolve, a deliberate
+  edit flips exactly the right badge. 6 inferred invariants await Max's
+  confirmation (inert until moved into `.hobbes/invariants/`);
+  `list_invariants` still deferred to M8. Sandboxed cartographer
+  sessions + system narrative parked in future_additions.
 
 - M4 (reviewed, passed): the policy proxy + sandbox + flight recorder —
   `hobbes-proxy serve` (per-session stdio MCP, policy-checked `exec`,

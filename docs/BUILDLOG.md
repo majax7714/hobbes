@@ -449,3 +449,73 @@ deferred, not rejected).
 
 **Next:** M6 — TypeScript extractor (quota-free again). Not started;
 M5 awaits Max's review, including the inferred invariants.
+
+---
+
+## 2026-08-11 (tenth session) — M6: TypeScript extractor
+
+M5 review passed (Max, start of session). M6 lands the TS/JS layer on
+the M1 contract, resolving one documented tension on the way: ADR-005's
+"M6 must be tree-sitter" aside vs. the source docs' explicit ts-morph
+choice — the source docs win, ADR-021 records the supersession and why
+(TS parsing is easy; *resolution* — tsconfig paths, barrels,
+.mjs/allowJs — is the deliverable, and that's the compiler API's job).
+
+**Built:**
+
+- ADR-021 + `tsextract/`: a small Node package (dependency: ts-morph,
+  lockfile committed) the pipeline invokes as a subprocess — the
+  ADR-003 pattern in a second direction. Emits deterministic facts
+  JSON: checker-resolved imports (ESM, re-exports, require, dynamic
+  import), top-level symbols, call edges (aliased through imports;
+  calls to nested declarations omitted — parity with the symbol list),
+  `process.env`/`import.meta.env` reads, Express + Nest routes
+  (express-ish receiver + leading-slash literal; controller prefix
+  join), and test inventory: vitest, jest, and **node:test** (what the
+  sanctioned exit repo actually uses), with `describe`-nested
+  qualnames. 15 `node --test` cases, zero dev deps.
+- `extract/tssource.py`: joins facts into the artifacts. Module ids are
+  repo-relative paths sans extension (`src/flow`), symbols
+  `<id>.<qualname>`; externals/env nodes on the M3 conventions, so
+  `env:VAR` cross-layer joins now span Python+TF+JS. JS test reach is
+  **file-level** (closures aren't symbols): imports-plus-calls seeded,
+  closed over the call graph, test-file scaffolding prefix-filtered.
+  Missing helper on a TS repo is a hard error with the fix, never a
+  silent skip (P1); `HOBBES_TSEXTRACT_CMD` overrides (the
+  `HOBBES_POLICY_BIN` precedent).
+- **Schema v3**: per-test `framework` field (a repo now mixes pytest
+  and JS frameworks), global `framework` gone; `languages` may include
+  typescript/javascript.
+- Slash-bearing module ids flow through M5's surfaces: narrative
+  artifacts nest under `docs/modules/` mirroring the repo tree, and
+  `get_module_doc` accepts nested ids — traversal blocked in both the
+  Python writer and the Go reader.
+- `tests/fixtures/minits/` (Express JS + Nest TS + node:test + vitest)
+  exercises the whole path; integration tests skip when Node is absent.
+  224 pytest cases, 147 Go, race clean.
+
+**M6 exit check — passed** on SELENEX (`core-frontend/core-auth`, the
+sanctioned Py+JS+TF repo; plain-JS ES modules, per the v1 "TS/JS repo"
+bar): full ingest → 207 nodes, 602 module edges, languages
+[hcl, javascript, python]. Hand-verified **20/20 edges** (all 11 JS
+module edges + 9 call edges — every evidence line shows exactly the
+claimed import/call, including scope attribution into arrow consts) and
+**10/10 test mappings** (9 node:test mappings whose reach is exactly
+the 8 `flow.js` symbols the test file imports, matching ground truth
+1:1; plus one pytest mapping regression-checked in the same v3
+artifact). Bar was ≥90%; result 100%. The spot-check caught one real
+bug — a nested test helper leaking into `reaches` via a bare-qualname
+call edge — fixed (calls to nested declarations omitted; reach filtered
+by test-module prefix) and re-verified.
+
+Bonus cross-milestone validation: this session's pipeline edits flipped
+exactly 7 of the 37 M5 narrative badges to stale on the dogfood repo —
+blob-level staleness (ADR-019) noticing M6 happening. Regeneration is
+one `hobbes narrate` away, deliberately not spent here.
+
+**Deferred** (future_additions): per-package tsconfigs in monorepos;
+per-test JS reach granularity; jest-globals detection beyond imports;
+package.json `bin` CLI entry points.
+
+**Next:** M7 — web surface (Vite + React + Cytoscape.js, D3). Not
+started; M6 awaits Max's review.
