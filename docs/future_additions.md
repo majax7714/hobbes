@@ -156,3 +156,24 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   path, which this repo uses. That also makes decisions reviewable in a
   PR and shared with collaborators, which may or may not be wanted.
   Deferred until the re-asking actually costs something.
+
+- **Narration re-infers what is already confirmed** (from ADR-026,
+  2026-08-11). The inference unit is told about the repo but not about
+  `.hobbes/invariants/`, so it happily re-proposes claims that already
+  have confirmed records. Before the ledger existed that was invisible;
+  now it means the decision queue can offer you something you settled
+  months ago in different words.
+
+  It bit the dogfood repo immediately: all six inferred records
+  correspond 1:1 to I-1..I-6, but the statements were rewritten during
+  promotion (I-3 and I-4 substantially), so no content key matches and
+  `hobbes up` asks about all six. Nothing is wrong — the confirmed
+  records stand and a fresh repo is unaffected, since it has an empty
+  invariants directory — but the queue is noisier than it should be.
+
+  The root fix is in the narrate prompt: pass the confirmed statements
+  in and instruct the pass to propose only what they do not already
+  cover. Deferred because it spends quota to verify. Until then, denying
+  a superseded inferred wording is the accurate verdict — you did reject
+  that phrasing in favour of your own, and the ledger records the
+  wording it was asked about.
