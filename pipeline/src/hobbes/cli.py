@@ -1,12 +1,14 @@
 """The ``hobbes`` command-line interface.
 
-M2 surface: ``ingest`` runs the deterministic extractors into
-``.hobbes/derived/``; ``init`` scaffolds the ``.hobbes/`` layout;
-``render`` prints the module graph as Mermaid (ADR-008);
-``diff <base>..<head>`` prints the architecture delta between two refs
-(ADR-009 — exit 0 no delta / 1 delta / 2 trouble, mirroring diff(1));
-``policy resolve`` passes through to the Go ``hobbes-policy`` binary
-(ADR-003). argparse per ADR-004.
+``ingest`` runs the deterministic extractors into ``.hobbes/derived/``;
+``init`` scaffolds the ``.hobbes/`` layout; ``render`` prints the module
+graph as Mermaid (ADR-008); ``diff <base>..<head>`` prints the
+architecture delta between two refs (ADR-009 — exit 0 no delta / 1
+delta / 2 trouble, mirroring diff(1)); ``narrate`` runs the
+quota-spending cartographer pass into ``.hobbes/derived/docs/``
+(ADR-019/020); ``docs status`` prints stale badges; ``policy resolve``
+passes through to the Go ``hobbes-policy`` binary (ADR-003). argparse
+per ADR-004.
 """
 
 from __future__ import annotations
@@ -196,6 +198,67 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 1 if has_changes(delta) else 0
 
 
+def _cmd_narrate(args: argparse.Namespace) -> int:
+    """Run the cartographer narrative pass (ADR-019/020). Spends quota."""
+    from hobbes.extract.emit import StampError
+    from hobbes.narrate import NarrateError, plan_status, run_pass
+    from hobbes.narrate.runner import ClaudeRunner
+
+    repo_root = _repo_root_from(args)
+    only, exclude = args.only or [], args.exclude or []
+    try:
+        if args.dry_run:
+            rows = plan_status(
+                repo_root,
+                only=only,
+                exclude=exclude,
+                invariants=not args.no_invariants,
+                force_all=args.all,
+            )
+            for unit, due, reason in rows:
+                marker = "due " if due else "skip"
+                print(f"  {marker} {unit.kind:<10} {unit.id} ({reason})")
+            due_count = sum(1 for _, due, _ in rows if due)
+            print(
+                f"narrate --dry-run: {due_count} cartographer calls would run, "
+                f"{len(rows) - due_count} fresh"
+            )
+            return 0
+        summary = run_pass(
+            repo_root,
+            ClaudeRunner(model=args.model),
+            only=only,
+            exclude=exclude,
+            invariants=not args.no_invariants,
+            force_all=args.all,
+        )
+    except (NarrateError, StampError) as exc:
+        print(f"hobbes narrate: {exc}", file=sys.stderr)
+        return 1
+    return 1 if summary["failed"] else 0
+
+
+def _cmd_docs_status(args: argparse.Namespace) -> int:
+    """Print each narrative artifact with its stale badge (§3.3)."""
+    from hobbes.narrate import artifact_status
+
+    repo_root = _repo_root_from(args)
+    rows = artifact_status(repo_root)
+    if args.json:
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        print("no narrative artifacts — run `hobbes narrate`")
+        return 0
+    badges = {"fresh": "fresh", "stale": "STALE", "broken": "BROKEN"}
+    for row in rows:
+        extra = f" ({', '.join(row['changed'])})" if row["changed"] else ""
+        print(f"  {badges[row['status']]:<6} {row['kind']:<19} {row['id']}{extra}")
+    stale = sum(1 for row in rows if row["status"] != "fresh")
+    print(f"docs: {len(rows)} artifacts, {stale} stale")
+    return 0
+
+
 def _cmd_policy_resolve(args: argparse.Namespace) -> int:
     """Pass through to `hobbes-policy resolve`, propagating its exit code."""
     try:
@@ -279,6 +342,66 @@ def build_parser() -> argparse.ArgumentParser:
         "--repo", help="repo root (default: auto-detected via .git)"
     )
 
+    narrate_parser = sub.add_parser(
+        "narrate",
+        help="cartographer narrative pass — module docs, test behaviors, "
+        "inferred invariants (spends Claude quota)",
+        description=(
+            "Walks the derived skeleton (run `hobbes ingest` first) and has "
+            "headless Claude Code write pinned narrative artifacts into "
+            ".hobbes/derived/docs/ (ADR-019/020). Only missing or stale "
+            "units run; each unit is one quota-spending call."
+        ),
+    )
+    narrate_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+    narrate_parser.add_argument(
+        "--all", action="store_true", help="regenerate even fresh artifacts"
+    )
+    narrate_parser.add_argument(
+        "--only",
+        action="append",
+        metavar="PATTERN",
+        help="only units whose id or path matches (repeatable, fnmatch)",
+    )
+    narrate_parser.add_argument(
+        "--exclude",
+        action="append",
+        metavar="PATTERN",
+        help="skip units whose id or path matches (repeatable, fnmatch)",
+    )
+    narrate_parser.add_argument(
+        "--no-invariants",
+        action="store_true",
+        help="skip the repo-wide invariant inference unit",
+    )
+    narrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the work plan without spending any quota",
+    )
+    narrate_parser.add_argument(
+        "--model", help="model override passed to claude -p"
+    )
+
+    docs_parser = sub.add_parser("docs", help="narrative artifacts front-end")
+    docs_sub = docs_parser.add_subparsers(dest="docs_command", required=True)
+    status_parser = docs_sub.add_parser(
+        "status",
+        help="freshness of narrative artifacts (stale badges)",
+        description=(
+            "Reads .hobbes/derived/docs/ and reports each artifact fresh or "
+            "STALE with the changed source files (blob-level, ADR-019)."
+        ),
+    )
+    status_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+    status_parser.add_argument(
+        "--json", action="store_true", help="emit the rows as JSON"
+    )
+
     policy_parser = sub.add_parser("policy", help="policy engine front-end")
     policy_sub = policy_parser.add_subparsers(dest="policy_command", required=True)
     resolve_parser = policy_sub.add_parser(
@@ -317,6 +440,8 @@ def main(argv: list[str] | None = None) -> int:
         "ingest": _cmd_ingest,
         "render": _cmd_render,
         "diff": _cmd_diff,
+        "narrate": _cmd_narrate,
+        "docs": _cmd_docs_status,
         "policy": _cmd_policy_resolve,
     }
     return handlers[args.command](args)
