@@ -25,6 +25,16 @@ class RefError(RuntimeError):
 
 def extract_at_ref(repo_root: Path, ref: str) -> dict:
     """The graph document for *ref*'s tree (module + symbol layers)."""
+    return extract_all_at_ref(repo_root, ref).graph
+
+
+def extract_all_at_ref(repo_root: Path, ref: str):
+    """The whole extraction for *ref*'s tree — graph, tests, interfaces.
+
+    `hobbes review` needs the test inventory as well as the graph to
+    compute a behavioral-coverage delta (ADR-025), and unpacking the
+    archive twice to get them would double the cost of every review.
+    """
     try:
         archive = subprocess.run(
             ["git", "-C", str(repo_root), "archive", "--format=tar", ref],
@@ -38,7 +48,7 @@ def extract_at_ref(repo_root: Path, ref: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="hobbes-diff-") as scratch:
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             tar.extractall(scratch, filter="data")
-        return extract_repo(Path(scratch)).graph
+        return extract_repo(Path(scratch))
 
 
 def diff_graphs(base: dict, head: dict) -> dict:

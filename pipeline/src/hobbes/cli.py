@@ -383,6 +383,34 @@ def _cmd_invariants(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_review(args: argparse.Namespace) -> int:
+    """Concept-level review of a range: delta, invariants, coverage (ADR-025)."""
+    from hobbes.graphdiff import RefError
+    from hobbes.invariants import ValidationError
+    from hobbes.review import build_review, format_review, review_to_dict
+
+    repo_root = _repo_root_from(args)
+    base_ref, head_ref = _parse_range(args.range)
+    try:
+        review = build_review(
+            repo_root, base_ref, head_ref, with_soft=args.soft
+        )
+    except RefError as exc:
+        print(f"hobbes review: {exc}", file=sys.stderr)
+        return 2
+    except ValidationError as exc:
+        print(f"hobbes review: invalid invariant records", file=sys.stderr)
+        for problem in exc.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(review_to_dict(review), indent=2, sort_keys=True))
+    else:
+        print(format_review(review), end="")
+    return 1 if review.needs_attention else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the hobbes argument parser (exposed for tests)."""
     parser = argparse.ArgumentParser(
@@ -510,6 +538,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="emit the rows as JSON"
     )
 
+    review_parser = sub.add_parser(
+        "review",
+        help="concept-level review of a range: delta, invariants, coverage",
+        description=(
+            "The §7 review order in one command (ADR-025): architecture delta, "
+            "invariant verdicts computed at BOTH ends so a regression is "
+            "distinguishable from inherited breakage, and the behavioural-coverage "
+            "delta. Exits 1 when something needs attention. Spends no quota unless "
+            "--soft is given."
+        ),
+    )
+    review_parser.add_argument(
+        "range", help="commit range, base..head (as `hobbes diff`)"
+    )
+    review_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+    review_parser.add_argument(
+        "--json", action="store_true", help="machine-readable output"
+    )
+    review_parser.add_argument(
+        "--soft",
+        action="store_true",
+        help="run a reviewer session for in-scope soft invariants (spends quota)",
+    )
+
     invariants_parser = sub.add_parser(
         "invariants",
         help="confirmed invariant records: list, validate, compile to CI configs",
@@ -579,6 +633,7 @@ def main(argv: list[str] | None = None) -> int:
         "narrate": _cmd_narrate,
         "docs": _cmd_docs_status,
         "invariants": _cmd_invariants,
+        "review": _cmd_review,
         "policy": _cmd_policy_resolve,
     }
     return handlers[args.command](args)
