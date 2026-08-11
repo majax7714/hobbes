@@ -195,3 +195,134 @@ func TestMissingArtifactsSayRunIngest(t *testing.T) {
 		t.Errorf("err = %v, want run-ingest hint", err)
 	}
 }
+
+// --- module docs (ADR-019) -------------------------------------------------
+
+// writeModuleDoc files a narrative module-doc artifact for app.core whose
+// sources stamp the *current* working-tree blob of src/app/core.py.
+func writeModuleDoc(t *testing.T, repo string) {
+	t.Helper()
+	src := filepath.Join(repo, "src", "app")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "core.py"), []byte("def run():\n    return 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("git", "-C", repo, "hash-object", "--", "src/app/core.py").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := map[string]any{
+		"schema_version": 1, "kind": "module-doc",
+		"id": "app.core", "path": "src/app/core.py",
+		"sha": "c0ffee0000000000000000000000000000000000", "dirty": false,
+		"sources": []map[string]any{
+			{"path": "src/app/core.py", "blob_sha": strings.TrimSpace(string(out))},
+		},
+		"purpose": map[string]any{
+			"text": "runs the core computation",
+			"pins": []map[string]any{{"path": "src/app/core.py", "line": 1}},
+		},
+		"responsibilities": []map[string]any{
+			{"text": "returns the answer",
+				"pins": []map[string]any{{"path": "src/app/core.py", "line": 2}}},
+		},
+		"gotchas": []map[string]any{},
+	}
+	dir := filepath.Join(repo, ".hobbes", "derived", "docs", "modules")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.core.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestModuleDocRendersPinnedClaims(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeModuleDoc(t, repo)
+	out, err := Open(repo).ModuleDoc("app.core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"knowledge from narrate @ c0ffee000000",
+		"module app.core (src/app/core.py)",
+		"purpose: runs the core computation  [src/app/core.py:1]",
+		"responsibilities:",
+		"- returns the answer  [src/app/core.py:2]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "STALE") || strings.Contains(out, "gotchas") {
+		t.Errorf("fresh doc with no gotchas rendered wrong:\n%s", out)
+	}
+}
+
+func TestModuleDocBlobStaleWarns(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeModuleDoc(t, repo)
+	// An uncommitted edit to a cited file must flip the badge (ADR-019).
+	if err := os.WriteFile(filepath.Join(repo, "src", "app", "core.py"), []byte("edited = True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Open(repo).ModuleDoc("app.core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "WARNING: STALE") || !strings.Contains(out, "src/app/core.py") ||
+		!strings.Contains(out, "hobbes narrate") {
+		t.Errorf("want blob-level stale warning naming the file:\n%s", out)
+	}
+}
+
+func TestModuleDocDeletedSourceIsStale(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeModuleDoc(t, repo)
+	if err := os.Remove(filepath.Join(repo, "src", "app", "core.py")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Open(repo).ModuleDoc("app.core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "WARNING: STALE") {
+		t.Errorf("deleted source should read stale:\n%s", out)
+	}
+}
+
+func TestModuleDocUnknownIdSuggests(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeModuleDoc(t, repo)
+	out, err := Open(repo).ModuleDoc("core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `no module doc for "core"`) || !strings.Contains(out, "app.core") {
+		t.Errorf("want near-miss suggestion:\n%s", out)
+	}
+}
+
+func TestModuleDocNoneGeneratedSaysRunNarrate(t *testing.T) {
+	repo := fixtureRepo(t)
+	_, err := Open(repo).ModuleDoc("app.core")
+	if err == nil || !strings.Contains(err.Error(), "hobbes narrate") {
+		t.Errorf("want run-narrate error, got %v", err)
+	}
+}
+
+func TestModuleDocRejectsPathishIds(t *testing.T) {
+	repo := fixtureRepo(t)
+	for _, id := range []string{"../evil", "a/b", "..", "x/../y"} {
+		if _, err := Open(repo).ModuleDoc(id); err == nil {
+			t.Errorf("id %q should be rejected", id)
+		}
+	}
+}

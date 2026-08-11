@@ -42,12 +42,12 @@ func TestSessionToolSurface(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names[tool.Name] = tool.Description
 	}
-	for _, want := range []string{"exec", "graph_neighborhood", "who_calls", "tests_guarding"} {
+	for _, want := range []string{"exec", "graph_neighborhood", "who_calls", "tests_guarding", "get_module_doc"} {
 		if _, ok := names[want]; !ok {
 			t.Errorf("tool %s missing from %v", want, names)
 		}
 	}
-	if len(tools.Tools) != 4 {
+	if len(tools.Tools) != 5 {
 		t.Errorf("unexpected extra tools: %v", names)
 	}
 	if !strings.Contains(names["exec"], "policy") {

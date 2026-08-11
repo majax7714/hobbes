@@ -1,8 +1,10 @@
-// Package knowledge answers the v1 knowledge-layer queries (architecture
+// Package knowledge answers the knowledge-layer queries (architecture
 // §6, ADR-017) from a repo's derived artifacts: graph_neighborhood,
-// who_calls, and tests_guarding, read fresh from .hobbes/derived/ on
-// every call. Answers are agent-facing text with file:line provenance
-// and a visible staleness header (P1) — this package never writes.
+// who_calls, and tests_guarding over the extracted skeleton, and
+// get_module_doc over the M5 narrative artifacts (ADR-019), read fresh
+// from .hobbes/derived/ on every call. Answers are agent-facing text
+// with file:line provenance and a visible staleness header (P1) — this
+// package never writes.
 package knowledge
 
 import (
@@ -295,4 +297,148 @@ func (s *Store) TestsGuarding(target string) (string, error) {
 		b.WriteString(fmt.Sprintf("no tests statically reach %s — changes there are unguarded\n", target))
 	}
 	return b.String(), nil
+}
+
+// --- module docs (ADR-019 artifacts) ---------------------------------------
+
+// claim is one pinned narrative sentence (ADR-019).
+type claim struct {
+	Text string     `json:"text"`
+	Pins []evidence `json:"pins"`
+}
+
+func (c claim) cite() string {
+	if len(c.Pins) == 0 {
+		return ""
+	}
+	cites := make([]string, len(c.Pins))
+	for i, p := range c.Pins {
+		cites[i] = p.String()
+	}
+	return "  [" + strings.Join(cites, ", ") + "]"
+}
+
+// docSource is a blob-stamped file a narrative artifact cites.
+type docSource struct {
+	Path    string `json:"path"`
+	BlobSHA string `json:"blob_sha"`
+}
+
+type moduleDoc struct {
+	SHA              string      `json:"sha"`
+	Dirty            bool        `json:"dirty"`
+	ID               string      `json:"id"`
+	Path             string      `json:"path"`
+	Sources          []docSource `json:"sources"`
+	Purpose          claim       `json:"purpose"`
+	Responsibilities []claim     `json:"responsibilities"`
+	Gotchas          []claim     `json:"gotchas"`
+}
+
+// ModuleDoc answers get_module_doc(node): the narrative doc for one
+// module — purpose, responsibilities, gotchas, every claim pinned. The
+// stale warning is blob-level (ADR-019), not the HEAD compare the
+// skeleton tools use: docs regenerate per cited file, so HEAD moving
+// on its own proves nothing about this doc.
+func (s *Store) ModuleDoc(nodeID string) (string, error) {
+	if nodeID != filepath.Base(nodeID) || strings.Contains(nodeID, "..") {
+		return "", fmt.Errorf("%q is not a module id", nodeID)
+	}
+	dir := filepath.Join(s.repoRoot, ".hobbes", "derived", "docs", "modules")
+	data, err := os.ReadFile(filepath.Join(dir, nodeID+".json"))
+	if os.IsNotExist(err) {
+		ids := docIDs(dir)
+		if len(ids) == 0 {
+			return "", fmt.Errorf("no module docs generated — run `hobbes narrate` first")
+		}
+		return fmt.Sprintf("no module doc for %q\n%s", nodeID, suggest(nodeID, ids)), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var d moduleDoc
+	if err := json.Unmarshal(data, &d); err != nil {
+		return "", fmt.Errorf("module doc %s: %w", nodeID, err)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "knowledge from narrate @ %.12s", d.SHA)
+	if d.Dirty {
+		b.WriteString(" (dirty tree)")
+	}
+	b.WriteString("\n")
+	if changed := s.changedSources(d.Sources); len(changed) > 0 {
+		fmt.Fprintf(&b,
+			"WARNING: STALE — cited files changed since generation: %s; rerun `hobbes narrate`\n",
+			strings.Join(changed, ", "))
+	}
+	fmt.Fprintf(&b, "module %s (%s)\n", d.ID, d.Path)
+	fmt.Fprintf(&b, "purpose: %s%s\n", d.Purpose.Text, d.Purpose.cite())
+	for _, section := range []struct {
+		title  string
+		claims []claim
+	}{{"responsibilities", d.Responsibilities}, {"gotchas", d.Gotchas}} {
+		if len(section.claims) == 0 {
+			continue
+		}
+		b.WriteString(section.title + ":\n")
+		for _, c := range section.claims {
+			fmt.Fprintf(&b, "  - %s%s\n", c.Text, c.cite())
+		}
+	}
+	return b.String(), nil
+}
+
+// docIDs lists the module ids with docs on disk, for near-miss answers.
+func docIDs(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() {
+			ids = append(ids, name)
+		}
+	}
+	return ids
+}
+
+// changedSources reports which stamped sources' working-tree blobs no
+// longer match (ADR-019 staleness). A vanished file counts as changed;
+// git being unavailable degrades to no warning, like gitHead.
+func (s *Store) changedSources(sources []docSource) []string {
+	changed := map[string]bool{}
+	var existing []string
+	for _, src := range sources {
+		if _, err := os.Stat(filepath.Join(s.repoRoot, src.Path)); err != nil {
+			changed[src.Path] = true
+		} else {
+			existing = append(existing, src.Path)
+		}
+	}
+	if len(existing) > 0 {
+		cmd := exec.Command("git", "-C", s.repoRoot, "hash-object", "--stdin-paths")
+		cmd.Stdin = strings.NewReader(strings.Join(existing, "\n") + "\n")
+		if out, err := cmd.Output(); err == nil {
+			hashes := strings.Fields(string(out))
+			if len(hashes) == len(existing) {
+				current := make(map[string]string, len(existing))
+				for i, p := range existing {
+					current[p] = hashes[i]
+				}
+				for _, src := range sources {
+					if h, ok := current[src.Path]; ok && h != src.BlobSHA {
+						changed[src.Path] = true
+					}
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(changed))
+	for p := range changed {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
