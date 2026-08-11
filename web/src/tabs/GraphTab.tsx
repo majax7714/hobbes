@@ -15,6 +15,7 @@ import { useAsync } from '../hooks'
 import {
   allKinds,
   buildElements,
+  commonRoot,
   defaultKinds,
   labelOf,
   nodeDetail,
@@ -68,6 +69,10 @@ export function GraphTab({
   const [selected, setSelected] = useState<string | null>(initialSelection)
   const cy = useRef<cytoscape.Core | null>(null)
 
+  // Path-shaped ids (ADR-021) all start with the same directory; strip
+  // it so labels differ from each other.
+  const root = useMemo(() => commonRoot(graph.nodes), [graph])
+
   const elements = useMemo(
     () =>
       buildElements(graph, {
@@ -75,11 +80,12 @@ export function GraphTab({
         packages: pkg ? new Set([pkg]) : null,
         focus,
         depth,
+        root,
       }),
-    [graph, kinds, pkg, focus, depth],
+    [graph, kinds, pkg, focus, depth, root],
   )
 
-  const pkgs = useMemo(() => packages(graph.nodes), [graph])
+  const pkgs = useMemo(() => packages(graph.nodes, root), [graph, root])
   const kindList = useMemo(() => allKinds(graph.nodes), [graph])
 
   return (
@@ -106,7 +112,7 @@ export function GraphTab({
         </span>
 
         <select value={pkg} onChange={(e) => setPkg(e.target.value)} title="package filter">
-          <option value="">all packages</option>
+          <option value="">all packages{root && ` (under ${root})`}</option>
           {pkgs.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -176,6 +182,7 @@ export function GraphTab({
               graph={graph}
               tests={tests}
               id={selected}
+              root={root}
               onOpenPin={onOpenPin}
               onSelect={setSelected}
             />
@@ -417,12 +424,14 @@ function Inspector({
   graph,
   tests,
   id,
+  root,
   onOpenPin,
   onSelect,
 }: {
   graph: Graph
   tests: Tests | null
   id: string
+  root: string
   onOpenPin: (pin: Pin) => void
   onSelect: (id: string) => void
 }) {
@@ -468,12 +477,12 @@ function Inspector({
         <h3>
           depends on ({outgoing.length})
         </h3>
-        <EdgeList edges={outgoing} pick="to" onSelect={onSelect} onOpenPin={onOpenPin} />
+        <EdgeList edges={outgoing} pick="to" root={root} onSelect={onSelect} onOpenPin={onOpenPin} />
       </div>
 
       <div className="section">
         <h3>depended on by ({incoming.length})</h3>
-        <EdgeList edges={incoming} pick="from" onSelect={onSelect} onOpenPin={onOpenPin} />
+        <EdgeList edges={incoming} pick="from" root={root} onSelect={onSelect} onOpenPin={onOpenPin} />
       </div>
 
       <div className="section">
@@ -526,11 +535,13 @@ function Inspector({
 function EdgeList({
   edges,
   pick,
+  root,
   onSelect,
   onOpenPin,
 }: {
   edges: GraphEdge[]
   pick: 'to' | 'from'
+  root: string
   onSelect: (id: string) => void
   onOpenPin: (pin: Pin) => void
 }) {
@@ -543,7 +554,7 @@ function EdgeList({
           <li key={`${e.from}|${e.type}|${e.to}|${i}`} className="row wrap" style={{ gap: 6 }}>
             <span className="badge muted">{e.type}</span>
             <button className="pin" onClick={() => onSelect(other)}>
-              {labelOf({ id: other, kind: 'module' })}
+              {labelOf({ id: other, kind: 'module' }, root)}
             </button>
             {e.evidence?.slice(0, 2).map((ev, j) => (
               <button key={j} className="pin" onClick={() => onOpenPin(ev)} title={ev.path}>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   allKinds,
   buildElements,
+  commonRoot,
   defaultKinds,
   labelOf,
   neighborhood,
@@ -89,6 +90,51 @@ describe('packageOf', () => {
   })
 })
 
+describe('commonRoot', () => {
+  it('strips the directory every path-shaped module shares', () => {
+    // kbet's ids all start betchat/frontend/src/, so without this every
+    // label renders as the same truncated prefix.
+    const kbet = [
+      node('betchat/frontend/src/components/BetCard', 'module'),
+      node('betchat/frontend/src/stores/authStore', 'module'),
+      node('betchat/frontend/src/api/bets', 'module'),
+    ]
+    expect(commonRoot(kbet)).toBe('betchat/frontend/src/')
+    expect(labelOf(kbet[0], commonRoot(kbet))).toBe('components/BetCard')
+    expect(packages(kbet, commonRoot(kbet))).toEqual(['api', 'components', 'stores'])
+  })
+
+  it('never consumes the module name itself', () => {
+    // Two modules in one directory share it, but the label must keep a
+    // name — stripping to "" would leave unlabelled nodes.
+    const pair = [node('src/a', 'module'), node('src/b', 'module')]
+    expect(commonRoot(pair)).toBe('src/')
+    expect(labelOf(pair[0], commonRoot(pair))).toBe('a')
+
+    const one = [node('deep/nested/only', 'module')]
+    expect(commonRoot(one)).toBe('deep/nested/')
+    expect(labelOf(one[0], commonRoot(one))).toBe('only')
+  })
+
+  it('is empty when paths diverge at the top, or when there are none', () => {
+    expect(commonRoot([node('src/a', 'module'), node('lib/b', 'module')])).toBe('')
+    expect(commonRoot([node('hobbes.cli', 'module')])).toBe('')
+    expect(commonRoot([])).toBe('')
+  })
+
+  it('ignores namespaced ids, whose colon is not a path', () => {
+    const mixed = [
+      node('src/app/flow', 'module'),
+      node('src/app/util', 'module'),
+      node('ext:react', 'external'),
+      node('env:API_URL', 'env'),
+    ]
+    expect(commonRoot(mixed)).toBe('src/app/')
+    expect(labelOf(mixed[2], 'src/app/')).toBe('react')
+    expect(packageOf(mixed[3], 'src/app/')).toBe('env')
+  })
+})
+
 describe('labelOf', () => {
   it('drops the prefix the shape already conveys', () => {
     expect(labelOf(node('ext:express', 'external'))).toBe('express')
@@ -141,6 +187,25 @@ describe('buildElements', () => {
     const elements = buildElements(graph, { ...base, packages: new Set(['hobbes']) })
     expect(elements.every((e) => !e.data.id.startsWith('src/'))).toBe(true)
     expect(elements.some((e) => e.data.id === 'hobbes.cli')).toBe(true)
+  })
+
+  it('labels with the id stripped of the common root, keeping ids intact', () => {
+    const paths: Graph = {
+      ...graph,
+      nodes: [
+        { id: 'app/web/src/components/Card', kind: 'module' },
+        { id: 'app/web/src/stores/auth', kind: 'module' },
+      ],
+      module_edges: [
+        { from: 'app/web/src/components/Card', to: 'app/web/src/stores/auth', type: 'imports' },
+      ],
+    }
+    const root = commonRoot(paths.nodes)
+    const elements = buildElements(paths, { ...base, root })
+    const card = elements.find((e) => e.data.id === 'app/web/src/components/Card')!
+    // The id is what the API and the graph speak; only the label shortens.
+    expect((card.data as { label: string }).label).toBe('components/Card')
+    expect(card.data.id).toBe('app/web/src/components/Card')
   })
 
   it('fades rather than removes when focused, so the shape stays visible', () => {

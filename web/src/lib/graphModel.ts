@@ -15,6 +15,8 @@ export interface GraphFilters {
   packages: Set<string> | null
   focus: string | null
   depth: number
+  /** The shared directory prefix stripped from labels; see commonRoot. */
+  root?: string
 }
 
 export interface CyNode {
@@ -55,17 +57,57 @@ export function allKinds(nodes: GraphNode[]): NodeKind[] {
   return [...known, ...unknown]
 }
 
+/** The `ext:` / `env:` / `tf:` namespaces a node id can carry. */
+const NAMESPACES = ['ext', 'env', 'tf']
+
+function namespaceOf(id: string): string | null {
+  const colon = id.indexOf(':')
+  if (colon <= 0) return null
+  const ns = id.slice(0, colon)
+  return NAMESPACES.includes(ns) ? ns : null
+}
+
 /**
- * packageOf groups a node by its top-level segment. Root-disambiguated
- * ids like `pipeline:tests` stay whole (ADR-008's rule, kept here so the
- * two renderers group alike); `ext:`/`env:`/`tf:` nodes group by their
- * prefix, which is what they are.
+ * commonRoot is the directory prefix every path-shaped module id shares
+ * — `betchat/frontend/src/` in a repo whose app lives there. TS/JS ids
+ * are repo-relative paths (ADR-021), so without stripping it every label
+ * reads as the same truncated prefix and the graph is unreadable. It is
+ * computed, not configured: the repo says where its code lives.
  */
-export function packageOf(node: GraphNode): string {
-  const id = node.id
-  const prefix = id.slice(0, id.indexOf(':') + 1)
-  if (prefix === 'ext:' || prefix === 'env:' || prefix === 'tf:') return prefix.slice(0, -1)
+export function commonRoot(nodes: GraphNode[]): string {
+  const paths = nodes
+    .filter((n) => !namespaceOf(n.id) && n.id.includes('/'))
+    .map((n) => n.id.split('/'))
+  if (paths.length === 0) return ''
+  // Only whole leading segments count, and never the last one — that is
+  // the module's own name, not a directory.
+  let shared = paths[0].slice(0, -1)
+  for (const parts of paths.slice(1)) {
+    const limit = Math.min(shared.length, parts.length - 1)
+    let i = 0
+    while (i < limit && shared[i] === parts[i]) i++
+    shared = shared.slice(0, i)
+    if (shared.length === 0) break
+  }
+  return shared.length ? shared.join('/') + '/' : ''
+}
+
+/** strip removes the common root from a path-shaped id. */
+function strip(id: string, root: string): string {
+  return root && id.startsWith(root) ? id.slice(root.length) : id
+}
+
+/**
+ * packageOf groups a node by its top-level segment, below the common
+ * root. Root-disambiguated ids like `pipeline:tests` stay whole (ADR-008's
+ * rule, kept here so the two renderers group alike); `ext:`/`env:`/`tf:`
+ * nodes group by their namespace, which is what they are.
+ */
+export function packageOf(node: GraphNode, root = ''): string {
+  const ns = namespaceOf(node.id)
+  if (ns) return ns
   // TS/JS ids are paths (ADR-021); Python ids are dotted.
+  const id = strip(node.id, root)
   const bySlash = id.indexOf('/')
   if (bySlash > 0) return id.slice(0, bySlash)
   const byDot = id.indexOf('.')
@@ -73,17 +115,19 @@ export function packageOf(node: GraphNode): string {
 }
 
 /** packages lists every package present, sorted. */
-export function packages(nodes: GraphNode[]): string[] {
-  return [...new Set(nodes.map(packageOf))].sort()
+export function packages(nodes: GraphNode[], root = ''): string[] {
+  return [...new Set(nodes.map((n) => packageOf(n, root)))].sort()
 }
 
-/** label strips the prefix a node's kind already conveys. */
-export function labelOf(node: GraphNode): string {
-  const colon = node.id.indexOf(':')
-  if (colon > 0 && ['ext', 'env', 'tf'].includes(node.id.slice(0, colon))) {
-    return node.id.slice(colon + 1)
-  }
-  return node.id
+/**
+ * labelOf drops what the node's shape already conveys (the namespace)
+ * and the directory every module shares, leaving the part that tells one
+ * node from another.
+ */
+export function labelOf(node: GraphNode, root = ''): string {
+  const ns = namespaceOf(node.id)
+  if (ns) return node.id.slice(ns.length + 1)
+  return strip(node.id, root)
 }
 
 /**
@@ -129,7 +173,7 @@ export function buildElements(graph: Graph, filters: GraphFilters): CyElement[] 
   const visible = new Map<string, GraphNode>()
   for (const node of graph.nodes) {
     if (!filters.kinds.has(node.kind)) continue
-    if (filters.packages && !filters.packages.has(packageOf(node))) continue
+    if (filters.packages && !filters.packages.has(packageOf(node, filters.root ?? ''))) continue
     visible.set(node.id, node)
   }
 
@@ -138,15 +182,16 @@ export function buildElements(graph: Graph, filters: GraphFilters): CyElement[] 
       ? neighborhood(graph.module_edges, filters.focus, filters.depth)
       : null
 
+  const root = filters.root ?? ''
   const nodes: CyNode[] = []
   for (const id of [...visible.keys()].sort()) {
     const node = visible.get(id)!
     nodes.push({
       data: {
         id: node.id,
-        label: labelOf(node),
+        label: labelOf(node, root),
         kind: node.kind,
-        pkg: packageOf(node),
+        pkg: packageOf(node, root),
         faded: focused ? !focused.has(node.id) : false,
       },
     })
