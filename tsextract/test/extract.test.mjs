@@ -298,3 +298,75 @@ test("calls to nested declarations are omitted (only top-level symbols exist)", 
     [[null, "outer"]]
   );
 });
+
+test("nested tsconfig zone resolves its own path aliases", () => {
+  const root = makeRepo({
+    "web/tsconfig.json": JSON.stringify({
+      compilerOptions: {
+        moduleResolution: "bundler",
+        module: "esnext",
+        jsx: "react-jsx",
+        paths: { "@/*": ["./src/*"] },
+      },
+    }),
+    "web/src/api/auth.ts": "export function login() { return 1; }\n",
+    "web/src/app.ts": [
+      'import { login } from "@/api/auth";',
+      'const lazy = () => import("@/api/auth");',
+      "login(); lazy();",
+    ].join("\n"),
+    "elsewhere/plain.js": 'import { x } from "./other.js";\n',
+    "elsewhere/other.js": "export const x = 1;\n",
+  });
+  const facts = extractRepo(root);
+  assert.deepEqual(facts.tsconfigs, ["web/tsconfig.json"]);
+  const app = byPath(facts, "web/src/app.ts");
+  assert.deepEqual(
+    app.imports.map((i) => [i.specifier, i.resolved]),
+    [
+      ["@/api/auth", "web/src/api/auth.ts"],
+      ["@/api/auth", "web/src/api/auth.ts"], // dynamic import, alias-resolved
+    ]
+  );
+  assert.deepEqual(
+    app.calls.map((c) => [c.callee_path, c.callee]),
+    [
+      ["web/src/app.ts", "lazy"],
+      ["web/src/api/auth.ts", "login"],
+    ]
+  );
+  // The zone-less files still resolve through the default project.
+  assert.equal(byPath(facts, "elsewhere/plain.js").imports[0].resolved, "elsewhere/other.js");
+});
+
+test("unresolved alias specifiers never become external packages", () => {
+  const root = makeRepo({
+    "src/app.ts": 'import { x } from "@/nowhere";\nimport { y } from "~/also/nowhere";\n',
+  });
+  assert.deepEqual(byPath(extractRepo(root), "src/app.ts").imports, []);
+});
+
+test("call-initialized consts are symbols; calls to them stay consistent", () => {
+  const root = makeRepo({
+    "src/store.ts": [
+      "function create(fn: any) { return fn; }",
+      "export const useStore = create(() => ({ n: 1 }));",
+      "export const DATA = { n: 1 };", // plain data const: not a symbol
+    ].join("\n"),
+    "src/page.ts": [
+      'import { useStore, DATA } from "./store.js";',
+      "export function Page() { return useStore(); }",
+    ].join("\n"),
+  });
+  const facts = extractRepo(root);
+  const store = byPath(facts, "src/store.ts");
+  assert.deepEqual(
+    store.symbols.map((s) => [s.qualname, s.kind]),
+    [["create", "function"], ["useStore", "const"]]
+  );
+  const calls = byPath(facts, "src/page.ts").calls;
+  assert.deepEqual(
+    calls.map((c) => [c.scope, c.callee_path, c.callee]),
+    [["Page", "src/store.ts", "useStore"]]
+  );
+});

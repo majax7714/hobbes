@@ -75,6 +75,8 @@ export function externalName(specifier) {
   if (specifier.startsWith(".") || specifier.startsWith("/")) return null;
   const bare = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
   const segments = bare.split("/");
+  // "@/x" and "~/x" are unresolved path aliases, not packages.
+  if (segments[0] === "@" || segments[0] === "~") return null;
   const name = bare.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   if (BUILTINS.has(name) || specifier.startsWith("node:")) return null;
   return name;
@@ -119,6 +121,13 @@ function declQualname(decl) {
   if (Node.isVariableDeclaration(decl)) {
     const statement = decl.getFirstAncestorByKind(ts.SyntaxKind.VariableStatement);
     if (!statement || !Node.isSourceFile(statement.getParent())) return null;
+    const init = decl.getInitializer();
+    const modeled =
+      init &&
+      (Node.isArrowFunction(init) ||
+        Node.isFunctionExpression(init) ||
+        Node.isCallExpression(init));
+    if (!modeled) return null;
     const name = decl.getNameNode();
     return Node.isIdentifier(name) ? name.getText() : null;
   }
@@ -151,7 +160,7 @@ function enclosingScope(node) {
 
 // --- per-file extraction ---------------------------------------------------
 
-function extractImports(sourceFile, repoRoot, fileSet, filePath) {
+function extractImports(sourceFile, repoRoot, fileSet, filePath, project) {
   const imports = [];
   const push = (specifier, resolvedFile, names, line) => {
     if (resolvedFile) {
@@ -191,7 +200,23 @@ function extractImports(sourceFile, repoRoot, fileSet, filePath) {
       exp.getStartLineNumber()
     );
   }
-  // require() and dynamic import() bypass the import graph.
+  // require() and dynamic import() bypass the import graph; resolve
+  // them through the compiler's own resolver (so a zone's path aliases
+  // apply), falling back to plain relative resolution.
+  const resolveSpecifier = (specifier) => {
+    const result = ts.resolveModuleName(
+      specifier,
+      sourceFile.getFilePath(),
+      project.getCompilerOptions(),
+      project.getModuleResolutionHost()
+    );
+    const resolvedFile = result.resolvedModule?.resolvedFileName;
+    if (resolvedFile) {
+      const target = path.relative(repoRoot, resolvedFile).split(path.sep).join("/");
+      if (fileSet.has(target)) return target;
+    }
+    return resolveRelative(filePath, specifier, fileSet);
+  };
   sourceFile.forEachDescendant((node) => {
     if (!Node.isCallExpression(node)) return;
     const expr = node.getExpression();
@@ -200,7 +225,7 @@ function extractImports(sourceFile, repoRoot, fileSet, filePath) {
     if (!isRequire && !isDynamic) return;
     const specifier = firstStringArg(node);
     if (!specifier) return;
-    const resolved = resolveRelative(filePath, specifier, fileSet);
+    const resolved = resolveSpecifier(specifier);
     const line = node.getStartLineNumber();
     if (resolved) {
       imports.push({ external: null, line, names: [], resolved, specifier });
@@ -238,12 +263,14 @@ function extractSymbols(sourceFile) {
   }
   for (const decl of sourceFile.getVariableDeclarations()) {
     const init = decl.getInitializer();
-    if (
-      init &&
-      (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) &&
-      Node.isIdentifier(decl.getNameNode())
-    ) {
+    if (!init || !Node.isIdentifier(decl.getNameNode())) continue;
+    if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
       add(decl.getName(), decl.getName(), "function", decl);
+    } else if (Node.isCallExpression(init)) {
+      // Call-initialized consts are the JS idiom for callable values —
+      // zustand stores, axios instances, styled components. Modeling
+      // them keeps call edges pointing at symbols that exist.
+      add(decl.getName(), decl.getName(), "const", decl);
     }
   }
   return symbols.sort((a, b) => a.line - b.line || a.qualname.localeCompare(b.qualname));
@@ -470,46 +497,97 @@ function extractTests(sourceFile, filePath, imports) {
 
 // --- repo extraction -------------------------------------------------------
 
+/** Repo-relative path of the nearest tsconfig.json at or above *file*'s
+ * directory (never above the repo root), or "" when there is none. */
+export function nearestTsconfig(root, file) {
+  let dir = path.posix.dirname(file);
+  while (true) {
+    const candidate = dir === "." ? "tsconfig.json" : `${dir}/tsconfig.json`;
+    if (fs.existsSync(path.join(root, candidate))) return candidate;
+    if (dir === ".") return "";
+    dir = path.posix.dirname(dir);
+  }
+}
+
 export function extractRepo(repoRoot) {
   const root = path.resolve(repoRoot);
   const files = discoverFiles(root);
   const fileSet = new Set(files);
-  const tsconfigPath = path.join(root, "tsconfig.json");
-  const hasConfig = fs.existsSync(tsconfigPath);
-  const project = hasConfig
-    ? new Project({ tsConfigFilePath: tsconfigPath, skipAddingFilesFromTsConfig: true })
-    : new Project({
-        compilerOptions: {
-          allowJs: true,
-          checkJs: false,
-          module: ts.ModuleKind.ESNext,
-          moduleResolution: ts.ModuleResolutionKind.Bundler,
-          target: ts.ScriptTarget.ES2022,
-          jsx: ts.JsxEmit.Preserve,
-        },
-      });
-  for (const file of files) project.addSourceFileAtPath(path.join(root, file));
+
+  // Files group by their nearest tsconfig.json ("zones"), one ts-morph
+  // Project per zone, so per-package compiler options — path aliases
+  // above all — resolve the way that package's own build does. Files
+  // under no tsconfig share a default allowJs project. Cross-zone
+  // imports don't resolve (separate programs); accepted, rare.
+  const zones = new Map();
+  for (const file of files) {
+    const zone = nearestTsconfig(root, file);
+    if (!zones.has(zone)) zones.set(zone, []);
+    zones.get(zone).push(file);
+  }
 
   const out = [];
-  for (const file of files) {
-    const sourceFile = project.getSourceFile(path.join(root, file));
-    const imports = extractImports(sourceFile, root, fileSet, file);
-    const tests = extractTests(sourceFile, file, imports);
-    out.push({
-      calls: extractCalls(sourceFile, root, fileSet),
-      env_reads: extractEnvReads(sourceFile),
-      imports,
-      path: file,
-      routes: extractRoutes(sourceFile, root, fileSet),
-      symbols: extractSymbols(sourceFile),
-      test_framework: tests.framework,
-      tests: tests.cases,
-    });
+  const errors = [];
+  for (const [zone, zoneFiles] of [...zones.entries()].sort()) {
+    // Zone configs get safety overrides: extraction must handle files
+    // the package's own build ignores (a stray service worker), and
+    // checking dependency .d.ts is pure risk with no facts to gain.
+    const project = zone
+      ? new Project({
+          tsConfigFilePath: path.join(root, zone),
+          skipAddingFilesFromTsConfig: true,
+          compilerOptions: { allowJs: true, checkJs: false, noEmit: true, skipLibCheck: true },
+        })
+      : new Project({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: false,
+            module: ts.ModuleKind.ESNext,
+            moduleResolution: ts.ModuleResolutionKind.Bundler,
+            skipLibCheck: true,
+            target: ts.ScriptTarget.ES2022,
+            jsx: ts.JsxEmit.Preserve,
+          },
+        });
+    for (const file of zoneFiles) project.addSourceFileAtPath(path.join(root, file));
+    for (const file of zoneFiles) {
+      const sourceFile = project.getSourceFile(path.join(root, file));
+      // A checker internal crash on one stage of one file must not
+      // zero the repo: the stage degrades to empty and the facts say
+      // so — degradation is visible, never silent (P1).
+      const attempt = (stage, fallback, run) => {
+        try {
+          return run();
+        } catch (error) {
+          errors.push({ message: String(error.message).slice(0, 200), path: file, stage });
+          return fallback;
+        }
+      };
+      const imports = attempt("imports", [], () =>
+        extractImports(sourceFile, root, fileSet, file, project)
+      );
+      const tests = attempt("tests", { framework: null, cases: [] }, () =>
+        extractTests(sourceFile, file, imports)
+      );
+      out.push({
+        calls: attempt("calls", [], () => extractCalls(sourceFile, root, fileSet)),
+        env_reads: attempt("env_reads", [], () => extractEnvReads(sourceFile)),
+        imports,
+        path: file,
+        routes: attempt("routes", [], () => extractRoutes(sourceFile, root, fileSet)),
+        symbols: attempt("symbols", [], () => extractSymbols(sourceFile)),
+        test_framework: tests.framework,
+        tests: tests.cases,
+      });
+    }
   }
+  out.sort((a, b) => a.path.localeCompare(b.path));
+  errors.sort((a, b) => a.path.localeCompare(b.path) || a.stage.localeCompare(b.stage));
   return {
+    errors,
     files: out,
     helper_version: HELPER_VERSION,
-    tsconfig: hasConfig ? "tsconfig.json" : null,
+    tsconfigs: [...zones.keys()].filter(Boolean).sort(),
   };
 }
 
@@ -529,6 +607,8 @@ function main(argv) {
   return 0;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exit(main(process.argv.slice(2)));
+// process.exitCode, never process.exit(): exiting eagerly truncates
+// stdout at the 64KB pipe buffer on large repos.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = main(process.argv.slice(2));
 }

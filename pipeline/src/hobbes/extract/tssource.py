@@ -190,6 +190,10 @@ def join_facts(facts: dict) -> dict:
         "tests": _collect_tests(files, symbols, symbol_edges),
         "routes": sorted(routes, key=lambda r: (r["file"], r["line"], r["path"])),
         "languages": sorted(languages),
+        # Per-file/stage degradations the helper survived (a checker
+        # crash on one expression must not zero the repo) — carried into
+        # the artifact so the gap is visible, never silent (P1).
+        "errors": facts.get("errors", []),
     }
 
 
@@ -259,8 +263,17 @@ def _collect_tests(
         test_prefixes = tuple(f"{tm}." for tm in test_module_ids)
         reached = {s for s in reached if not s.startswith(test_prefixes)}
         reaches = sorted(reached)
+        # Module-level guarding must not depend on symbol modeling: a
+        # test that imports a module guards it even when nothing it
+        # names is in the symbol layer (data consts, mocked modules).
+        imported_modules = {
+            module_id(imp["resolved"])
+            for imp in f["imports"]
+            if imp["resolved"]
+        } - test_module_ids
         reaches_modules = sorted(
             {symbol_module[s] for s in reached if s in symbol_module}
+            | imported_modules
         )
         for case in f["tests"]:
             records.append(

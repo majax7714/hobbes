@@ -63,7 +63,9 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     routes = extract_routes(modules, parsed)
 
     infra = extract_terraform(repo_root, modules, tf_plan=tf_plan)
-    languages = ["python"]
+    # Languages reflect what the repo actually contains — a TS-only repo
+    # (M6) must not claim python.
+    languages = ["python"] if modules else []
     if infra["tf_file_count"]:
         languages.append("hcl")
         _merge_layer(graph, infra["nodes"], infra["module_edges"])
@@ -71,6 +73,8 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     ts = extract_ts(repo_root)
     if ts:
         languages += ts["languages"]
+        if ts["errors"]:
+            graph["extraction_errors"] = ts["errors"]
         _merge_layer(graph, ts["nodes"], ts["module_edges"])
         graph["symbols"] = sorted(
             graph["symbols"] + ts["symbols"], key=lambda s: s["id"]

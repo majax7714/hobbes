@@ -87,6 +87,12 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     dirty = " (dirty tree)" if graph["dirty"] else ""
     languages = ", ".join(graph["languages"])
     print(f"ingested {repo_root} @ {graph['sha'][:12]}{dirty} [{languages}]")
+    for degraded in graph.get("extraction_errors", []):
+        print(
+            f"  WARNING: {degraded['path']}: {degraded['stage']} extraction "
+            f"degraded ({degraded['message']})",
+            file=sys.stderr,
+        )
     print(
         f"  graph.json:      {len(graph['nodes'])} nodes, "
         f"{len(graph['module_edges'])} module edges, "

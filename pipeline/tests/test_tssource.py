@@ -29,7 +29,7 @@ HELPER = Path(__file__).parents[2] / "tsextract" / "extract.mjs"
 
 
 def facts(files):
-    return {"helper_version": HELPER_VERSION, "tsconfig": None, "files": files}
+    return {"helper_version": HELPER_VERSION, "tsconfigs": [], "files": files}
 
 
 def file_facts(path, **overrides):
@@ -276,6 +276,35 @@ class TestJoinFacts:
         assert record["reaches_modules"] == []
 
 
+    def test_imported_module_guarded_even_without_symbol_match(self, tmp_path):
+        # A test importing a module guards it even when nothing it names
+        # is in the symbol layer (zustand stores, mocked modules).
+        joined = join_facts(
+            facts(
+                [
+                    file_facts("src/store.ts"),  # no modeled symbols
+                    file_facts(
+                        "tests/store.test.ts",
+                        imports=[
+                            {
+                                "specifier": "@/store",
+                                "resolved": "src/store.ts",
+                                "external": None,
+                                "names": ["useStore"],
+                                "line": 1,
+                            }
+                        ],
+                        test_framework="vitest",
+                        tests=[{"qualname": "store works", "line": 3}],
+                    ),
+                ]
+            )
+        )
+        (record,) = joined["tests"]
+        assert record["reaches"] == []
+        assert record["reaches_modules"] == ["src/store"]
+
+
 class TestHasTsFiles:
     def test_finds_and_skips(self, tmp_path):
         (tmp_path / "node_modules").mkdir()
@@ -405,3 +434,17 @@ class TestIntegrationIngest:
         assert "framework" not in paths["tests.json"]
         routes = paths["interfaces.json"]["routes"]
         assert {r["framework"] for r in routes} == {"express", "nest"}
+
+    def test_ts_only_repo_claims_no_python(self, tmp_path):
+        repo = tmp_path / "tsrepo"
+        shutil.copytree(FIXTURE, repo)
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run([*git[:3], "init", "-q"], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "one"], check=True)
+
+        from hobbes.extract import ingest
+
+        graph = {p.name: json.loads(p.read_text()) for p in ingest(repo)}["graph.json"]
+        assert graph["languages"] == ["javascript", "typescript"]
+
