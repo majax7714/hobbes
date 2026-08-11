@@ -1,0 +1,81 @@
+// Knowledge-layer tools on the session's MCP server (ADR-017): read-only
+// queries over .hobbes/derived/, never policy-resolved, always logged.
+package proxy
+
+import (
+	"context"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/majax7714/hobbes/go/internal/knowledge"
+	"github.com/majax7714/hobbes/go/internal/recorder"
+)
+
+// NeighborhoodArgs is graph_neighborhood's input schema.
+type NeighborhoodArgs struct {
+	Node string `json:"node" jsonschema:"a graph node id, e.g. a module (hobbes.cli), external (ext:yaml), env (env:VAR), or infra (tf:...) node"`
+}
+
+// WhoCallsArgs is who_calls's input schema.
+type WhoCallsArgs struct {
+	Symbol string `json:"symbol" jsonschema:"a symbol id, module-qualified, e.g. hobbes.cli.main"`
+}
+
+// TestsGuardingArgs is tests_guarding's input schema.
+type TestsGuardingArgs struct {
+	Target string `json:"target" jsonschema:"a module id (hobbes.cli) or repo-relative path (pipeline/src/hobbes)"`
+}
+
+// addKnowledgeTools registers the v1 knowledge subset on the MCP server.
+func (s *Server) addKnowledgeTools(srv *mcp.Server) {
+	store := knowledge.Open(s.cfg.RepoRoot)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "graph_neighborhood",
+		Description: "The architecture graph around one node: every module " +
+			"edge in and out, typed, with file:line provenance. Start here " +
+			"before touching a module.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args NeighborhoodArgs) (*mcp.CallToolResult, any, error) {
+		return s.answer("graph_neighborhood", args.Node, store.Neighborhood), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "who_calls",
+		Description: "Every recorded (static) call edge into a symbol, with " +
+			"file:line provenance. Use before changing a signature or behavior.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args WhoCallsArgs) (*mcp.CallToolResult, any, error) {
+		return s.answer("who_calls", args.Symbol, store.WhoCalls), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "tests_guarding",
+		Description: "The tests that statically reach a module or path — the " +
+			"behaviors your change could break. An empty answer means the " +
+			"code is unguarded.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args TestsGuardingArgs) (*mcp.CallToolResult, any, error) {
+		return s.answer("tests_guarding", args.Target, store.TestsGuarding), nil, nil
+	})
+}
+
+// answer runs one knowledge query and logs it (§6: every tool call).
+func (s *Server) answer(tool, query string, run func(string) (string, error)) *mcp.CallToolResult {
+	ev := recorder.Event{
+		Session:    s.cfg.Session,
+		Role:       s.cfg.Role,
+		Tool:       tool,
+		Argv:       []string{query},
+		PolicyRule: "builtin:knowledge-read",
+		Decision:   "allow",
+		SHA:        headSHA(s.cfg.RepoRoot),
+	}
+	if query == "" {
+		return s.record(ev, errResult("%s: empty query", tool))
+	}
+	text, err := run(query)
+	if err != nil {
+		return s.record(ev, errResult("%s: %v", tool, err))
+	}
+	return s.record(ev, &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+	})
+}

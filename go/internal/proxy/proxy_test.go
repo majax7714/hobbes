@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/majax7714/hobbes/go/internal/escalation"
+	"github.com/majax7714/hobbes/go/internal/knowledge"
 	"github.com/majax7714/hobbes/go/internal/recorder"
 )
 
@@ -439,6 +441,37 @@ func TestShaTracksHeadAcrossCommits(t *testing.T) {
 	}
 	if evs[1].SHA != git(t, repo, "rev-parse", "HEAD") {
 		t.Errorf("second sha = %q, want current HEAD", evs[1].SHA)
+	}
+}
+
+func TestKnowledgeQueryAnswersAndLogs(t *testing.T) {
+	repo := testRepo(t)
+	// Hand the fixture minimal derived artifacts.
+	derived := filepath.Join(repo, ".hobbes", "derived")
+	if err := os.MkdirAll(derived, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sha := git(t, repo, "rev-parse", "HEAD")
+	graph := fmt.Sprintf(`{"sha":%q,"dirty":false,
+		"nodes":[{"id":"app.a","kind":"module","path":"a.py"},{"id":"app.b","kind":"module","path":"b.py"}],
+		"module_edges":[{"from":"app.a","to":"app.b","type":"imports","evidence":[{"path":"a.py","line":1}]}],
+		"symbols":[],"symbol_edges":[]}`, sha)
+	if err := os.WriteFile(filepath.Join(derived, "graph.json"), []byte(graph), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, logPath := newServer(t, repo, 0)
+
+	out := s.answer("graph_neighborhood", "app.a", knowledge.Open(repo).Neighborhood)
+	if out.IsError || !strings.Contains(text(out), "-imports-> app.b") {
+		t.Errorf("neighborhood answer: %q", text(out))
+	}
+	ev := events(t, logPath)[0]
+	if ev.Tool != "graph_neighborhood" || ev.Decision != "allow" ||
+		ev.PolicyRule != "builtin:knowledge-read" || ev.Exit != nil {
+		t.Errorf("knowledge event = %+v", ev)
+	}
+	if len(ev.Argv) != 1 || ev.Argv[0] != "app.a" {
+		t.Errorf("argv = %v", ev.Argv)
 	}
 }
 

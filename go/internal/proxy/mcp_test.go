@@ -31,17 +31,26 @@ func connect(t *testing.T, s *Server) *mcp.ClientSession {
 	return session
 }
 
-func TestExecToolIsListed(t *testing.T) {
+func TestSessionToolSurface(t *testing.T) {
 	s, _ := newServer(t, testRepo(t), 0)
 	session := connect(t, s)
 	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 1 || tools.Tools[0].Name != "exec" {
-		t.Fatalf("tools = %+v, want exactly [exec]", tools.Tools)
+	names := map[string]string{}
+	for _, tool := range tools.Tools {
+		names[tool.Name] = tool.Description
 	}
-	if !strings.Contains(tools.Tools[0].Description, "policy") {
+	for _, want := range []string{"exec", "graph_neighborhood", "who_calls", "tests_guarding"} {
+		if _, ok := names[want]; !ok {
+			t.Errorf("tool %s missing from %v", want, names)
+		}
+	}
+	if len(tools.Tools) != 4 {
+		t.Errorf("unexpected extra tools: %v", names)
+	}
+	if !strings.Contains(names["exec"], "policy") {
 		t.Error("exec description should warn the agent about policy gating")
 	}
 }

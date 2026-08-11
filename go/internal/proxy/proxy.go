@@ -104,6 +104,7 @@ func (s *Server) MCP() *mcp.Server {
 			"from the escalation CLI (unanswered escalations expire to " +
 			"deny). Every call is logged to the session flight recorder.",
 	}, s.handleExec)
+	s.addKnowledgeTools(srv)
 	return srv
 }
 
