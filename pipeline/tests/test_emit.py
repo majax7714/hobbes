@@ -152,3 +152,64 @@ class TestIngest:
         assert ("miniapp.core", env, "env-read") in edges
         # And the packages path join: the archive bundles miniapp.cli.
         assert ("tf:data.archive_file.worker", "miniapp.cli", "packages") in edges
+
+
+class TestLayerOwnership:
+    """Each language owns its own files; collisions across layers are loud.
+
+    Discovery is by extension — Python takes .py, Terraform .tf, the
+    helper .ts/.tsx/.js/.jsx/.mjs/.cjs — so no parser ever sees another
+    language's source and a second parse cannot contradict the first.
+    Node *ids* can still collide across layers, and that must never be
+    resolved silently by pipeline order.
+    """
+
+    def test_no_parser_sees_another_languages_files(self, tmp_path):
+        from hobbes.extract.discover import iter_python_files
+        from hobbes.extract.terraform import _discover_tf
+
+        for name in ("a.py", "b.tf", "c.ts", "d.js", "e.tsx"):
+            (tmp_path / name).write_text("")
+        assert [p.name for p in iter_python_files(tmp_path)] == ["a.py"]
+        assert _discover_tf(tmp_path) == ["b.tf"]
+
+    def test_a_cross_layer_id_collision_is_reported(self, tmp_path):
+        # A repo-root widget.py and widget.ts both want the id "widget".
+        # Whoever loses must be named, not dropped in silence (P1).
+        from hobbes.extract import _merge_layer
+
+        graph = {
+            "nodes": [{"id": "widget", "kind": "module", "path": "widget.py"}],
+            "module_edges": [],
+        }
+        collisions = _merge_layer(
+            graph,
+            [{"id": "widget", "kind": "module", "path": "widget.ts"}],
+            [],
+        )
+        assert len(collisions) == 1
+        assert collisions[0]["stage"] == "layer-merge"
+        assert collisions[0]["path"] == "widget.ts"
+        assert "already held by 'widget.py'" in collisions[0]["message"]
+        # The first layer keeps the id, and the graph stays single-valued.
+        assert [n["path"] for n in graph["nodes"]] == ["widget.py"]
+
+    def test_the_same_node_from_two_layers_is_not_a_collision(self, tmp_path):
+        # env:/ext: nodes are legitimately produced by more than one
+        # layer — that is the cross-layer join working (M3), not a clash.
+        from hobbes.extract import _merge_layer
+
+        graph = {"nodes": [{"id": "env:API_URL", "kind": "env"}], "module_edges": []}
+        assert _merge_layer(graph, [{"id": "env:API_URL", "kind": "env"}], []) == []
+
+    def test_symbols_stay_unique_when_modules_collide(self, tmp_path):
+        # Two rows under one id would leave one pointing at a module the
+        # node list does not contain.
+        from hobbes.extract import _merge_symbols
+
+        merged = _merge_symbols(
+            [{"id": "widget.run", "module": "widget", "kind": "function", "line": 1}],
+            [{"id": "widget.run", "module": "widget", "kind": "function", "line": 9}],
+        )
+        assert [s["id"] for s in merged] == ["widget.run"]
+        assert merged[0]["line"] == 1

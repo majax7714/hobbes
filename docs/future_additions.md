@@ -119,3 +119,24 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   support them natively — but no invariant has wanted one yet, and
   building the emitter first is the speculative abstraction the
   conventions forbid.
+
+- **Cross-language module-id namespacing** (from M8 review, deferred
+  2026-08-11, Max-raised). Language *selection* is already right —
+  discovery is by extension, so each language has exactly one parser and
+  no parser sees another's files (I-4). What is not right is what
+  happens when two layers want the same node id: a repo-root `widget.py`
+  and `widget.ts` both derive the id `widget`, and the merge resolves it
+  by pipeline order (Python, then HCL, then TS). That is now **loud** —
+  the loser is recorded in `extraction_errors` and warned at ingest —
+  but the file is still omitted from the graph, which is data loss
+  decided by an accident of ordering.
+
+  The principled fix is to namespace the incoming layer's ids on
+  collision, the way `discover.py` already disambiguates Python-internal
+  clashes into `root:name`. It was deferred because doing it properly
+  means rewriting ids across a whole layer's nodes, module edges,
+  symbols, symbol edges, tests, and routes — a change to the M6 contract
+  that deserves its own ADR rather than a corner of M8. Pick it up when
+  a real repo hits the collision, or before the fourth language lands,
+  whichever comes first; the extraction_errors record already names
+  every case that would have been affected.

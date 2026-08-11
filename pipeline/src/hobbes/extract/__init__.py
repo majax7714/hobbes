@@ -73,12 +73,11 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     ts = extract_ts(repo_root)
     if ts:
         languages += ts["languages"]
-        if ts["errors"]:
-            graph["extraction_errors"] = ts["errors"]
-        _merge_layer(graph, ts["nodes"], ts["module_edges"])
-        graph["symbols"] = sorted(
-            graph["symbols"] + ts["symbols"], key=lambda s: s["id"]
-        )
+        degraded = list(ts["errors"])
+        degraded += _merge_layer(graph, ts["nodes"], ts["module_edges"])
+        if degraded:
+            graph["extraction_errors"] = degraded
+        graph["symbols"] = _merge_symbols(graph["symbols"], ts["symbols"])
         graph["symbol_edges"] = sorted(
             graph["symbol_edges"] + ts["symbol_edges"],
             key=lambda e: (e["from"], e["to"], e["type"]),
@@ -98,16 +97,61 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     )
 
 
-def _merge_layer(graph: dict, nodes: list[dict], module_edges: list[dict]) -> None:
-    """Merge another language layer's nodes and module edges into *graph*."""
+def _merge_layer(
+    graph: dict, nodes: list[dict], module_edges: list[dict]
+) -> list[dict]:
+    """Merge another language layer's nodes and module edges into *graph*.
+
+    Each language owns its own files (discovery is by extension, so no
+    parser ever sees another's source) and its facts are merged, never
+    re-derived — a second parse can't contradict the first because it
+    never happens.
+
+    Node ids can still collide *across* layers, though: a repo-root
+    ``widget.py`` and ``widget.ts`` both want the id ``widget``. The
+    first layer keeps it, and the loser is **reported**, not dropped in
+    silence — resolution by pipeline order is an accident, and an
+    accident that is invisible is a lie about the graph (P1). Returns
+    one degradation record per collision.
+    """
     merged = {n["id"]: n for n in graph["nodes"]}
+    collisions = []
     for node in nodes:
-        merged.setdefault(node["id"], node)
+        existing = merged.get(node["id"])
+        if existing is None:
+            merged[node["id"]] = node
+            continue
+        if existing.get("path") != node.get("path"):
+            collisions.append(
+                {
+                    "path": node.get("path", node["id"]),
+                    "stage": "layer-merge",
+                    "message": (
+                        f"module id {node['id']!r} is already held by "
+                        f"{existing.get('path')!r}; this file is omitted from the "
+                        "graph. Rename one of them, or move it out of the repo root."
+                    ),
+                }
+            )
     graph["nodes"] = sorted(merged.values(), key=lambda n: n["id"])
     graph["module_edges"] = sorted(
         graph["module_edges"] + module_edges,
         key=lambda e: (e["from"], e["to"], e["type"]),
     )
+    return collisions
+
+
+def _merge_symbols(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    """Merge a layer's symbols, keeping ids unique.
+
+    A colliding module id drags its symbols with it; emitting both would
+    put two rows under one id in the artifact and leave one of them
+    pointing at a module the node list does not contain.
+    """
+    merged = {s["id"]: s for s in existing}
+    for symbol in incoming:
+        merged.setdefault(symbol["id"], symbol)
+    return sorted(merged.values(), key=lambda s: s["id"])
 
 
 def ingest(repo_root: Path, tf_plan: Path | None = None) -> list[Path]:
