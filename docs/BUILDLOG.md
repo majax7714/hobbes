@@ -252,3 +252,39 @@ narrowed for v1 (ADR-012 documents the reconciliation and the
 
 **Next:** M4 — policy proxy + sandbox + flight recorder. Not started;
 reported back first per Max's instruction, since M4 is the big one.
+
+---
+
+## 2026-08-10 (sixth session) — M4 chunk 1: flight recorder + MCP exec proxy
+
+ADR-012 review passed. Max approved splitting M4 into three review-gated
+chunks (proxy+recorder → escalation queue → wrapper+sandbox); this session
+is chunk 1.
+
+**Built:**
+
+- ADR-013/014/015: official MCP Go SDK (`modelcontextprotocol/go-sdk`
+  v1.7.0); one proxy process per session over stdio, flight logs box-side
+  at `~/.hobbes/sessions/<session>/flight.jsonl`; recorder schema exactly
+  architecture §9, exec runs `/bin/sh -c` with a 10m default timeout and
+  50 KiB/stream output caps.
+- `internal/recorder/` — append-only JSONL writer, fsync per event, 0600.
+- `internal/proxy/` — the `exec` tool: dir confined to the repo root,
+  policy chain loaded per call (`internal/policy.LoadChain` — the M0 bet
+  that the daemon imports the engine paid off unchanged), allow runs /
+  deny refuses / escalate parks-as-error (honest chunk-1 stub; queue is
+  chunk 2), every decision logged with the decisive rule and per-event
+  HEAD sha. Protocol-level tests over the SDK's in-memory transports.
+- `cmd/hobbes-proxy/` — `serve` (--repo/--role required, --session
+  generated, box policy per ADR-003 rules). 90 Go test cases total.
+
+**Verified by hand** on the hobbes repo over real stdio (scripted MCP
+client): `git status` → allow, ran, exit 0 logged @ HEAD sha;
+`cat prod.tfstate` → deny (repo rule, reason quoted), not run;
+`git push origin main` → escalate, parked, not run. Flight log lines
+carry exactly `{ts, session, role, tool, argv, policy_rule, decision,
+exit, sha}`.
+
+**Next:** chunk 2 — escalation queue (park under `~/.hobbes/sessions/`,
+CLI approve/deny, 30-min expire-to-deny, replayable approvals). Awaiting
+Max's chunk-1 review first.

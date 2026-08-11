@@ -14,9 +14,12 @@ graph.
 
 - `go/` — Go module (`github.com/majax7714/hobbes/go`). `cmd/hobbes-policy/`
   is the policy CLI; `internal/policy/` is the merge engine (box → repo →
-  folder, deny overrides allow, allow|deny|escalate). The M4
-  proxy/supervisor/recorder daemon will live here too and import the same
-  package.
+  folder, deny overrides allow, allow|deny|escalate).
+  `cmd/hobbes-proxy/` is the per-session M4 daemon (`serve` = MCP over
+  stdio, ADR-013/014): `internal/proxy/` (policy-checked `exec` tool) +
+  `internal/recorder/` (append-only JSONL flight log at
+  `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015). Only external Go
+  deps: `yaml.v3`, `modelcontextprotocol/go-sdk`.
 - `pipeline/` — Python package `hobbes` (uv-managed, src layout). The `hobbes`
   CLI (`src/hobbes/cli.py`), the shell-out wrapper for the Go policy binary
   (`src/hobbes/policy.py`), the deterministic extractors
@@ -41,6 +44,7 @@ Go and uv are user-local installs: `~/.local/go/bin` and `~/.local/bin`
 cd go
 go test ./...
 go build -o bin/hobbes-policy ./cmd/hobbes-policy
+go build -o bin/hobbes-proxy  ./cmd/hobbes-proxy
 
 # Python
 cd pipeline
@@ -72,19 +76,31 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M3 (Terraform extractor) — built, pending Max's exit
-review** (build-plan exit bar: app+infra graph for one repo, one
-cross-layer edge verified by hand — done on SELENEX, awaiting Max's
-confirmation). Do not start M4 until that review has happened.
+**Active milestone: M4 (policy proxy + sandbox + flight recorder), split
+into three review-gated chunks (Max-approved plan). Chunk 1 — flight
+recorder + MCP exec proxy — built, pending Max's review.** Do not start
+chunk 2 until that review has happened.
 
-Done through M3:
-- M0 (reviewed, passed): policy YAML format (ADR-001/002), Go merge engine +
+- Chunk 1 (this): `hobbes-proxy serve` (ADR-013/014/015) — per-session
+  stdio MCP server, one `exec` tool resolved through `internal/policy`
+  (allow runs via `sh -c` with timeout+output caps; deny refuses;
+  escalate parks-as-error until chunk 2), every call logged to the
+  flight recorder. 90 Go test cases; hand-verified on the hobbes repo
+  (allow/deny/escalate all logged; log at
+  `~/.hobbes/sessions/S-handcheck-m4c1/flight.jsonl`).
+- Chunk 2 (next, after review): escalation queue — parked commands under
+  `~/.hobbes/sessions/`, CLI approve/deny, 30-min expire-to-deny,
+  replayable approvals.
+- Chunk 3: session wrapper + Podman rootless sandbox (D2) + knowledge-
+  layer MCP query tools + secret brokering; then the full M4 exit check.
+
+- M0: policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy
   passthrough, dogfood repo policy.
-- M1 (reviewed, passed): deterministic Python extractor (ADR-005/006/007;
+- M1: deterministic Python extractor (ADR-005/006/007;
   **tree-sitter pinned <0.26**, 0.26.0 core segfaults). `hobbes ingest` /
   `hobbes init`.
-- M2 (reviewed, passed): Mermaid export (`hobbes render`, ADR-008), graph
+- M2: Mermaid export (`hobbes render`, ADR-008), graph
   diff (`hobbes diff <base>..<head>`, ADR-009). Deferred ideas live in
   `docs/future_additions.md`.
 - M3: Terraform/HCL extractor (`extract/terraform.py`, ADR-010) —
@@ -92,10 +108,10 @@ Done through M3:
   cross-layer joins (`env-set` → `env:VAR` ← `env-read`, and `packages`
   path joins onto discovered modules), optional `--tf-plan` enrichment
   (tfstate lookalikes refused). graph.json schema v2 (`languages` list).
-  Builtin tfstate deny floor in the Go engine (ADR-011). 119 pytest +
-  55 Go test cases. Test repos (Max-sanctioned): `~/SELENEX`
-  (Py+JS+TF; cross-layer `packages` edge verified by hand at
-  infra-core/lambda.tf:5 → handler.py) and `~/qwen-pathology` (Python).
-
-Next (after review): M4 — policy proxy + sandbox + flight recorder (the
-daemon; the hard one).
+  Builtin tfstate deny floor in the Go engine (ADR-011). Test repos
+  (Max-sanctioned): `~/SELENEX` (Py+JS+TF; cross-layer `packages` edge
+  verified by hand at infra-core/lambda.tf:5 → handler.py) and
+  `~/qwen-pathology` (Python).
+- ADR-012: Hobbes files are personal — `ingest`/`init` gitignore the
+  whole `.hobbes/` in target repos (tracked-content guard keeps this
+  repo's dogfood versioning). 124 pytest cases.
