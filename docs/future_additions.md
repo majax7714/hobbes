@@ -23,3 +23,19 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   when it hurts (likely at M5's behavioral index): depth limits,
   entry-point-aware trimming, or fixture-resolution to sharpen pytest
   reach.
+
+- **System narrative — user-journey walkthroughs** (from M5, deferred
+  2026-08-11, Max-confirmed). Architecture §3.2 lists data-flow
+  walkthroughs of the top 3–5 user journeys alongside the M5 artifacts,
+  but the build plan's M5 line and exit criteria don't need them, and
+  picking "top journeys" wants either a heuristic (entry points ranked
+  by reach?) or a human list. Natural surface: M7's docs tab, where a
+  walkthrough would actually render; the ADR-019 claim/pin schema
+  already fits it (a walkthrough is an ordered list of pinned claims).
+
+- **Cartographer sessions in the M4 sandbox** (from M5, ADR-020's
+  "deferred, not rejected"). v1 narrative units are single-shot
+  tool-less `claude -p` calls. If skeleton gaps show up as shallow docs
+  (the cartographer can't follow a chain the extractor missed), move
+  narrative generation into sandboxed sessions with the role mounts
+  ADR-018 already supports (ro source, rw .hobbes/), and flight-log it.

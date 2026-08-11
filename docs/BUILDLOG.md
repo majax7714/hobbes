@@ -382,3 +382,70 @@ Claude Code by default (`--claude-cred`), one command away.
 
 **Next:** M5 — narrative pass (first subscription-quota milestone).
 Not started; M4 awaits Max's review.
+
+---
+
+## 2026-08-11 (ninth session) — M5: narrative pass
+
+M4 review passed (Max, start of session). This is the first
+quota-spending milestone: cartographer module docs, test-behavior
+indexes, and inferred invariants, every claim `file:line @ SHA`-pinned.
+
+**Built:**
+
+- ADR-019 + `hobbes.narrate.schema`/`stale`: narrative artifacts under
+  `.hobbes/derived/docs/` (module docs, per-test-file behavior indexes,
+  `invariants.inferred.yaml` in the §10 record shape — ids and
+  `status: inferred` assigned at write time, never by the model;
+  confirmation is Max moving a record into versioned
+  `.hobbes/invariants/`). Every artifact stamps the repo SHA plus the
+  git blob SHA of every cited file; **staleness is blob-level** — any
+  cited blob changed (or gone) flips the badge, uncommitted edits
+  included. Deviation from the build plan's "changed graph nodes"
+  trigger recorded in the ADR: blob change is a superset, and comment
+  edits that shift pinned line numbers *should* flip badges.
+- ADR-020 + `hobbes.narrate`/`prompts`/`runner` + CLI: `hobbes narrate`
+  drives headless Claude Code — one `claude -p --output-format json
+  --tools ""` call per unit, prompt on stdin carrying the skeleton
+  slice plus numbered source. Tool-less: the cartographer has no I/O
+  surface, so read-only-on-source holds by construction and the
+  pipeline is the only writer. Output is parsed, ADR-019-validated
+  (pins exist, lines in range, behaviors cover the file's tests
+  exactly), retried once with the problem list, or dropped — a bad unit
+  costs two calls, never a loop. Incremental by default
+  (missing-or-stale; `--all`/`--only`/`--exclude`/`--dry-run`);
+  source-backed *package* nodes get docs too (hobbes.narrate's own
+  orchestrator lives in an `__init__.py`), pinless files are planned
+  out. `hobbes docs status` prints the badges. `HOBBES_CLAUDE_BIN`
+  overrides the binary (the `HOBBES_POLICY_BIN` precedent).
+- `get_module_doc` on the proxy (ADR-017's M5 deferral, due with its
+  data): renders the artifact with per-claim citations; its stale
+  warning is blob-level per ADR-019, not the skeleton tools' HEAD
+  compare. Near-miss suggestions; "run `hobbes narrate`" when no docs
+  exist; logged `builtin:knowledge-read` like the rest.
+- 197 pytest cases (was 124), 146 Go test cases, race detector clean.
+
+**M5 exit check — passed 3/3** on the hobbes repo (dogfood, fixture
+tree excluded): (1) full pass generated **37/37 units, 0 failed** (21
+module docs, 15 behavior indexes, 6 inferred invariants — 396 pinned
+claims, one probe unit + 36 in one background run, every artifact
+validated at write time); (2) **10/10 sampled claims** (seeded random
+across all artifacts) resolve to lines that support them — checked by
+hand against pin excerpts; (3) an uncommitted edit to `render.py`
+flipped **exactly** the `hobbes.render` badge in `hobbes docs status`
+(37 artifacts, 1 stale, naming the file); revert → 0 stale.
+`get_module_doc` verified against the real `hobbes.policy` artifact.
+The 6 inferred invariants (tfstate deny, derived-never-committed,
+default-escalate, tree-sitter only in extractors, validated-writers
+gate, env cross-layer join) await Max's confirmation — inert until
+moved into `.hobbes/invariants/`.
+
+**Changed from plan:** blob-level staleness (ADR-019, above); system
+narrative (§3.2 user-journey walkthroughs) deferred to
+`future_additions.md` with Max's sign-off — the build plan's M5 line
+and exit criteria don't need it, and its natural surface is M7's docs
+tab. Sandboxed cartographer *sessions* also parked there (ADR-020:
+deferred, not rejected).
+
+**Next:** M6 — TypeScript extractor (quota-free again). Not started;
+M5 awaits Max's review, including the inferred invariants.

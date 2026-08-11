@@ -21,8 +21,8 @@ graph.
   `internal/recorder/` (append-only JSONL flight log at
   `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015) +
   `internal/escalation/` (park/approve/expire queue, ADR-016) +
-  `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding over
-  `.hobbes/derived/`, ADR-017). `cmd/hobbes-session/` +
+  `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding/
+  get_module_doc over `.hobbes/derived/`, ADR-017/019). `cmd/hobbes-session/` +
   `internal/sandbox/` launch a session in rootless Podman (ADR-018).
   Only external Go deps: `yaml.v3`, `modelcontextprotocol/go-sdk`.
 - `sandbox/` — the M4 session image (`Containerfile`), the static proxy it
@@ -33,7 +33,10 @@ graph.
   (`src/hobbes/policy.py`), the deterministic extractors
   (`src/hobbes/extract/`: discover → pysource (tree-sitter walk) → graph /
   interfaces / testmap → emit), the Mermaid export (`src/hobbes/render.py`),
-  and the graph-diff engine (`src/hobbes/graphdiff.py`). The invariant
+  the graph-diff engine (`src/hobbes/graphdiff.py`), and the M5 narrative
+  pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
+  staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
+  behind `hobbes narrate` / `hobbes docs status`). The invariant
   compiler lands at M8. Test fixture repo: `tests/fixtures/miniapp/`
   (excluded from pytest collection via `norecursedirs`).
 - `web/` — empty until M7 (Vite + React + Cytoscape.js).
@@ -84,36 +87,47 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M4 (policy proxy + sandbox + flight recorder) —
-all three chunks built; the full M4 exit check passed. Pending Max's
-review.** M4 is the last enforcement milestone; do not start M5 (narrative
-pass — the first subscription-quota milestone) until reviewed.
+**Active milestone: M5 (narrative pass) — built; the M5 exit check
+passed 3/3 on the dogfood repo. Pending Max's review** (including the
+6 inferred invariants awaiting confirmation). Do not start M6
+(TypeScript extractor) until reviewed.
 
-- Chunk 1 (reviewed, passed): `hobbes-proxy serve` (ADR-013/014/015) —
-  per-session stdio MCP server, `exec` resolved through `internal/policy`
-  (allow runs via `sh -c` with timeout+output caps; deny refuses), every
-  call logged to the flight recorder.
-- Chunk 2 (reviewed, passed): escalation queue (ADR-016) — escalated
-  commands park as atomic JSON under
-  `~/.hobbes/sessions/<session>/escalations/`, blocking the exec call;
-  `hobbes-proxy escalations list|approve|deny` resolves them (approver =
-  OS user); approved commands run in place; unanswered parks expire to
-  deny; park + resolution flight lines joined by `escalation.id`.
-- Chunk 3 (this): knowledge tools (ADR-017 —
-  graph_neighborhood/who_calls/tests_guarding, read-only, logged,
-  provenance + staleness) + session wrapper & sandbox (ADR-018 —
-  `hobbes-session start` clones a fresh worktree, mounts it rw with
-  session state, clean env, Claude Code wired to the proxy; `--dry-run`
-  prints the plan). 140 Go test cases. **M4 exit check passed 5/5 in a
-  real rootless-Podman sandbox on the hobbes repo** (`sandbox/exitcheck.py`,
-  session `S-exitcheck-m4`): injected AWS/GitHub secrets absent from the
-  session env; knowledge query answered; task file written + seen via
-  allowed exec; `cat prod.tfstate` refused+logged; `id` parked → approved
-  from the CLI → ran. The exit-check implementer was scripted (ADR-018)
-  to keep M4 quota-free; the wrapper's default target is live Claude Code.
-- Deferred to their data: `get_module_doc` (M5), `list_invariants` (M8);
-  per-command secret brokering (the ajax-manager pattern) layers onto the
-  proxy later — v1's guarantee is the empty-env baseline.
+- ADR-019: narrative artifacts under `.hobbes/derived/docs/` — module
+  docs (one per source-backed module/package node), per-test-file
+  behavior indexes, `invariants.inferred.yaml` (§10 shape, ids +
+  `status: inferred` assigned at write time; confirmation = Max moves a
+  record into versioned `.hobbes/invariants/`). Claims are
+  `{text, pins}` validated against the working tree before anything is
+  written. Artifacts stamp repo SHA + per-cited-file git blob SHAs;
+  **staleness is blob-level** (any cited blob changed/gone — uncommitted
+  edits count; deliberately stricter than the build plan's graph-node
+  trigger).
+- ADR-020: `hobbes narrate` = one headless `claude -p --output-format
+  json --tools ""` call per unit (no tools — no I/O surface; the
+  pipeline is the only writer). Parse → validate → one corrective retry
+  carrying the problem list → or unit fails, run continues. Incremental
+  (missing-or-stale) by default; `--all`/`--only`/`--exclude`/
+  `--dry-run`; `--model`; `HOBBES_CLAUDE_BIN` overrides the binary.
+  `hobbes docs status` prints stale badges. Sandboxed cartographer
+  sessions + system narrative deferred to `future_additions.md`
+  (Max-confirmed).
+- `get_module_doc` joined the proxy's knowledge tools (ADR-017 deferral
+  due with its data); blob-level stale warnings, logged
+  `builtin:knowledge-read`. Still deferred to its data:
+  `list_invariants` (M8).
+- Exit check (2026-08-11): 37/37 units, 0 failed — 396 pinned claims on
+  the hobbes repo (fixture tree excluded); 10/10 sampled claims resolve
+  to supporting lines; an uncommitted `render.py` edit flips exactly the
+  `hobbes.render` badge. 197 pytest / 146 Go test cases.
+
+- M4 (reviewed, passed): the policy proxy + sandbox + flight recorder —
+  `hobbes-proxy serve` (per-session stdio MCP, policy-checked `exec`,
+  ADR-013/014/015), escalation queue with CLI approve/deny and
+  expire-to-deny (ADR-016), knowledge tools (ADR-017), and
+  `hobbes-session start` (fresh local clone, rootless Podman, empty-env
+  baseline, ADR-018). M4 exit check passed 5/5 in a real sandbox with a
+  scripted implementer (quota-free); per-command secret brokering layers
+  on later.
 
 - M0: policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy
