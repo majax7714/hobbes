@@ -91,3 +91,31 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   edges. The inspector and `who_calls` answer symbol questions today.
   Revisit only if a review question turns out to need the call graph
   drawn rather than queried.
+
+- **Soft verdicts are delta-based, not source-based** (from M8, deferred
+  2026-08-11). The reviewer session for a `soft` invariant runs through
+  the ADR-020 tool-less runner, so it judges from the architecture delta
+  and the changed-file list rather than from the files themselves — the
+  sessions said so unprompted during the M8 exit check. That is honest
+  but shallow: "does this change violate the invariant" often needs the
+  diff hunks. The fix is the same one ADR-020 already parks — run these
+  in the M4 sandbox with a reviewer role, which now has read-only mounts
+  and the knowledge tools (M8). Revisit when a soft verdict is wrong in
+  a way source access would have caught.
+
+- **The compiled configs are verified by shape, not by execution** (from
+  M8, deferred 2026-08-11). None of import-linter, dependency-cruiser,
+  semgrep, or conftest is installed on the dev box, which is exactly why
+  ADR-024 makes compilation pure text generation. The emitters are
+  asserted against the formats' documented shapes; nothing has run
+  `lint-imports` over the generated `.ini`. First CI run that executes
+  them is the real test, and any mismatch is an emitter fix plus a
+  regression case.
+
+- **import-linter `layers` contracts** (from M8, deferred 2026-08-11).
+  ADR-024 ships three rule kinds because three records needed them.
+  Layered-architecture contracts ("nothing below may import above") are
+  the obvious fourth, and import-linter and dependency-cruiser both
+  support them natively — but no invariant has wanted one yet, and
+  building the emitter first is the speculative abstraction the
+  conventions forbid.

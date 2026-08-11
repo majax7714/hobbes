@@ -669,3 +669,90 @@ extensions; push transport instead of polling; symbol-level graph.
 
 **Next:** M8 — reviewer flow + invariant compiler v0. Not started; M7
 awaits Max's review.
+
+---
+
+## 2026-08-11 (twelfth session) — M8: reviewer flow + invariant compiler
+
+M7 reviewed and passed (Max). One piece of review feedback landed first:
+**`git push` is denied outright now, not escalated.** Publishing is
+Max's; a session commits to a branch and he pushes after review. An
+escalation is for commands a human might reasonably approve, and this
+isn't one. Side effect worth recording: INF-3 in the inferred set
+asserted "all other pushes escalate", which the change made false — it
+is inert (ADR-019) and its stale badge flipped immediately, because
+`repo.policy` is one of its stamped sources. The staleness mechanism
+catching a claim the moment it stopped being true.
+
+**Built:**
+
+- **ADR-024 + `.hobbes/invariants/`**: six records promoted from the M5
+  inferred set, one file each, `statement` for humans and a
+  **structured** `compile.rule` for machines — §10 sketched the rule as
+  prose, and a sentence cannot compile into an import-linter contract
+  without an LLM, which would put quota on the enforcement path
+  (sequencing rule 1). I-3 had to be rewritten, not just promoted:
+  confirming the inferred wording would have versioned a false claim.
+  Four of six are `soft`, which is the honest split for a repo whose
+  invariants are largely about policy and derived-artifact shape.
+- **`hobbes.invariants`**: strict loading (every problem in one run, not
+  the first), graph-computed verdicts, and four emitters — import-linter,
+  dependency-cruiser, semgrep, Rego. Compiling is text generation, so
+  none of the four toolchains has to be installed to compile for it;
+  none is, on this box. What the graph cannot see is `unknown` with the
+  reason, never a pass: an invariant reported green because nothing
+  checked it is worse than one reported unchecked.
+- **ADR-025 + `hobbes review <base>..<head>`**: §7's review order in one
+  command. The shaping decision is that **verdicts are computed at both
+  ends** — an invariant already failing on base is inherited, one failing
+  only on head is this change's regression, and a gate that cannot tell
+  them apart is one people route around. Behavioural coverage is §4.2's
+  metric; test files are excluded from "unguarded new code" using the
+  inventory's own file list rather than a filename heuristic. Soft
+  invariants get a reviewer session only when a changed path falls in
+  their scope.
+- **`list_invariants(scope)`** on the proxy — ADR-017's fifth tool,
+  deferred at M4 "with its data, not stubbed". Scope overlaps in both
+  directions, so a rule cannot hide inside the tree you asked about.
+- **The reviewer role became a role rather than a label.** Running one
+  exposed that `--role reviewer` changed nothing but a log field: the
+  worktree is now mounted **ro** (§6 says read-only mounts; §5.2 puts
+  the OS sandbox first among enforcement tiers), its allowlist drops
+  Edit/Write/exec, and `.hobbes/derived/` is mounted ro into every
+  session — a fresh worktree has none, so the knowledge tools had
+  nothing to read and a reviewer started blind.
+
+**M8 exit check — passed.** The v1 bar (§11), end to end:
+
+- **A graph-diff review on a real branch.** `m8-exit-check` adds module
+  docstring extraction for the narrative pass — a plausible feature that
+  imported tree-sitter directly, duplicating the parser. `hobbes review`
+  reported **I-4 REGRESSED** with both import sites cited, plus one
+  unguarded new module, and exited 1. Fixed to consume pysource's
+  captured literal; the re-review shows I-4 PASS, no coverage
+  regression, exit 0 — and the delta shows the edge moving from
+  `ext:tree_sitter` to `hobbes.extract.pysource`. Merged with --no-ff so
+  both reviews replay: `hobbes review ace9a08..cdbc085` (exit 1) and
+  `ace9a08..7d52f2e` (exit 0).
+- **A reviewer session under policy**, in real rootless Podman: 5/5 —
+  the three knowledge tools answer about the branch's new module, a
+  write to `/work` is refused by the kernel ("Read-only file system"),
+  the session dir stays writable, and all three reads land in the flight
+  log as `builtin:knowledge-read`. (The implementer session was M4's.)
+- **Soft invariants judged for real**: `--soft` ran three in-scope
+  reviewer sessions (I-1, I-3, I-6), each returning a verdict, a reason,
+  and pins; I-2 was correctly skipped as out of scope. The sessions
+  flagged their own limit unprompted — being tool-less (ADR-020), they
+  judge from the delta rather than the source. Recorded as a deferral.
+- Python+Terraform and TS/JS repos ingested and served: SELENEX, kbet
+  (M3/M6/M7).
+
+Suites: **205 Go / 297 pytest / 38 vitest / 18 node.**
+
+**Deferred** (future_additions): soft verdicts are delta-based because
+the reviewer session has no file tools; import-linter `layers`
+contracts; running the compiled configs (no toolchain here, so the
+emitters are verified by shape, not by execution); web PR mode.
+
+**Next:** v1 is feature-complete against the build plan. M0–M8 are all
+reviewed-and-passed except M8, which awaits Max's review.

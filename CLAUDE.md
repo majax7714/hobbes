@@ -22,8 +22,11 @@ graph.
   `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015) +
   `internal/escalation/` (park/approve/expire queue, ADR-016) +
   `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding/
-  get_module_doc over `.hobbes/derived/`, ADR-017/019). `cmd/hobbes-session/` +
-  `internal/sandbox/` launch a session in rootless Podman (ADR-018).
+  get_module_doc/list_invariants over `.hobbes/derived/`, ADR-017/019/024).
+  `cmd/hobbes-session/` + `internal/sandbox/` launch a session in rootless
+  Podman (ADR-018); the **reviewer** role mounts the worktree ro and drops
+  Edit/Write/exec, and every role gets `.hobbes/derived/` mounted ro so the
+  knowledge tools have something to read (M8).
   `cmd/hobbes-web/` + `internal/web/` are the M7 surface server
   (ADR-022): a loopback-only JSON API over the derived artifacts, the
   repo reads a browser cannot do (source, `git diff`), the flight-log
@@ -43,8 +46,11 @@ graph.
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
   behind `hobbes narrate` / `hobbes docs status`). `extract/tssource.py`
-  joins the tsextract helper's facts (M6, ADR-021). The invariant
-  compiler lands at M8. Test fixture repos: `tests/fixtures/miniapp/`
+  joins the tsextract helper's facts (M6, ADR-021). M8 adds
+  `src/hobbes/invariants/` (ADR-024: record loading/validation,
+  graph-computed verdicts, and the four CI-config emitters) and
+  `src/hobbes/review.py` (ADR-025: `hobbes review`).
+  Test fixture repos: `tests/fixtures/miniapp/`
   (Python) and `tests/fixtures/minits/` (TS/JS), both excluded from
   pytest collection via `norecursedirs`.
 - `tsextract/` — Node helper (ADR-021): ts-morph walk emitting facts
@@ -60,7 +66,9 @@ graph.
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
   `docs/BUILDLOG.md` (append-only session log).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
-  gitignored.
+  gitignored. `invariants/` holds six confirmed records (ADR-024);
+  `derived/compiled/` is where `hobbes invariants compile` writes CI
+  configs.
 
 ## Build & test
 
@@ -88,6 +96,12 @@ uv sync
 uv run pytest
 uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
                                               # set HOBBES_POLICY_BIN or PATH
+
+# Invariants and review (M8)
+uv run hobbes invariants check                # validate .hobbes/invariants/
+uv run hobbes invariants compile              # → .hobbes/derived/compiled/
+uv run hobbes review main..my-branch          # exits 1 if it needs attention
+uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 ```
 
 ## Conventions
@@ -109,39 +123,78 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 - **Hobbes files are personal (ADR-012):** in Max's repos, the entire
   `.hobbes/` directory is gitignored — `ingest`/`init` enforce it
   automatically. Only this repo (dogfooding §10) versions its `.hobbes/`.
+- **Never `git push`.** Sessions commit to a branch; Max publishes after
+  review. The repo policy denies `git push*` outright rather than
+  escalating it — an escalation is for commands a human might reasonably
+  approve. This also applies when testing the escalation queue: pick
+  read-only commands, because an *approved* escalation really runs.
 
 ## Current status
 
-**Active milestone: M7 (web surface) — built; the exit check passed on
-the dogfood repo and on kbet, including escalation approve/deny in the
-browser against real parked commands. Pending Max's review.** Do not
-start M8 (reviewer flow + invariant compiler) until reviewed.
+**Active milestone: M8 (reviewer flow + invariant compiler v0) — built;
+the exit check passed, including the v1 bar's reviewer session and a
+graph-diff review of a real branch. Pending Max's review.** M8 is the
+last milestone in the build plan: with it reviewed, v1 is complete, and
+anything further comes from `docs/future_additions.md`.
 
-- ADR-022: the surface is a **Go daemon** (`hobbes-web serve --repo
-  DIR`) serving a JSON API and the embedded SPA — not a Python
-  `hobbes serve`, because approve/deny would otherwise reimplement the
-  ADR-016 queue. Extractor artifacts pass through byte-for-byte;
-  narrative artifacts are decoded only far enough to badge.
-  **Loopback-only, enforced** at bind and per-request `Host` (no auth,
-  and it can approve commands). `/api/source` refuses traversal,
-  symlink escapes, binaries, oversize files, and `.tfstate`. Missing
-  artifacts answer 404 with the command that produces them.
-- ADR-023: interactive graph conventions — module level only, shape and
-  colour by kind, edge style by type (unknown types drawn labelled, not
-  invisible), **externals hidden by default**, and **focus mode**
-  (breadthfirst over the selected neighborhood, the rest dimmed in
-  place). Labels strip the directory every path-shaped id shares, or a
-  TS repo renders 89 identical `betchat/frontend/sr…` labels.
-- The SPA lives in `web/`, is embedded into the binary, and **must be
-  rebuilt on both sides**: `npm run build` then `go build`. The pure
-  layer (`web/src/lib/`) carries the vitest cases; the tabs render what
-  it returns.
-- Exit check (2026-08-11): five tabs real on the dogfood repo (70 nodes,
-  234 tests, 37 artifacts, 9 stale); a claim's pin resolves to the line
-  that supports it; two escalations parked through the real proxy —
-  approve unblocked and ran it, deny refused it, both logged with the
-  approver; kbet (104 nodes, 174 tests, no narrate pass) serves and
-  degrades correctly. 189 Go / 226 pytest / 38 vitest / 18 node.
+- ADR-024: invariant records live one-per-file in `.hobbes/invariants/`.
+  `statement` is the prose; **`compile.rule` is structured**, because a
+  prose rule cannot compile without an LLM and enforcement must stay
+  deterministic (sequencing rule 1). Three rule kinds
+  (forbidden-import, pattern-absent, resource-attribute) plus `soft`.
+  Only `confirmed` records compile or receive verdicts; `retired` stays
+  as history; an `inferred` record here warns and stays inert.
+  Compilation is text generation — **no target toolchain needed**, and
+  none is installed here.
+- ADR-025: `hobbes review <base>..<head>` computes verdicts **at both
+  ends**, so a regression this change introduced is distinguishable from
+  breakage it inherited. Exits 1 on regressions, lost guards, or
+  unguarded new code. Spends no quota unless `--soft`.
+- **Six confirmed invariants** (I-1..I-6), promoted from the M5 inferred
+  set. I-3 was rewritten during promotion: the inferred wording claimed
+  pushes escalate, which the push-deny made false.
+- **`git push` is denied**, not escalated (see Conventions).
+- The **reviewer role** is now enforced at the mount tier: worktree ro,
+  no Edit/Write/exec, and `.hobbes/derived/` mounted ro for every role
+  so the knowledge tools have something to read.
+- Exit check (2026-08-11): branch `m8-exit-check` added a plausible
+  feature that duplicated the parser; review reported I-4 REGRESSED with
+  both import sites cited and exited 1, and the fix flipped it to PASS.
+  Replay with `hobbes review ace9a08..cdbc085` (exit 1) and
+  `ace9a08..7d52f2e` (exit 0). A real rootless-Podman reviewer session
+  scored 5/5. 205 Go / 297 pytest / 38 vitest / 18 node.
+
+- M7 (reviewed, passed): the web surface — ADR-022 `hobbes-web` (a Go
+  daemon serving a loopback-only JSON API plus the embedded SPA) and
+  ADR-023 graph conventions. Exit check on the dogfood repo and kbet,
+  including escalation approve/deny in the browser against commands
+  really parked by `hobbes-proxy`.
+
+  - ADR-022: the surface is a **Go daemon** (`hobbes-web serve --repo
+    DIR`) serving a JSON API and the embedded SPA — not a Python
+    `hobbes serve`, because approve/deny would otherwise reimplement the
+    ADR-016 queue. Extractor artifacts pass through byte-for-byte;
+    narrative artifacts are decoded only far enough to badge.
+    **Loopback-only, enforced** at bind and per-request `Host` (no auth,
+    and it can approve commands). `/api/source` refuses traversal,
+    symlink escapes, binaries, oversize files, and `.tfstate`. Missing
+    artifacts answer 404 with the command that produces them.
+  - ADR-023: interactive graph conventions — module level only, shape and
+    colour by kind, edge style by type (unknown types drawn labelled, not
+    invisible), **externals hidden by default**, and **focus mode**
+    (breadthfirst over the selected neighborhood, the rest dimmed in
+    place). Labels strip the directory every path-shaped id shares, or a
+    TS repo renders 89 identical `betchat/frontend/sr…` labels.
+  - The SPA lives in `web/`, is embedded into the binary, and **must be
+    rebuilt on both sides**: `npm run build` then `go build`. The pure
+    layer (`web/src/lib/`) carries the vitest cases; the tabs render what
+    it returns.
+  - Exit check (2026-08-11): five tabs real on the dogfood repo (70 nodes,
+    234 tests, 37 artifacts, 9 stale); a claim's pin resolves to the line
+    that supports it; two escalations parked through the real proxy —
+    approve unblocked and ran it, deny refused it, both logged with the
+    approver; kbet (104 nodes, 174 tests, no narrate pass) serves and
+    degrades correctly. 189 Go / 226 pytest / 38 vitest / 18 node.
 
 - M6 (reviewed, passed twice): TS/JS extraction via the `tsextract/`
   Node helper (ts-morph) invoked as a subprocess — the ADR-003 pattern;
