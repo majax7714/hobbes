@@ -16,10 +16,18 @@ graph.
   is the policy CLI; `internal/policy/` is the merge engine (box → repo →
   folder, deny overrides allow, allow|deny|escalate).
   `cmd/hobbes-proxy/` is the per-session M4 daemon (`serve` = MCP over
-  stdio, ADR-013/014): `internal/proxy/` (policy-checked `exec` tool) +
+  stdio, ADR-013/014; `escalations` = the approve/deny CLI, ADR-016):
+  `internal/proxy/` (policy-checked `exec` + read-only knowledge tools) +
   `internal/recorder/` (append-only JSONL flight log at
-  `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015). Only external Go
-  deps: `yaml.v3`, `modelcontextprotocol/go-sdk`.
+  `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015) +
+  `internal/escalation/` (park/approve/expire queue, ADR-016) +
+  `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding over
+  `.hobbes/derived/`, ADR-017). `cmd/hobbes-session/` +
+  `internal/sandbox/` launch a session in rootless Podman (ADR-018).
+  Only external Go deps: `yaml.v3`, `modelcontextprotocol/go-sdk`.
+- `sandbox/` — the M4 session image (`Containerfile`), the static proxy it
+  copies (gitignored build artifact), and the exit-check harness
+  (`driver.py` scripted implementer, `exitcheck.py` orchestrator).
 - `pipeline/` — Python package `hobbes` (uv-managed, src layout). The `hobbes`
   CLI (`src/hobbes/cli.py`), the shell-out wrapper for the Go policy binary
   (`src/hobbes/policy.py`), the deterministic extractors
@@ -76,27 +84,36 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M4 (policy proxy + sandbox + flight recorder), split
-into three review-gated chunks (Max-approved plan). Chunk 2 — escalation
-queue — built, pending Max's review.** Do not start chunk 3 until that
-review has happened.
+**Active milestone: M4 (policy proxy + sandbox + flight recorder) —
+all three chunks built; the full M4 exit check passed. Pending Max's
+review.** M4 is the last enforcement milestone; do not start M5 (narrative
+pass — the first subscription-quota milestone) until reviewed.
 
 - Chunk 1 (reviewed, passed): `hobbes-proxy serve` (ADR-013/014/015) —
-  per-session stdio MCP server, one `exec` tool resolved through
-  `internal/policy` (allow runs via `sh -c` with timeout+output caps;
-  deny refuses), every call logged to the flight recorder.
-- Chunk 2 (this): escalation queue (ADR-016) — escalated commands park
-  as atomic JSON records under `~/.hobbes/sessions/<session>/escalations/`,
-  blocking the exec call (MCP progress notifications keep it alive);
+  per-session stdio MCP server, `exec` resolved through `internal/policy`
+  (allow runs via `sh -c` with timeout+output caps; deny refuses), every
+  call logged to the flight recorder.
+- Chunk 2 (reviewed, passed): escalation queue (ADR-016) — escalated
+  commands park as atomic JSON under
+  `~/.hobbes/sessions/<session>/escalations/`, blocking the exec call;
   `hobbes-proxy escalations list|approve|deny` resolves them (approver =
-  OS user); approved commands run inside the original call; unanswered
-  parks expire to deny (`--escalation-timeout`, default 30m §9); park +
-  resolution flight lines joined by `escalation.id`. 114 Go test cases;
-  hand-verified on the hobbes repo (approve→ran / deny / expiry;
-  sessions `S-handcheck-m4c2*`).
-- Chunk 3 (next, after review): session wrapper + Podman rootless
-  sandbox (D2) + knowledge-layer MCP query tools + secret brokering;
-  then the full M4 exit check.
+  OS user); approved commands run in place; unanswered parks expire to
+  deny; park + resolution flight lines joined by `escalation.id`.
+- Chunk 3 (this): knowledge tools (ADR-017 —
+  graph_neighborhood/who_calls/tests_guarding, read-only, logged,
+  provenance + staleness) + session wrapper & sandbox (ADR-018 —
+  `hobbes-session start` clones a fresh worktree, mounts it rw with
+  session state, clean env, Claude Code wired to the proxy; `--dry-run`
+  prints the plan). 140 Go test cases. **M4 exit check passed 5/5 in a
+  real rootless-Podman sandbox on the hobbes repo** (`sandbox/exitcheck.py`,
+  session `S-exitcheck-m4`): injected AWS/GitHub secrets absent from the
+  session env; knowledge query answered; task file written + seen via
+  allowed exec; `cat prod.tfstate` refused+logged; `id` parked → approved
+  from the CLI → ran. The exit-check implementer was scripted (ADR-018)
+  to keep M4 quota-free; the wrapper's default target is live Claude Code.
+- Deferred to their data: `get_module_doc` (M5), `list_invariants` (M8);
+  per-command secret brokering (the ajax-manager pattern) layers onto the
+  proxy later — v1's guarantee is the empty-env baseline.
 
 - M0: policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy

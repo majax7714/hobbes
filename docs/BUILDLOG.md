@@ -329,3 +329,56 @@ and runs" is done end to end.
 **Next:** chunk 3 — session wrapper + Podman rootless sandbox (D2),
 knowledge-layer MCP query tools, secret brokering; then the full M4
 exit check. Awaiting Max's chunk-2 review first.
+
+---
+
+## 2026-08-11 (eighth session) — M4 chunk 3: sandbox, knowledge tools, exit check
+
+Chunk-2 review passed. This chunk finishes M4: knowledge-layer MCP tools,
+the session wrapper + Podman rootless sandbox, and the full exit check.
+
+**Built:**
+
+- ADR-017 + `internal/knowledge/`: the v1 subset of §6's tools —
+  `graph_neighborhood`, `who_calls`, `tests_guarding` — read from
+  `.hobbes/derived/` with file:line provenance and a visible staleness
+  header (P1); near-miss suggestions on unknown ids; missing artifacts
+  say "run hobbes ingest". Wired onto the proxy MCP server as read-only,
+  never-policy-resolved, always-logged (`builtin:knowledge-read`).
+  `get_module_doc`/`list_invariants` deferred to M5/M8 with their data,
+  not stubbed.
+- ADR-018 + `internal/sandbox/` + `cmd/hobbes-session/` + `sandbox/`:
+  `hobbes-session start` clones a fresh **self-contained** worktree
+  (`git clone --local`, not a linked worktree — a container mounts only
+  /work, and a worktree's .git points into the unmounted canonical
+  gitdir), checks out a session branch that lives only in the clone,
+  seeds `.hobbes/derived/` (gitignored, so absent from the clone), writes
+  the MCP config, and runs rootless `podman run`. Mounts are the policy
+  surface (worktree rw, session state rw, proxy ro, box policy ro — all
+  with the `z` SELinux relabel Fedora requires); env is exactly HOME+PATH
+  (no host secret can reach the session); Bash is disallowed at Claude
+  Code's native layer so the shell only comes through the policy-gated
+  proxy. The Plan is pure data — `--dry-run` prints the whole launch.
+- 140 Go test cases; pytest still 124.
+
+**M4 exit check — passed 5/5** (`sandbox/exitcheck.py`, real rootless
+Podman, hobbes repo, session `S-exitcheck-m4`). Injected
+`AWS_SECRET_ACCESS_KEY` + `GITHUB_TOKEN` into the launching env; the
+scripted implementer (`sandbox/driver.py`, MCP over stdio in Claude
+Code's place) confirmed: (1) session env is only HOME/HOSTNAME/PATH/
+container — no leak; (2) `tests_guarding` answered with provenance;
+(3) task file written and seen via allowed `git status`; (4)
+`cat prod.tfstate` refused + logged; (5) `id` parked → approved from the
+real `hobbes-proxy escalations` CLI → ran (exit 0, approver `mmarrujo`).
+Flight log carries all five with correct decisions and the joined
+park/resolution pair.
+
+**Changed from plan:** the build plan says "fresh git worktree"; a
+`--local` clone gives the same isolation while working inside a container
+that mounts only /work (ADR-018 records the trade). The exit-check
+implementer was scripted rather than live Claude Code, to keep M4 in the
+project's quota-free half (sequencing rule 1) — the wrapper launches real
+Claude Code by default (`--claude-cred`), one command away.
+
+**Next:** M5 — narrative pass (first subscription-quota milestone).
+Not started; M4 awaits Max's review.
