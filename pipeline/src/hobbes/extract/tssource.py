@@ -253,9 +253,11 @@ def _collect_tests(
                 if target not in reached:
                     reached.add(target)
                     frontier.append(target)
-        reached = {
-            s for s in reached if symbol_module.get(s) not in test_module_ids
-        }
+        # Anything living in a test file is scaffolding, not guarded code —
+        # filter by id prefix, not the symbol table, so call targets the
+        # symbol layer doesn't model are excluded too.
+        test_prefixes = tuple(f"{tm}." for tm in test_module_ids)
+        reached = {s for s in reached if not s.startswith(test_prefixes)}
         reaches = sorted(reached)
         reaches_modules = sorted(
             {symbol_module[s] for s in reached if s in symbol_module}

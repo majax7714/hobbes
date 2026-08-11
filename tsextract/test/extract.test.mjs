@@ -280,3 +280,21 @@ test("output is deterministic across runs", () => {
   const b = JSON.stringify(extractRepo(makeRepo(files)));
   assert.equal(a, b);
 });
+
+test("calls to nested declarations are omitted (only top-level symbols exist)", () => {
+  const root = makeRepo({
+    "src/main.js": [
+      "export function outer() {",
+      "  const inner = () => 1;",
+      "  function nested() { return 2; }",
+      "  return inner() + nested();",
+      "}",
+      "outer();",
+    ].join("\n"),
+  });
+  const calls = byPath(extractRepo(root), "src/main.js").calls;
+  assert.deepEqual(
+    calls.map((c) => [c.scope, c.callee]),
+    [[null, "outer"]]
+  );
+});

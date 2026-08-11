@@ -101,17 +101,24 @@ function firstStringArg(call) {
 }
 
 /** The qualname a repo declaration contributes symbols under, or null
- * for declaration kinds we don't model (parity with the symbol list). */
+ * for declarations we don't model. Only top-level declarations (and
+ * methods of top-level classes) qualify — parity with the symbol list,
+ * so a call edge never points at a symbol the graph doesn't have. */
 function declQualname(decl) {
   if (Node.isMethodDeclaration(decl)) {
-    const cls = decl.getFirstAncestorByKind(ts.SyntaxKind.ClassDeclaration);
-    const clsName = cls && cls.getName();
+    const cls = decl.getParent();
+    if (!Node.isClassDeclaration(cls) || !Node.isSourceFile(cls.getParent())) {
+      return null;
+    }
+    const clsName = cls.getName();
     return clsName ? `${clsName}.${decl.getName()}` : null;
   }
   if (Node.isFunctionDeclaration(decl) || Node.isClassDeclaration(decl)) {
-    return decl.getName() ?? null;
+    return Node.isSourceFile(decl.getParent()) ? decl.getName() ?? null : null;
   }
   if (Node.isVariableDeclaration(decl)) {
+    const statement = decl.getFirstAncestorByKind(ts.SyntaxKind.VariableStatement);
+    if (!statement || !Node.isSourceFile(statement.getParent())) return null;
     const name = decl.getNameNode();
     return Node.isIdentifier(name) ? name.getText() : null;
   }
