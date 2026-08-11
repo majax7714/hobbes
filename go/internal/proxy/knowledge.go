@@ -31,6 +31,11 @@ type ModuleDocArgs struct {
 	Node string `json:"node" jsonschema:"a module node id, e.g. hobbes.cli"`
 }
 
+// ListInvariantsArgs is list_invariants's input schema.
+type ListInvariantsArgs struct {
+	Scope string `json:"scope" jsonschema:"a repo-relative path to ask about, e.g. pipeline/src/hobbes; \".\" or empty lists every confirmed invariant"`
+}
+
 // addKnowledgeTools registers the v1 knowledge subset on the MCP server.
 func (s *Server) addKnowledgeTools(srv *mcp.Server) {
 	store := knowledge.Open(s.cfg.RepoRoot)
@@ -68,6 +73,22 @@ func (s *Server) addKnowledgeTools(srv *mcp.Server) {
 			"narrate). Answers warn when cited files changed since generation.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args ModuleDocArgs) (*mcp.CallToolResult, any, error) {
 		return s.answer("get_module_doc", args.Node, store.ModuleDoc), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "list_invariants",
+		Description: "The confirmed structural rules binding a path — what " +
+			"this code is required to keep true, and how each is checked. " +
+			"Read before writing code in an unfamiliar area: breaking one " +
+			"is a review failure, not a style note.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args ListInvariantsArgs) (*mcp.CallToolResult, any, error) {
+		// Unlike the other four, an empty query is meaningful here: it
+		// asks for every invariant in the repo.
+		scope := args.Scope
+		if scope == "" {
+			scope = "."
+		}
+		return s.answer("list_invariants", scope, store.ListInvariants), nil, nil
 	})
 }
 

@@ -367,3 +367,124 @@ func TestModuleDocNestedTsId(t *testing.T) {
 		t.Errorf("nested id missing from suggestions:\n%s", miss)
 	}
 }
+
+// --- list_invariants (ADR-024, ADR-017's fifth tool) ------------------------
+
+// writeInvariant drops one record into .hobbes/invariants/.
+func writeInvariant(t *testing.T, repo, name, body string) {
+	t.Helper()
+	dir := filepath.Join(repo, ".hobbes", "invariants")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const confirmedRecord = `id: I-1
+statement: Only the parser parses source.
+scope: src/app
+status: confirmed
+compile:
+  target: import-linter
+  rule:
+    kind: forbidden-import
+    importers: ["*"]
+    imported: [ext:tree_sitter]
+guarded_by: [tests/test_parser.py::test_parses]
+`
+
+func TestListInvariantsWithoutADirectory(t *testing.T) {
+	repo := fixtureRepo(t)
+	out, err := Open(repo).ListInvariants(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "none have been confirmed") {
+		t.Errorf("answer = %q, want a plain 'none confirmed'", out)
+	}
+}
+
+func TestListInvariantsReportsHowEachIsChecked(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeInvariant(t, repo, "I-1.yaml", confirmedRecord)
+	out, err := Open(repo).ListInvariants(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"I-1", "Only the parser parses source.", "scope src/app",
+		"import-linter", "tests/test_parser.py::test_parses",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("answer missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestListInvariantsSaysHowSoftIsJudged(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeInvariant(t, repo, "I-2.yaml", `id: I-2
+statement: Something a tool cannot see.
+scope: .
+status: confirmed
+compile:
+  target: soft
+`)
+	out, _ := Open(repo).ListInvariants(".")
+	if !strings.Contains(out, "a reviewer judges it") {
+		t.Errorf("a soft record must say who judges it:\n%s", out)
+	}
+}
+
+func TestListInvariantsOnlyBindsWithConfirmedRecords(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeInvariant(t, repo, "I-1.yaml", confirmedRecord)
+	writeInvariant(t, repo, "I-9.yaml", `id: I-9
+statement: Not yet promoted.
+scope: .
+status: inferred
+compile:
+  target: soft
+`)
+	out, _ := Open(repo).ListInvariants(".")
+	if strings.Contains(out, "Not yet promoted") {
+		t.Error("an inferred record must not read as binding")
+	}
+	if !strings.Contains(out, "1 record(s) not confirmed") {
+		t.Errorf("the skipped record should still be counted:\n%s", out)
+	}
+}
+
+func TestListInvariantsScopeOverlapsBothWays(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeInvariant(t, repo, "I-1.yaml", confirmedRecord) // scope src/app
+
+	// Asking about a file inside the scope finds the rule.
+	if out, _ := Open(repo).ListInvariants("src/app/core.py"); !strings.Contains(out, "I-1") {
+		t.Errorf("a path inside the scope should be bound:\n%s", out)
+	}
+	// Asking about a directory that contains the scope finds it too —
+	// otherwise a rule can hide inside the tree you asked about.
+	if out, _ := Open(repo).ListInvariants("src"); !strings.Contains(out, "I-1") {
+		t.Errorf("a parent of the scope should still see it:\n%s", out)
+	}
+	// An unrelated tree does not.
+	if out, _ := Open(repo).ListInvariants("infra"); strings.Contains(out, "I-1") {
+		t.Errorf("an unrelated scope must not match:\n%s", out)
+	}
+}
+
+func TestListInvariantsSkipsUnreadableRecords(t *testing.T) {
+	repo := fixtureRepo(t)
+	writeInvariant(t, repo, "I-1.yaml", confirmedRecord)
+	writeInvariant(t, repo, "torn.yaml", "id: [unclosed\n")
+	out, err := Open(repo).ListInvariants(".")
+	if err != nil {
+		t.Fatalf("one torn record must not fail the listing: %v", err)
+	}
+	if !strings.Contains(out, "I-1") {
+		t.Errorf("the readable record should still list:\n%s", out)
+	}
+}

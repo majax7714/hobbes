@@ -42,12 +42,18 @@ func TestSessionToolSurface(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names[tool.Name] = tool.Description
 	}
-	for _, want := range []string{"exec", "graph_neighborhood", "who_calls", "tests_guarding", "get_module_doc"} {
-		if _, ok := names[want]; !ok {
-			t.Errorf("tool %s missing from %v", want, names)
+	// exec plus the five knowledge tools architecture §6 names —
+	// list_invariants completes the set at M8, when its data arrived.
+	want := []string{
+		"exec", "graph_neighborhood", "who_calls", "tests_guarding",
+		"get_module_doc", "list_invariants",
+	}
+	for _, name := range want {
+		if _, ok := names[name]; !ok {
+			t.Errorf("tool %s missing from %v", name, names)
 		}
 	}
-	if len(tools.Tools) != 5 {
+	if len(tools.Tools) != len(want) {
 		t.Errorf("unexpected extra tools: %v", names)
 	}
 	if !strings.Contains(names["exec"], "policy") {

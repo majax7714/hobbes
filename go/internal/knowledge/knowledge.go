@@ -17,6 +17,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Store reads one repo's derived artifacts.
@@ -483,4 +485,103 @@ func ChangedSourcesMulti(repoRoot string, bySources map[string][]Source) map[str
 		result[id] = out
 	}
 	return result
+}
+
+// --- invariants (ADR-024) ---------------------------------------------------
+
+// invariantRecord is one confirmed rule from .hobbes/invariants/. Only
+// the fields an agent needs to obey it are read; the compile rule is the
+// compiler's business, and its target is enough to say how it is checked.
+type invariantRecord struct {
+	ID        string   `yaml:"id"`
+	Statement string   `yaml:"statement"`
+	Scope     string   `yaml:"scope"`
+	Status    string   `yaml:"status"`
+	GuardedBy []string `yaml:"guarded_by"`
+	Compile   struct {
+		Target string `yaml:"target"`
+	} `yaml:"compile"`
+}
+
+// ListInvariants answers list_invariants(scope): the confirmed rules
+// that bind a path, so a session knows the constraints before it writes
+// code rather than after review (ADR-017's fifth tool, whose data
+// arrived with M8).
+//
+// An empty scope lists everything. Scope matching is the ADR-024 rule: a
+// record binds a path when its own scope contains that path, or the
+// other way round — asking about the repo root should not hide a rule
+// scoped to a subdirectory inside it.
+func (s *Store) ListInvariants(scope string) (string, error) {
+	dir := filepath.Join(s.repoRoot, ".hobbes", "invariants")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return "no invariants directory — none have been confirmed for this repo\n", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var records []invariantRecord
+	skipped := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var record invariantRecord
+		if yaml.Unmarshal(data, &record) != nil || record.ID == "" {
+			continue
+		}
+		if record.Status != "confirmed" {
+			skipped++
+			continue
+		}
+		if scope != "" && !scopeOverlaps(record.Scope, scope) {
+			continue
+		}
+		records = append(records, record)
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
+
+	var b strings.Builder
+	if scope == "" {
+		fmt.Fprintf(&b, "confirmed invariants (%d)\n", len(records))
+	} else {
+		fmt.Fprintf(&b, "confirmed invariants binding %s (%d)\n", scope, len(records))
+	}
+	if len(records) == 0 {
+		b.WriteString("  none — nothing has been confirmed for this scope\n")
+	}
+	for _, record := range records {
+		how := record.Compile.Target
+		if how == "soft" {
+			how = "soft (a reviewer judges it; cite evidence)"
+		}
+		fmt.Fprintf(&b, "%s [scope %s, checked by %s]\n  %s\n",
+			record.ID, record.Scope, how, record.Statement)
+		if len(record.GuardedBy) > 0 {
+			fmt.Fprintf(&b, "  guarded by: %s\n", strings.Join(record.GuardedBy, ", "))
+		}
+	}
+	if skipped > 0 {
+		fmt.Fprintf(&b, "(%d record(s) not confirmed, so not binding)\n", skipped)
+	}
+	return b.String(), nil
+}
+
+// scopeOverlaps reports whether a record's scope and a queried scope
+// touch the same tree in either direction.
+func scopeOverlaps(recordScope, query string) bool {
+	record := strings.TrimSuffix(strings.TrimSpace(recordScope), "/")
+	q := strings.TrimSuffix(strings.TrimSpace(query), "/")
+	if record == "." || record == "" || q == "." || q == "" {
+		return true
+	}
+	return record == q ||
+		strings.HasPrefix(q, record+"/") ||
+		strings.HasPrefix(record, q+"/")
 }
