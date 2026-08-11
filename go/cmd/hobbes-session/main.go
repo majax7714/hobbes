@@ -170,6 +170,7 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 		HostProxyBin: opt.proxyBin,
 		HostBoxPath:  opt.box,
 		HostClaude:   claudeMount(opt.claudeCred),
+		HostDerived:  derivedMount(opt.repo),
 		Command:      opt.command,
 	})
 	if err != nil {
@@ -214,6 +215,24 @@ func seedDerived(repo, worktree string) {
 		}
 		_ = os.WriteFile(filepath.Join(dst, e.Name()), data, 0o644)
 	}
+}
+
+// derivedMount is the host repo's .hobbes/derived when it exists. A
+// session's worktree is a fresh checkout and derived/ is gitignored, so
+// without this the knowledge tools have nothing to read and a reviewer
+// starts blind — the opposite of §6's "oriented via MCP, not cold grep".
+// Absent artifacts are not an error: the tools already answer "run
+// hobbes ingest".
+func derivedMount(repo string) string {
+	path := filepath.Join(repo, ".hobbes", "derived")
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	return abs
 }
 
 func claudeMount(want bool) string {

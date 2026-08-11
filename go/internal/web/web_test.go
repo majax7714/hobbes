@@ -22,7 +22,11 @@ type fixture struct {
 
 func gitIn(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	full := append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)
+	// gc.auto=0: background maintenance writing into a t.TempDir() repo
+	// races its cleanup and fails the test for no reason.
+	full := append([]string{
+		"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "gc.auto=0",
+	}, args...)
 	out, err := exec.Command("git", full...).Output()
 	if err != nil {
 		t.Fatalf("git %v: %v", args, err)

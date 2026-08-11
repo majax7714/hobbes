@@ -18,6 +18,18 @@ func baseConfig() Config {
 	}
 }
 
+// planFor builds a plan for one role.
+func planFor(t *testing.T, role string) *Plan {
+	t.Helper()
+	cfg := baseConfig()
+	cfg.Role = role
+	plan, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
 func TestNewPlanDefaults(t *testing.T) {
 	p, err := NewPlan(baseConfig())
 	if err != nil {
@@ -176,5 +188,121 @@ func TestDryRunShowsPlanAndConfig(t *testing.T) {
 	out := p.DryRun()
 	if !strings.Contains(out, "podman run") || !strings.Contains(out, "mcpServers") {
 		t.Errorf("dry run should show podman argv and MCP config:\n%s", out)
+	}
+}
+
+func TestReviewerWorktreeIsReadOnly(t *testing.T) {
+	// §6: a reviewer gets read-only mounts. §5.2 puts the OS sandbox
+	// first among the enforcement tiers, so this is a mount flag rather
+	// than a policy rule an agent could argue with.
+	plan := planFor(t, "reviewer")
+	if plan.WorktreeMode() != "ro" {
+		t.Fatalf("worktree mode = %q, want ro", plan.WorktreeMode())
+	}
+	args := strings.Join(plan.PodmanArgs(), " ")
+	if !strings.Contains(args, WorkDir+":ro,z") {
+		t.Errorf("reviewer worktree is not mounted ro:\n%s", args)
+	}
+	// The flight recorder and escalation queue still have to be
+	// writable, or a read-only session could not be audited.
+	if !strings.Contains(args, SessionsRoot+":rw,z") {
+		t.Errorf("session state must stay writable:\n%s", args)
+	}
+}
+
+func TestImplementerWorktreeStaysWritable(t *testing.T) {
+	plan := planFor(t, "implementer")
+	if plan.WorktreeMode() != "rw" {
+		t.Fatalf("worktree mode = %q, want rw", plan.WorktreeMode())
+	}
+	if !strings.Contains(strings.Join(plan.PodmanArgs(), " "), WorkDir+":rw,z") {
+		t.Error("implementer worktree must be writable")
+	}
+}
+
+func TestAnUnknownRoleIsWritableNotSilentlyReadOnly(t *testing.T) {
+	// Failing closed here would look like a broken session rather than a
+	// refused one; roles gain read-only status deliberately.
+	if planFor(t, "cartographer").WorktreeMode() != "rw" {
+		t.Error("only listed roles are read-only")
+	}
+}
+
+func TestReviewerGetsNoWriteTools(t *testing.T) {
+	tools := strings.Join(planFor(t, "reviewer").allowedTools(), ",")
+	for _, banned := range []string{"Edit", "Write", "mcp__hobbes__exec"} {
+		if strings.Contains(tools, banned) {
+			t.Errorf("reviewer must not be offered %s: %s", banned, tools)
+		}
+	}
+	for _, want := range []string{"Read", "mcp__hobbes__list_invariants"} {
+		if !strings.Contains(tools, want) {
+			t.Errorf("reviewer needs %s: %s", want, tools)
+		}
+	}
+}
+
+func TestImplementerKeepsExecAndEdit(t *testing.T) {
+	tools := strings.Join(planFor(t, "implementer").allowedTools(), ",")
+	for _, want := range []string{"mcp__hobbes__exec", "Edit", "Write"} {
+		if !strings.Contains(tools, want) {
+			t.Errorf("implementer needs %s: %s", want, tools)
+		}
+	}
+}
+
+func TestEveryRoleGetsTheKnowledgeTools(t *testing.T) {
+	// §6: sessions start oriented via MCP, not cold grep.
+	for _, role := range []string{"implementer", "reviewer"} {
+		tools := strings.Join(planFor(t, role).allowedTools(), ",")
+		for _, want := range knowledgeTools {
+			if !strings.Contains(tools, want) {
+				t.Errorf("%s missing %s", role, want)
+			}
+		}
+	}
+}
+
+func TestReviewerNeedsNoEditPermissionMode(t *testing.T) {
+	cmd := strings.Join(planFor(t, "reviewer").DefaultCommand(), " ")
+	if strings.Contains(cmd, "acceptEdits") {
+		t.Errorf("a read-only role should not be accepting edits: %s", cmd)
+	}
+}
+
+func TestDerivedIsMountedReadOnlyWhenPresent(t *testing.T) {
+	// A fresh worktree has no derived/ (it is gitignored), so without
+	// this mount the knowledge tools answer nothing and a session starts
+	// blind — the opposite of §6's "oriented via MCP, not cold grep".
+	cfg := baseConfig()
+	cfg.HostDerived = "/home/u/hobbes/.hobbes/derived"
+	plan, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(plan.PodmanArgs(), " ")
+	if !strings.Contains(args, cfg.HostDerived+":"+DerivedDir+":ro,z") {
+		t.Errorf("derived not mounted ro:\n%s", args)
+	}
+}
+
+func TestDerivedIsReadOnlyEvenForAnImplementer(t *testing.T) {
+	// A session that could edit the derived layer could edit the map it
+	// is judged against.
+	for _, role := range []string{"implementer", "reviewer"} {
+		cfg := baseConfig()
+		cfg.Role = role
+		cfg.HostDerived = "/home/u/hobbes/.hobbes/derived"
+		plan, _ := NewPlan(cfg)
+		if !strings.Contains(strings.Join(plan.PodmanArgs(), " "), DerivedDir+":ro,z") {
+			t.Errorf("%s must not get a writable derived layer", role)
+		}
+	}
+}
+
+func TestNoDerivedMountWhenTheRepoHasNone(t *testing.T) {
+	plan, _ := NewPlan(baseConfig())
+	if strings.Contains(strings.Join(plan.PodmanArgs(), " "), DerivedDir) {
+		t.Error("an un-ingested repo should mount no derived dir")
 	}
 }
