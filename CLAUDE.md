@@ -63,8 +63,10 @@ graph.
   is one component per tab. `npm run build` typechecks, then bundles
   into the Go embed dir — **rebuild `hobbes-web` after**, or it serves
   the previous bundle. `npm run dev` proxies `/api` to a running server.
-- `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
-  `docs/BUILDLOG.md` (append-only session log).
+- `docs/` — the two source docs, `docs/adr/` (numbered ADRs),
+  `docs/BUILDLOG.md` (append-only session log), and `docs/first-run.md`
+  (bringing Hobbes up on a new app, in the order the system is meant to
+  be used).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
   gitignored. `invariants/` holds six confirmed records (ADR-024);
   `derived/compiled/` is where `hobbes invariants compile` writes CI
@@ -81,8 +83,14 @@ npm install` (TS extraction) and `cd web && npm install` (the surface).
 cd go
 go test ./...
 go build -o bin/hobbes-policy ./cmd/hobbes-policy
-go build -o bin/hobbes-proxy  ./cmd/hobbes-proxy
 go build -o bin/hobbes-web    ./cmd/hobbes-web   # after `cd web && npm run build`
+go build -o bin/hobbes-session ./cmd/hobbes-session
+# The proxy must be STATIC: hobbes-session mounts the binary sitting next
+# to it into the sandbox, and a dynamically-linked one fails there as a
+# confusing "No such file or directory" (the loader is missing, not the
+# binary). Static works host-side too.
+CGO_ENABLED=0 go build -o bin/hobbes-proxy ./cmd/hobbes-proxy
+CGO_ENABLED=0 go build -o ../sandbox/hobbes-proxy ./cmd/hobbes-proxy  # image build
 
 # Web surface (M7)
 cd web
