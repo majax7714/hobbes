@@ -77,22 +77,26 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 ## Current status
 
 **Active milestone: M4 (policy proxy + sandbox + flight recorder), split
-into three review-gated chunks (Max-approved plan). Chunk 1 — flight
-recorder + MCP exec proxy — built, pending Max's review.** Do not start
-chunk 2 until that review has happened.
+into three review-gated chunks (Max-approved plan). Chunk 2 — escalation
+queue — built, pending Max's review.** Do not start chunk 3 until that
+review has happened.
 
-- Chunk 1 (this): `hobbes-proxy serve` (ADR-013/014/015) — per-session
-  stdio MCP server, one `exec` tool resolved through `internal/policy`
-  (allow runs via `sh -c` with timeout+output caps; deny refuses;
-  escalate parks-as-error until chunk 2), every call logged to the
-  flight recorder. 90 Go test cases; hand-verified on the hobbes repo
-  (allow/deny/escalate all logged; log at
-  `~/.hobbes/sessions/S-handcheck-m4c1/flight.jsonl`).
-- Chunk 2 (next, after review): escalation queue — parked commands under
-  `~/.hobbes/sessions/`, CLI approve/deny, 30-min expire-to-deny,
-  replayable approvals.
-- Chunk 3: session wrapper + Podman rootless sandbox (D2) + knowledge-
-  layer MCP query tools + secret brokering; then the full M4 exit check.
+- Chunk 1 (reviewed, passed): `hobbes-proxy serve` (ADR-013/014/015) —
+  per-session stdio MCP server, one `exec` tool resolved through
+  `internal/policy` (allow runs via `sh -c` with timeout+output caps;
+  deny refuses), every call logged to the flight recorder.
+- Chunk 2 (this): escalation queue (ADR-016) — escalated commands park
+  as atomic JSON records under `~/.hobbes/sessions/<session>/escalations/`,
+  blocking the exec call (MCP progress notifications keep it alive);
+  `hobbes-proxy escalations list|approve|deny` resolves them (approver =
+  OS user); approved commands run inside the original call; unanswered
+  parks expire to deny (`--escalation-timeout`, default 30m §9); park +
+  resolution flight lines joined by `escalation.id`. 114 Go test cases;
+  hand-verified on the hobbes repo (approve→ran / deny / expiry;
+  sessions `S-handcheck-m4c2*`).
+- Chunk 3 (next, after review): session wrapper + Podman rootless
+  sandbox (D2) + knowledge-layer MCP query tools + secret brokering;
+  then the full M4 exit check.
 
 - M0: policy YAML format (ADR-001/002), Go merge engine +
   `hobbes-policy resolve` CLI (ADR-003), Python CLI skeleton with policy

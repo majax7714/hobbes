@@ -288,3 +288,44 @@ exit, sha}`.
 **Next:** chunk 2 — escalation queue (park under `~/.hobbes/sessions/`,
 CLI approve/deny, 30-min expire-to-deny, replayable approvals). Awaiting
 Max's chunk-1 review first.
+
+---
+
+## 2026-08-11 (seventh session) — M4 chunk 2: escalation queue
+
+Chunk-1 review passed. This chunk replaces the park-as-error stub with
+the real §9 escalation tier.
+
+**Built:**
+
+- ADR-016: file-based queue — one atomic JSON record per parked command
+  under `~/.hobbes/sessions/<session>/escalations/`; the proxy blocks
+  the exec call while parked (MCP progress notifications keep the
+  client's tool timeout at bay) so an approved command runs inside the
+  original call; the proxy's clock is the expiry authority (late
+  approvals are refused and settled as expired); flight schema gains an
+  optional `escalation` object — §9's "approvals log the approver"
+  demanded it.
+- `internal/escalation/` — record lifecycle (pending → approved/denied/
+  expired), atomic writes, only-pending-resolves, list/find across
+  sessions with clock-effective status.
+- Proxy park loop: poll 200ms, `--escalation-timeout` (default 30m)
+  expire-to-deny, disconnect-while-parked settles the record as expired
+  (nothing dangles approvable). Park + resolution flight lines share
+  `escalation.id`; `decision` stays `escalate` on both — the human
+  verdict lives in the escalation object, `exit` only when it ran.
+- `hobbes-proxy escalations list|approve|deny` — the human CLI; approver
+  is the invoking OS user. (Flag-parsing gotcha: the id is popped before
+  `flag.Parse`, which stops at the first positional.) 114 Go test cases,
+  race detector clean.
+
+**Verified by hand** on the hobbes repo (real stdio + the real CLI):
+parked `echo …` approved by `mmarrujo` → ran, exit 0, result and flight
+line both name the approver; parked `date` denied → refused naming the
+denier; 3s-timeout park unanswered → expired to deny on the clock. The
+M4 exit slice "an escalated command parks, gets approved from the CLI,
+and runs" is done end to end.
+
+**Next:** chunk 3 — session wrapper + Podman rootless sandbox (D2),
+knowledge-layer MCP query tools, secret brokering; then the full M4
+exit check. Awaiting Max's chunk-2 review first.
