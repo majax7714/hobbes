@@ -108,13 +108,32 @@ class ParsedFile:
     symbols: list[Symbol] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     env_reads: list[EnvRead] = field(default_factory=list)
+    #: The module docstring's literal, exactly as written, or None.
+    #: Normalizing it is hobbes.extract.docstrings' job — this module
+    #: extracts, it does not interpret.
+    docstring: str | None = None
 
 
 def parse_source(source: bytes) -> ParsedFile:
     """Walk one file's source and collect its raw facts."""
     parsed = ParsedFile()
-    _walk(_PARSER.parse(source).root_node, [], parsed, ())
+    root = _PARSER.parse(source).root_node
+    parsed.docstring = _module_docstring(root)
+    _walk(root, [], parsed, ())
     return parsed
+
+
+def _module_docstring(root: Node) -> str | None:
+    """The module docstring literal: the file's first statement, if it is
+    a bare string. Anything else means the module has none."""
+    for child in root.named_children:
+        if child.type != "expression_statement":
+            return None
+        inner = child.named_children[0] if child.named_children else None
+        if inner is None or inner.type != "string":
+            return None
+        return (inner.text or b"").decode("utf-8", "replace")
+    return None
 
 
 def _text(node: Node) -> str:
