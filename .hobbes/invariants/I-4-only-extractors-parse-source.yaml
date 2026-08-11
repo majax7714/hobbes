@@ -1,0 +1,23 @@
+# Promoted from INF-4 (M5 inferred set), 2026-08-11 — proposed, awaiting
+# Max's confirmation.
+id: I-4
+statement: >-
+  Only the two source extractors parse source. hobbes.extract.pysource and
+  hobbes.extract.terraform own the tree-sitter dependency; every other
+  module consumes their already-parsed facts, so a second parser can never
+  disagree with the first about what the code says.
+scope: pipeline/src/hobbes
+status: confirmed
+compile:
+  target: import-linter
+  rule:
+    kind: forbidden-import
+    importers: ["*"]
+    except:
+      - hobbes.extract.pysource
+      - hobbes.extract.terraform
+    imported:
+      - ext:tree_sitter
+      - ext:tree_sitter_hcl
+      - ext:tree_sitter_python
+guarded_by: []
