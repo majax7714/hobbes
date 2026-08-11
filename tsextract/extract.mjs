@@ -1,0 +1,523 @@
+#!/usr/bin/env node
+// Hobbes TS/JS facts extractor (ADR-021).
+//
+// Walks a repo's TS/JS files through ts-morph (the TypeScript compiler
+// API) and prints one deterministic facts JSON document on stdout for
+// the Python pipeline to join into graph/tests/interfaces artifacts.
+// Resolution happens here, where the compiler is: imports and calls
+// carry repo-relative resolved targets, or are marked external, or are
+// omitted (false edges are worse than missing edges, ADR-007/021).
+//
+// Usage: node extract.mjs --repo <repo-root>
+
+import fs from "node:fs";
+import path from "node:path";
+import { builtinModules } from "node:module";
+import { pathToFileURL } from "node:url";
+
+import { Node, Project, ts } from "ts-morph";
+
+export const HELPER_VERSION = 1;
+
+const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+
+// Mirror of the Python discover.SKIPPED_DIR_NAMES; dot-dirs are skipped
+// wholesale there too.
+const SKIPPED_DIRS = new Set([
+  "node_modules",
+  "__pycache__",
+  "venv",
+  "dist",
+  "build",
+  "site-packages",
+]);
+
+const BUILTINS = new Set(builtinModules);
+
+const EXPRESS_VERBS = new Set([
+  "get", "post", "put", "delete", "patch", "options", "head", "all",
+]);
+const NEST_VERBS = new Map([
+  ["Get", "GET"], ["Post", "POST"], ["Put", "PUT"], ["Delete", "DELETE"],
+  ["Patch", "PATCH"], ["Options", "OPTIONS"], ["Head", "HEAD"], ["All", "ALL"],
+]);
+
+// --- discovery -------------------------------------------------------------
+
+export function discoverFiles(repoRoot) {
+  const found = [];
+  const stack = [repoRoot];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) stack.push(full);
+      } else if (EXTENSIONS.has(path.extname(entry.name))) {
+        found.push(path.relative(repoRoot, full).split(path.sep).join("/"));
+      }
+    }
+  }
+  return found.sort();
+}
+
+// --- helpers ---------------------------------------------------------------
+
+function relPath(repoRoot, sourceFile) {
+  return path.relative(repoRoot, sourceFile.getFilePath()).split(path.sep).join("/");
+}
+
+/** External package name for a specifier, or null when it should be
+ * dropped (Node builtins — the stdlib-noise rule — and unresolved
+ * relative paths). */
+export function externalName(specifier) {
+  if (specifier.startsWith(".") || specifier.startsWith("/")) return null;
+  const bare = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
+  const segments = bare.split("/");
+  const name = bare.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
+  if (BUILTINS.has(name) || specifier.startsWith("node:")) return null;
+  return name;
+}
+
+/** Manual relative resolution for require()/import() specifiers, which
+ * bypass the checker's import graph. Repo-relative result or null. */
+export function resolveRelative(fromFile, specifier, fileSet) {
+  if (!specifier.startsWith(".")) return null;
+  const base = path.posix.normalize(
+    path.posix.join(path.posix.dirname(fromFile), specifier)
+  );
+  const candidates = [base];
+  for (const ext of EXTENSIONS) candidates.push(base + ext);
+  for (const ext of EXTENSIONS) candidates.push(`${base}/index${ext}`);
+  return candidates.find((c) => fileSet.has(c)) ?? null;
+}
+
+function firstStringArg(call) {
+  const arg = call.getArguments()[0];
+  return arg && (Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg))
+    ? arg.getLiteralValue()
+    : null;
+}
+
+/** The qualname a repo declaration contributes symbols under, or null
+ * for declaration kinds we don't model (parity with the symbol list). */
+function declQualname(decl) {
+  if (Node.isMethodDeclaration(decl)) {
+    const cls = decl.getFirstAncestorByKind(ts.SyntaxKind.ClassDeclaration);
+    const clsName = cls && cls.getName();
+    return clsName ? `${clsName}.${decl.getName()}` : null;
+  }
+  if (Node.isFunctionDeclaration(decl) || Node.isClassDeclaration(decl)) {
+    return decl.getName() ?? null;
+  }
+  if (Node.isVariableDeclaration(decl)) {
+    const name = decl.getNameNode();
+    return Node.isIdentifier(name) ? name.getText() : null;
+  }
+  return null;
+}
+
+/** Enclosing top-level-symbol qualname for a node, or null at module level. */
+function enclosingScope(node) {
+  let current = node.getParent();
+  while (current) {
+    if (Node.isMethodDeclaration(current)) {
+      const cls = current.getFirstAncestorByKind(ts.SyntaxKind.ClassDeclaration);
+      const clsName = cls && cls.getName();
+      if (clsName) return `${clsName}.${current.getName()}`;
+    }
+    if (Node.isFunctionDeclaration(current) && current.getName()) {
+      return current.getName();
+    }
+    if (
+      (Node.isArrowFunction(current) || Node.isFunctionExpression(current)) &&
+      Node.isVariableDeclaration(current.getParent()) &&
+      Node.isIdentifier(current.getParent().getNameNode())
+    ) {
+      return current.getParent().getNameNode().getText();
+    }
+    current = current.getParent();
+  }
+  return null;
+}
+
+// --- per-file extraction ---------------------------------------------------
+
+function extractImports(sourceFile, repoRoot, fileSet, filePath) {
+  const imports = [];
+  const push = (specifier, resolvedFile, names, line) => {
+    if (resolvedFile) {
+      const target = relPath(repoRoot, resolvedFile);
+      if (fileSet.has(target)) {
+        imports.push({ external: null, line, names, resolved: target, specifier });
+        return;
+      }
+    }
+    const external = externalName(specifier);
+    if (external) {
+      imports.push({ external, line, names, resolved: null, specifier });
+    }
+  };
+
+  for (const imp of sourceFile.getImportDeclarations()) {
+    const names = imp.getNamedImports().map((n) => n.getName());
+    const def = imp.getDefaultImport();
+    if (def) names.unshift(def.getText());
+    const ns = imp.getNamespaceImport();
+    if (ns) names.unshift(`* as ${ns.getText()}`);
+    push(
+      imp.getModuleSpecifierValue(),
+      imp.getModuleSpecifierSourceFile(),
+      names.sort(),
+      imp.getStartLineNumber()
+    );
+  }
+  for (const exp of sourceFile.getExportDeclarations()) {
+    const specifier = exp.getModuleSpecifierValue();
+    if (!specifier) continue; // `export { x }` — not a dependency
+    const names = exp.getNamedExports().map((n) => n.getName());
+    push(
+      specifier,
+      exp.getModuleSpecifierSourceFile(),
+      names.length ? names.sort() : ["*"],
+      exp.getStartLineNumber()
+    );
+  }
+  // require() and dynamic import() bypass the import graph.
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
+    const expr = node.getExpression();
+    const isRequire = Node.isIdentifier(expr) && expr.getText() === "require";
+    const isDynamic = expr.getKind() === ts.SyntaxKind.ImportKeyword;
+    if (!isRequire && !isDynamic) return;
+    const specifier = firstStringArg(node);
+    if (!specifier) return;
+    const resolved = resolveRelative(filePath, specifier, fileSet);
+    const line = node.getStartLineNumber();
+    if (resolved) {
+      imports.push({ external: null, line, names: [], resolved, specifier });
+    } else {
+      const external = externalName(specifier);
+      if (external) {
+        imports.push({ external, line, names: [], resolved: null, specifier });
+      }
+    }
+  });
+  return imports.sort(
+    (a, b) => a.line - b.line || a.specifier.localeCompare(b.specifier)
+  );
+}
+
+function extractSymbols(sourceFile) {
+  const symbols = [];
+  const add = (name, qualname, kind, node) =>
+    symbols.push({
+      end_line: node.getEndLineNumber(),
+      kind,
+      line: node.getStartLineNumber(),
+      name,
+      qualname,
+    });
+  for (const fn of sourceFile.getFunctions()) {
+    if (fn.getName()) add(fn.getName(), fn.getName(), "function", fn);
+  }
+  for (const cls of sourceFile.getClasses()) {
+    if (!cls.getName()) continue;
+    add(cls.getName(), cls.getName(), "class", cls);
+    for (const method of cls.getMethods()) {
+      add(method.getName(), `${cls.getName()}.${method.getName()}`, "method", method);
+    }
+  }
+  for (const decl of sourceFile.getVariableDeclarations()) {
+    const init = decl.getInitializer();
+    if (
+      init &&
+      (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) &&
+      Node.isIdentifier(decl.getNameNode())
+    ) {
+      add(decl.getName(), decl.getName(), "function", decl);
+    }
+  }
+  return symbols.sort((a, b) => a.line - b.line || a.qualname.localeCompare(b.qualname));
+}
+
+/** Resolve an identifier/property expression to a repo symbol via the
+ * checker, piercing import aliases. {path, qualname} or null. */
+function resolveExpressionTarget(expr, repoRoot, fileSet) {
+  if (!Node.isIdentifier(expr) && !Node.isPropertyAccessExpression(expr)) {
+    return null;
+  }
+  let symbol = expr.getSymbol();
+  if (!symbol) return null;
+  const aliased = symbol.getAliasedSymbol();
+  if (aliased) symbol = aliased;
+  for (const decl of symbol.getDeclarations()) {
+    const declFile = decl.getSourceFile();
+    const target = relPath(repoRoot, declFile);
+    if (!fileSet.has(target)) continue;
+    const qualname = declQualname(decl);
+    if (qualname) return { path: target, qualname };
+  }
+  return null;
+}
+
+function resolveCallTarget(call, repoRoot, fileSet) {
+  return resolveExpressionTarget(call.getExpression(), repoRoot, fileSet);
+}
+
+function extractCalls(sourceFile, repoRoot, fileSet) {
+  const calls = [];
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
+    const target = resolveCallTarget(node, repoRoot, fileSet);
+    if (!target) return;
+    calls.push({
+      callee: target.qualname,
+      callee_path: target.path,
+      line: node.getStartLineNumber(),
+      scope: enclosingScope(node),
+    });
+  });
+  return calls.sort((a, b) => a.line - b.line || a.callee.localeCompare(b.callee));
+}
+
+function extractEnvReads(sourceFile) {
+  const reads = [];
+  sourceFile.forEachDescendant((node) => {
+    let base = null;
+    let name = null;
+    if (Node.isPropertyAccessExpression(node)) {
+      base = node.getExpression().getText();
+      name = node.getName();
+    } else if (Node.isElementAccessExpression(node)) {
+      base = node.getExpression().getText();
+      const arg = node.getArgumentExpression();
+      name = arg && Node.isStringLiteral(arg) ? arg.getLiteralValue() : null;
+    }
+    if (name && (base === "process.env" || base === "import.meta.env")) {
+      reads.push({ line: node.getStartLineNumber(), var: name });
+    }
+  });
+  return reads.sort((a, b) => a.line - b.line || a.var.localeCompare(b.var));
+}
+
+function expressReceiverOk(receiver) {
+  const text = receiver.getText();
+  if (text === "app" || text === "router" || text === "server") return true;
+  const symbol = Node.isIdentifier(receiver) ? receiver.getSymbol() : null;
+  if (!symbol) return false;
+  return symbol.getDeclarations().some((decl) => {
+    if (!Node.isVariableDeclaration(decl)) return false;
+    const init = decl.getInitializer();
+    return init ? /\bexpress\(|\.Router\(|^Router\(/.test(init.getText()) : false;
+  });
+}
+
+function extractRoutes(sourceFile, repoRoot, fileSet) {
+  const routes = [];
+  // Express: app.get("/path", handler) — receiver must look like an
+  // express app/router and the path literal must start with "/", so
+  // map.get("key") never counts.
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return;
+    const verb = expr.getName();
+    if (!EXPRESS_VERBS.has(verb)) return;
+    const routePath = firstStringArg(node);
+    if (!routePath || !routePath.startsWith("/")) return;
+    if (!expressReceiverOk(expr.getExpression())) return;
+    const args = node.getArguments();
+    const handlerArg = args[args.length - 1];
+    let handler = "<inline>";
+    if (Node.isIdentifier(handlerArg)) {
+      const target = resolveExpressionTarget(handlerArg, repoRoot, fileSet);
+      handler = target ? target.qualname : handlerArg.getText();
+    }
+    routes.push({
+      framework: "express",
+      handler,
+      line: node.getStartLineNumber(),
+      method: verb.toUpperCase(),
+      path: routePath,
+    });
+  });
+  // Nest: @Controller("prefix") classes with @Get("sub")-family methods.
+  for (const cls of sourceFile.getClasses()) {
+    const controller = cls.getDecorator("Controller");
+    if (!controller || !cls.getName()) continue;
+    const prefixArg = controller.getArguments()[0];
+    const prefix =
+      prefixArg && Node.isStringLiteral(prefixArg) ? prefixArg.getLiteralValue() : "";
+    for (const method of cls.getMethods()) {
+      for (const [decoratorName, httpMethod] of NEST_VERBS) {
+        const decorator = method.getDecorator(decoratorName);
+        if (!decorator) continue;
+        const subArg = decorator.getArguments()[0];
+        const sub =
+          subArg && Node.isStringLiteral(subArg) ? subArg.getLiteralValue() : "";
+        const parts = [prefix, sub].filter(Boolean).map((p) => p.replace(/^\/|\/$/g, ""));
+        routes.push({
+          framework: "nest",
+          handler: `${cls.getName()}.${method.getName()}`,
+          line: method.getStartLineNumber(),
+          method: httpMethod,
+          path: "/" + parts.join("/"),
+        });
+      }
+    }
+  }
+  return routes.sort((a, b) => a.line - b.line || a.path.localeCompare(b.path));
+}
+
+// --- tests -----------------------------------------------------------------
+
+export function isTestFile(filePath) {
+  const base = path.posix.basename(filePath);
+  return (
+    /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) ||
+    filePath.split("/").includes("__tests__")
+  );
+}
+
+function testFramework(sourceFile, filePath, imports) {
+  const specifiers = new Set(imports.map((i) => i.specifier));
+  if (specifiers.has("node:test")) return "node:test";
+  for (const spec of specifiers) {
+    if (spec === "vitest" || spec.startsWith("vitest/")) return "vitest";
+    if (spec === "@jest/globals") return "jest";
+  }
+  // node:test is dropped from imports as a builtin; check the raw
+  // declarations too.
+  for (const imp of sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() === "node:test") return "node:test";
+  }
+  if (!isTestFile(filePath)) return null;
+  // Test-named file using bare describe/it/test globals (jest- or
+  // vitest-with-globals style): inventoried, framework honest-unknown.
+  let usesGlobals = false;
+  sourceFile.forEachDescendant((node) => {
+    if (
+      Node.isCallExpression(node) &&
+      Node.isIdentifier(node.getExpression()) &&
+      ["describe", "it", "test"].includes(node.getExpression().getText())
+    ) {
+      usesGlobals = true;
+    }
+  });
+  return usesGlobals ? "unknown" : null;
+}
+
+function testCallName(call) {
+  const expr = call.getExpression();
+  if (Node.isIdentifier(expr)) return expr.getText();
+  // it.skip(...) / test.only(...) / describe.skip(...)
+  if (
+    Node.isPropertyAccessExpression(expr) &&
+    Node.isIdentifier(expr.getExpression()) &&
+    ["skip", "only", "todo", "concurrent", "sequential"].includes(expr.getName())
+  ) {
+    return expr.getExpression().getText();
+  }
+  return null;
+}
+
+function describeChain(node) {
+  const titles = [];
+  let current = node.getParent();
+  while (current) {
+    if (Node.isCallExpression(current) && testCallName(current) === "describe") {
+      const title = firstStringArg(current);
+      if (title) titles.unshift(title);
+    }
+    current = current.getParent();
+  }
+  return titles;
+}
+
+function extractTests(sourceFile, filePath, imports) {
+  const framework = testFramework(sourceFile, filePath, imports);
+  if (!framework) return { framework: null, cases: [] };
+  const cases = [];
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
+    const callName = testCallName(node);
+    if (callName !== "it" && callName !== "test") return;
+    const title = firstStringArg(node);
+    if (title === null) return;
+    cases.push({
+      line: node.getStartLineNumber(),
+      qualname: [...describeChain(node), title].join(" > "),
+    });
+  });
+  return {
+    framework,
+    cases: cases.sort((a, b) => a.line - b.line || a.qualname.localeCompare(b.qualname)),
+  };
+}
+
+// --- repo extraction -------------------------------------------------------
+
+export function extractRepo(repoRoot) {
+  const root = path.resolve(repoRoot);
+  const files = discoverFiles(root);
+  const fileSet = new Set(files);
+  const tsconfigPath = path.join(root, "tsconfig.json");
+  const hasConfig = fs.existsSync(tsconfigPath);
+  const project = hasConfig
+    ? new Project({ tsConfigFilePath: tsconfigPath, skipAddingFilesFromTsConfig: true })
+    : new Project({
+        compilerOptions: {
+          allowJs: true,
+          checkJs: false,
+          module: ts.ModuleKind.ESNext,
+          moduleResolution: ts.ModuleResolutionKind.Bundler,
+          target: ts.ScriptTarget.ES2022,
+          jsx: ts.JsxEmit.Preserve,
+        },
+      });
+  for (const file of files) project.addSourceFileAtPath(path.join(root, file));
+
+  const out = [];
+  for (const file of files) {
+    const sourceFile = project.getSourceFile(path.join(root, file));
+    const imports = extractImports(sourceFile, root, fileSet, file);
+    const tests = extractTests(sourceFile, file, imports);
+    out.push({
+      calls: extractCalls(sourceFile, root, fileSet),
+      env_reads: extractEnvReads(sourceFile),
+      imports,
+      path: file,
+      routes: extractRoutes(sourceFile, root, fileSet),
+      symbols: extractSymbols(sourceFile),
+      test_framework: tests.framework,
+      tests: tests.cases,
+    });
+  }
+  return {
+    files: out,
+    helper_version: HELPER_VERSION,
+    tsconfig: hasConfig ? "tsconfig.json" : null,
+  };
+}
+
+// --- CLI -------------------------------------------------------------------
+
+function main(argv) {
+  let repo = process.cwd();
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--repo" && argv[i + 1]) {
+      repo = argv[++i];
+    } else {
+      process.stderr.write(`tsextract: unknown argument ${argv[i]}\n`);
+      return 2;
+    }
+  }
+  process.stdout.write(JSON.stringify(extractRepo(repo)) + "\n");
+  return 0;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(main(process.argv.slice(2)));
+}
