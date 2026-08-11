@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/majax7714/hobbes/go/internal/escalation"
 	"github.com/majax7714/hobbes/go/internal/recorder"
 )
 
@@ -67,26 +68,53 @@ func testRepo(t *testing.T) string {
 	return repo
 }
 
-// newServer builds a proxy over repo; returns it with its flight-log path.
-func newServer(t *testing.T, repo string, timeout time.Duration) (*Server, string) {
+// newServerFull builds a proxy over repo; returns it with its flight-log
+// path and session dir (where escalations park).
+func newServerFull(t *testing.T, repo string, timeout, escTimeout time.Duration) (*Server, string, string) {
 	t.Helper()
-	logPath := filepath.Join(t.TempDir(), "flight.jsonl")
+	sessionDir := t.TempDir()
+	logPath := filepath.Join(sessionDir, "flight.jsonl")
 	rec, err := recorder.Open(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { rec.Close() })
 	s, err := New(Config{
-		Session:  "S-test",
-		Role:     "implementer",
-		RepoRoot: repo,
-		Timeout:  timeout,
-		Rec:      rec,
+		Session:           "S-test",
+		Role:              "implementer",
+		RepoRoot:          repo,
+		SessionDir:        sessionDir,
+		Timeout:           timeout,
+		EscalationTimeout: escTimeout,
+		Rec:               rec,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return s, logPath, sessionDir
+}
+
+// newServer is newServerFull with a short escalation timeout, so tests
+// that trip an unattended escalation expire in milliseconds, not §9's 30m.
+func newServer(t *testing.T, repo string, timeout time.Duration) (*Server, string) {
+	t.Helper()
+	s, logPath, _ := newServerFull(t, repo, timeout, 400*time.Millisecond)
 	return s, logPath
+}
+
+// pendingEscalation waits for the park loop to write the queue record.
+func pendingEscalation(t *testing.T, sessionDir string) string {
+	t.Helper()
+	dir := filepath.Join(sessionDir, "escalations")
+	for i := 0; i < 100; i++ {
+		entries, err := os.ReadDir(dir)
+		if err == nil && len(entries) == 1 {
+			return filepath.Join(dir, entries[0].Name())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("no escalation record appeared")
+	return ""
 }
 
 func events(t *testing.T, logPath string) []recorder.Event {
@@ -208,24 +236,114 @@ func TestTfstateFloorHoldsWithAllowingRepoPolicy(t *testing.T) {
 	}
 }
 
-func TestEscalationParksInChunkOne(t *testing.T) {
-	s, logPath := newServer(t, testRepo(t), 0)
-	res := callExec(t, s, ExecArgs{Command: "git push origin main"})
-	out := text(res)
-	if !res.IsError || !strings.Contains(out, "escalation") || !strings.Contains(out, "NOT run") {
-		t.Errorf("want parked escalation, got %q", out)
+func TestApprovedEscalationRunsAndLogsApprover(t *testing.T) {
+	repo := testRepo(t)
+	s, logPath, sessionDir := newServerFull(t, repo, 0, 10*time.Second)
+
+	done := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, _, _ := s.handleExec(context.Background(), nil,
+			ExecArgs{Command: "git push origin main"})
+		done <- res
+	}()
+
+	path := pendingEscalation(t, sessionDir)
+	if _, err := escalation.Resolve(path, escalation.Approved, "max", time.Now()); err != nil {
+		t.Fatal(err)
 	}
-	ev := events(t, logPath)[0]
-	if ev.Decision != "escalate" || ev.Exit != nil {
-		t.Errorf("event = %+v", ev)
+
+	// The command isn't a real push — the test repo has no remote — but
+	// it must RUN after approval; a failing run still proves execution.
+	res := <-done
+	out := text(res)
+	if !strings.Contains(out, "approved by max") {
+		t.Errorf("result should name the approver: %q", out)
+	}
+	if !strings.Contains(out, "exit ") {
+		t.Errorf("approved command did not run: %q", out)
+	}
+
+	evs := events(t, logPath)
+	if len(evs) != 2 {
+		t.Fatalf("want park + resolution lines, got %d", len(evs))
+	}
+	park, resl := evs[0], evs[1]
+	if park.Escalation == nil || park.Escalation.Resolution != "" {
+		t.Errorf("park line = %+v", park)
+	}
+	if resl.Escalation == nil || resl.Escalation.Resolution != "approved" ||
+		resl.Escalation.Approver != "max" {
+		t.Errorf("resolution line = %+v", resl)
+	}
+	if resl.Decision != "escalate" {
+		t.Errorf("policy decision must stay escalate, got %q", resl.Decision)
+	}
+	if resl.Exit == nil {
+		t.Error("approved-and-ran line must carry an exit code")
+	}
+	if park.Escalation.ID != resl.Escalation.ID {
+		t.Error("park and resolution lines must share the escalation id")
+	}
+}
+
+func TestDeniedEscalationRefusesWithDenier(t *testing.T) {
+	repo := testRepo(t)
+	s, logPath, sessionDir := newServerFull(t, repo, 0, 10*time.Second)
+
+	done := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, _, _ := s.handleExec(context.Background(), nil,
+			ExecArgs{Command: "git push origin main"})
+		done <- res
+	}()
+	path := pendingEscalation(t, sessionDir)
+	if _, err := escalation.Resolve(path, escalation.Denied, "max", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	res := <-done
+	if !res.IsError || !strings.Contains(text(res), "denied by max") {
+		t.Errorf("want denial naming the denier, got %q", text(res))
+	}
+	evs := events(t, logPath)
+	if len(evs) != 2 || evs[1].Escalation.Resolution != "denied" || evs[1].Exit != nil {
+		t.Errorf("flight lines = %+v", evs)
+	}
+}
+
+func TestUnansweredEscalationExpiresToDeny(t *testing.T) {
+	repo := testRepo(t)
+	s, logPath, sessionDir := newServerFull(t, repo, 0, 300*time.Millisecond)
+
+	start := time.Now()
+	res := callExec(t, s, ExecArgs{Command: "git push origin main"})
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("expiry took %s", elapsed)
+	}
+	if !res.IsError || !strings.Contains(text(res), "expired") {
+		t.Errorf("want expiry refusal, got %q", text(res))
+	}
+
+	record, err := escalation.Load(pendingEscalation(t, sessionDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != escalation.Expired {
+		t.Errorf("record status = %q, want expired", record.Status)
+	}
+	evs := events(t, logPath)
+	if len(evs) != 2 || evs[1].Escalation.Resolution != "expired" ||
+		evs[1].Escalation.Approver != "" {
+		t.Errorf("flight lines = %+v", evs)
 	}
 }
 
 func TestUnmatchedCommandFallsToDefault(t *testing.T) {
+	// newServer's 400ms escalation timeout: the unattended park expires.
 	s, logPath := newServer(t, testRepo(t), 0)
 	res := callExec(t, s, ExecArgs{Command: "curl example.com"})
-	if !res.IsError {
-		t.Error("unmatched command should escalate via the repo default")
+	if !res.IsError || !strings.Contains(text(res), "expired") {
+		t.Errorf("unattended default-escalate should expire to deny: %q", text(res))
 	}
 	ev := events(t, logPath)[0]
 	if ev.Decision != "escalate" || !strings.HasPrefix(ev.PolicyRule, "default:") {
@@ -324,16 +442,50 @@ func TestShaTracksHeadAcrossCommits(t *testing.T) {
 	}
 }
 
+func TestDisconnectWhileParkedSettlesRecord(t *testing.T) {
+	repo := testRepo(t)
+	s, logPath, sessionDir := newServerFull(t, repo, 0, 10*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, _, _ := s.handleExec(ctx, nil, ExecArgs{Command: "git push origin main"})
+		done <- res
+	}()
+	path := pendingEscalation(t, sessionDir)
+	cancel()
+
+	res := <-done
+	if !res.IsError || !strings.Contains(text(res), "session ended") {
+		t.Errorf("want disconnect refusal, got %q", text(res))
+	}
+	record, err := escalation.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != escalation.Expired {
+		t.Errorf("record left %q; a dead session must not leave approvable commands", record.Status)
+	}
+	evs := events(t, logPath)
+	if len(evs) != 2 || evs[1].Escalation.Resolution != "expired" {
+		t.Errorf("flight lines = %+v", evs)
+	}
+}
+
 func TestNewRejectsAnonymousOrUnauditedProxies(t *testing.T) {
 	rec, err := recorder.Open(filepath.Join(t.TempDir(), "f.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rec.Close()
-	if _, err := New(Config{RepoRoot: ".", Rec: rec}); err == nil {
+	dir := t.TempDir()
+	if _, err := New(Config{RepoRoot: ".", SessionDir: dir, Rec: rec}); err == nil {
 		t.Error("missing session/role must be rejected")
 	}
-	if _, err := New(Config{Session: "s", Role: "r", RepoRoot: "."}); err == nil {
+	if _, err := New(Config{Session: "s", Role: "r", RepoRoot: ".", SessionDir: dir}); err == nil {
 		t.Error("missing recorder must be rejected")
+	}
+	if _, err := New(Config{Session: "s", Role: "r", RepoRoot: ".", Rec: rec}); err == nil {
+		t.Error("missing session dir must be rejected")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -112,6 +113,38 @@ func TestNilExitSerializesAsNull(t *testing.T) {
 	val, present := loose["exit"]
 	if !present || val != nil {
 		t.Errorf(`want explicit "exit": null for a refusal, got %v (present=%v)`, val, present)
+	}
+}
+
+func TestEscalationFieldOmittedUnlessSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flight.jsonl")
+	r, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Record(Event{Decision: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Record(Event{
+		Decision:   "escalate",
+		Escalation: &EscalationRef{ID: "E-1", Resolution: "approved", Approver: "max"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if strings.Contains(lines[0], "escalation") {
+		t.Errorf("plain event must omit the escalation field: %s", lines[0])
+	}
+	got := readLines(t, path)[1]
+	if got.Escalation == nil || got.Escalation.Approver != "max" ||
+		got.Escalation.Resolution != "approved" {
+		t.Errorf("escalation ref mangled: %+v", got.Escalation)
 	}
 }
 

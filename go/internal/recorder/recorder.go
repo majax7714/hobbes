@@ -14,8 +14,19 @@ import (
 	"time"
 )
 
+// EscalationRef ties a flight line to an escalation record (ADR-016).
+// A park line carries only ID; the resolution line adds the human's
+// verdict and, for approve/deny, who gave it.
+type EscalationRef struct {
+	ID         string `json:"id"`
+	Resolution string `json:"resolution,omitempty"` // approved | denied | expired
+	Approver   string `json:"approver,omitempty"`
+}
+
 // Event is one flight-recorder line. The field set is fixed by
-// architecture §9 and ADR-015; widening it is a doc change first.
+// architecture §9 and ADR-015; widening it is a doc change first
+// (the escalation field was added by ADR-016 for §9's "approvals log
+// the approver").
 type Event struct {
 	// TS is the event time, RFC3339Nano UTC. Record fills it when empty.
 	TS string `json:"ts"`
@@ -36,6 +47,8 @@ type Event struct {
 	Exit *int `json:"exit"`
 	// SHA is the repo HEAD at event time.
 	SHA string `json:"sha"`
+	// Escalation is set on the two lines of a parked command (ADR-016).
+	Escalation *EscalationRef `json:"escalation,omitempty"`
 }
 
 // Recorder appends events to one session's flight log. Safe for

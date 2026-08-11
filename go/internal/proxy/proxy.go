@@ -3,8 +3,10 @@
 // get no raw shell — they call the exec tool, the proxy resolves the
 // command against the merged policy chain (internal/policy, ADR-002),
 // executes or refuses or escalates, and logs every call to the session's
-// flight recorder (internal/recorder, ADR-015). One proxy process serves
-// one session (ADR-014).
+// flight recorder (internal/recorder, ADR-015). Escalated commands park
+// as queue records (internal/escalation, ADR-016) and run inside the
+// original call once a human approves. One proxy process serves one
+// session (ADR-014).
 package proxy
 
 import (
@@ -19,6 +21,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/majax7714/hobbes/go/internal/escalation"
 	"github.com/majax7714/hobbes/go/internal/policy"
 	"github.com/majax7714/hobbes/go/internal/recorder"
 )
@@ -30,14 +33,27 @@ const outputCap = 50 * 1024
 // DefaultTimeout bounds one exec call unless the caller overrides it.
 const DefaultTimeout = 10 * time.Minute
 
+// DefaultEscalationTimeout is §9's expire-to-deny default.
+const DefaultEscalationTimeout = 30 * time.Minute
+
+// Parked-call cadences: how often the proxy re-reads the escalation
+// record, and how often it reassures the client that the call is alive.
+const (
+	pollInterval     = 200 * time.Millisecond
+	progressInterval = 10 * time.Second
+)
+
 // Config identifies the session this proxy serves and where it enforces.
 type Config struct {
-	Session  string
-	Role     string
-	RepoRoot string        // absolute repo root; commands are confined to it
-	BoxPath  string        // box policy path, "" for none (ADR-003 rules)
-	Timeout  time.Duration // per-command wall clock; 0 means DefaultTimeout
-	Rec      *recorder.Recorder
+	Session    string
+	Role       string
+	RepoRoot   string // absolute repo root; commands are confined to it
+	BoxPath    string // box policy path, "" for none (ADR-003 rules)
+	SessionDir string // per-session state dir (escalations/ lives here)
+	Timeout    time.Duration // per-command wall clock; 0 means DefaultTimeout
+	// EscalationTimeout is the park deadline; 0 means the §9 default.
+	EscalationTimeout time.Duration
+	Rec               *recorder.Recorder
 }
 
 // Server owns the exec handler for one session.
@@ -55,8 +71,14 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("proxy: %w", err)
 	}
 	cfg.RepoRoot = root
+	if cfg.SessionDir == "" {
+		return nil, fmt.Errorf("proxy: a session dir is required — escalations park there")
+	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout
+	}
+	if cfg.EscalationTimeout <= 0 {
+		cfg.EscalationTimeout = DefaultEscalationTimeout
 	}
 	if cfg.Rec == nil {
 		return nil, fmt.Errorf("proxy: a flight recorder is required — the proxy never runs unaudited")
@@ -77,9 +99,10 @@ func (s *Server) MCP() *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "exec",
 		Description: "Run a shell command in the session repo, gated by the " +
-			"merged Hobbes policy chain (allow | deny | escalate). Denied and " +
-			"escalated commands do not run. Every call is logged to the " +
-			"session flight recorder.",
+			"merged Hobbes policy chain. allow runs; deny refuses; escalate " +
+			"parks this call until a human approves or denies the command " +
+			"from the escalation CLI (unanswered escalations expire to " +
+			"deny). Every call is logged to the session flight recorder.",
 	}, s.handleExec)
 	return srv
 }
@@ -93,7 +116,7 @@ func errResult(format string, args ...any) *mcp.CallToolResult {
 }
 
 // handleExec is the exec tool: confine dir → resolve policy → act → log.
-func (s *Server) handleExec(ctx context.Context, _ *mcp.CallToolRequest, args ExecArgs) (*mcp.CallToolResult, any, error) {
+func (s *Server) handleExec(ctx context.Context, req *mcp.CallToolRequest, args ExecArgs) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(args.Command) == "" {
 		return errResult("exec: empty command"), nil, nil
 	}
@@ -131,16 +154,122 @@ func (s *Server) handleExec(ctx context.Context, _ *mcp.CallToolRequest, args Ex
 			ev.PolicyRule, reasonSuffix(res))
 		return s.record(ev, result), nil, nil
 	case policy.Escalate:
-		result := errResult("policy escalation: %s%s\n"+
-			"This command requires human approval and was NOT run. "+
-			"(The escalation queue lands in M4 chunk 2; until then, ask the "+
-			"human to run it or to adjust policy.)",
-			ev.PolicyRule, reasonSuffix(res))
-		return s.record(ev, result), nil, nil
+		return s.park(ctx, req, args, dir, res, ev), nil, nil
 	}
 
 	result := s.run(ctx, args.Command, dir, &ev)
 	return s.record(ev, result), nil, nil
+}
+
+// park implements the escalation tier (§9, ADR-016): write the pending
+// record, log the park line, then block this call polling for the human's
+// verdict. Approved → the command runs here, inside the original call.
+// Denied, expired (deadline or disconnect) → refusal. The proxy's clock
+// is the expiry authority.
+func (s *Server) park(ctx context.Context, req *mcp.CallToolRequest, args ExecArgs, dir string, res policy.Result, ev recorder.Event) *mcp.CallToolResult {
+	now := time.Now()
+	rec, err := escalation.NewRecord(s.cfg.Session, s.cfg.Role, s.cfg.RepoRoot,
+		args.Command, args.Dir, ev.PolicyRule, ruleReason(res), now, s.cfg.EscalationTimeout)
+	if err != nil {
+		return errResult("exec: %v", err)
+	}
+	path, err := escalation.Create(filepath.Join(s.cfg.SessionDir, "escalations"), rec)
+	if err != nil {
+		return errResult("exec: %v", err)
+	}
+
+	parkEv := ev
+	parkEv.Escalation = &recorder.EscalationRef{ID: rec.ID}
+	if err := s.cfg.Rec.Record(parkEv); err != nil {
+		// An unlogged park must not sit approvable for half an hour.
+		_, _ = escalation.MarkExpired(path, time.Now())
+		return errResult("exec: flight recorder write failed while parking: %v", err)
+	}
+
+	resolved := func(resolution, approver string) recorder.Event {
+		out := ev
+		out.Escalation = &recorder.EscalationRef{
+			ID: rec.ID, Resolution: resolution, Approver: approver,
+		}
+		return out
+	}
+
+	deadline := now.Add(s.cfg.EscalationTimeout)
+	poll := time.NewTicker(pollInterval)
+	defer poll.Stop()
+	progress := time.NewTicker(progressInterval)
+	defer progress.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_, _ = escalation.MarkExpired(path, time.Now())
+			return s.record(resolved("expired", ""),
+				errResult("escalation %s: session ended while parked — command NOT run", rec.ID))
+		case <-progress.C:
+			s.notifyParked(ctx, req, rec.ID, time.Until(deadline))
+			continue
+		case <-poll.C:
+		}
+
+		if time.Now().After(deadline) {
+			_, _ = escalation.MarkExpired(path, time.Now())
+			return s.record(resolved("expired", ""), errResult(
+				"escalation %s expired after %s with no human response — "+
+					"command NOT run (expires to deny, architecture §9)",
+				rec.ID, s.cfg.EscalationTimeout))
+		}
+
+		current, err := escalation.Load(path)
+		if err != nil {
+			continue // mid-rename read; next poll settles it
+		}
+		switch current.Status {
+		case escalation.Approved:
+			runEv := resolved("approved", current.Approver)
+			result := s.run(ctx, args.Command, dir, &runEv)
+			result.Content = append([]mcp.Content{&mcp.TextContent{
+				Text: fmt.Sprintf("escalation %s approved by %s\n", rec.ID, current.Approver),
+			}}, result.Content...)
+			return s.record(runEv, result)
+		case escalation.Denied:
+			return s.record(resolved("denied", current.Approver), errResult(
+				"escalation %s denied by %s — command NOT run",
+				rec.ID, current.Approver))
+		case escalation.Expired:
+			// The CLI settled it (a too-late approval attempt).
+			return s.record(resolved("expired", ""), errResult(
+				"escalation %s expired — command NOT run", rec.ID))
+		}
+	}
+}
+
+// notifyParked keeps the client's tool call alive during a park, when the
+// client asked for progress (a token in the request metadata).
+func (s *Server) notifyParked(ctx context.Context, req *mcp.CallToolRequest, id string, remaining time.Duration) {
+	if req == nil || req.Session == nil || req.Params == nil {
+		return
+	}
+	token := req.Params.Meta["progressToken"]
+	if token == nil {
+		return
+	}
+	elapsed := s.cfg.EscalationTimeout - remaining
+	_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+		ProgressToken: token,
+		Progress:      elapsed.Seconds(),
+		Total:         s.cfg.EscalationTimeout.Seconds(),
+		Message: fmt.Sprintf("escalation %s awaiting human approval (%s until expiry)",
+			id, remaining.Round(time.Second)),
+	})
+}
+
+// ruleReason is the decisive rule's reason, or "" for defaults.
+func ruleReason(res policy.Result) string {
+	if res.Rule == nil {
+		return ""
+	}
+	return res.Rule.Reason
 }
 
 // run executes an allowed command and fills the event's exit code.

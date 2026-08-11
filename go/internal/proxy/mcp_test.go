@@ -8,8 +8,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/majax7714/hobbes/go/internal/escalation"
 )
 
 func connect(t *testing.T, s *Server) *mcp.ClientSession {
@@ -73,5 +76,35 @@ func TestRoundTripAllowAndDenyAreLogged(t *testing.T) {
 	evs := events(t, logPath)
 	if len(evs) != 2 || evs[0].Decision != "allow" || evs[1].Decision != "deny" {
 		t.Fatalf("flight log = %+v, want allow then deny", evs)
+	}
+}
+
+func TestRoundTripEscalationApproval(t *testing.T) {
+	// The M4 exit slice, over the wire: an escalated command parks, is
+	// approved (as the CLI would), and runs inside the original call.
+	s, _, sessionDir := newServerFull(t, testRepo(t), 0, 10*time.Second)
+	session := connect(t, s)
+
+	done := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name:      "exec",
+			Arguments: map[string]any{"command": "git push origin main"},
+		})
+		if err != nil {
+			t.Error(err)
+			done <- nil
+			return
+		}
+		done <- res
+	}()
+
+	path := pendingEscalation(t, sessionDir)
+	if _, err := escalation.Resolve(path, escalation.Approved, "max", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	res := <-done
+	if res == nil || !strings.Contains(text(res), "approved by max") {
+		t.Fatalf("approved escalation over the wire: %+v", res)
 	}
 }
