@@ -1,6 +1,6 @@
 /**
- * The shell: repo header, the five tabs in §7's review order, and the
- * source-peek drawer every provenance link opens.
+ * The shell: repo header, Intent plus the five tabs in §7's review
+ * order, and the source-peek drawer every provenance link opens.
  *
  * The heavy artifacts (graph, tests, behaviors) load once here and are
  * shared: the Graph tab wants tests to answer "what guards this", and
@@ -15,17 +15,22 @@ import { useAsync } from './hooks'
 import { DiffTab } from './tabs/DiffTab'
 import { DocsTab } from './tabs/DocsTab'
 import { GraphTab } from './tabs/GraphTab'
+import { IntentTab } from './tabs/IntentTab'
 import { SessionsTab } from './tabs/SessionsTab'
 import { TestsTab } from './tabs/TestsTab'
 import type { Pin } from './types'
 
-type TabName = 'graph' | 'tests' | 'docs' | 'diff' | 'sessions'
+type TabName = 'intent' | 'graph' | 'tests' | 'docs' | 'diff' | 'sessions'
 
 export function App() {
   const [tab, setTab] = useState<TabName>('graph')
   const [pin, setPin] = useState<Pin | null>(null)
 
   const overview = useAsync(() => api.overview(), [])
+  // Decisions gate the repo (ADR-026), so the shell knows about them:
+  // the count lives in the header, and a repo that still owes one opens
+  // on Intent rather than making you find it.
+  const decisions = useAsync(() => api.decisions().catch(() => null), [])
   const graph = useAsync(() => api.graph().catch(() => null), [])
   const tests = useAsync(() => api.tests().catch(() => null), [])
   const interfaces = useAsync(() => api.interfaces().catch(() => null), [])
@@ -52,6 +57,13 @@ export function App() {
   useEffect(() => {
     if (tab !== 'graph') setPendingModule(null)
   }, [tab])
+
+  const [landed, setLanded] = useState(false)
+  useEffect(() => {
+    if (landed || !decisions.data) return
+    setLanded(true)
+    if (!decisions.data.ready) setTab('intent')
+  }, [decisions.data, landed])
 
   const o = overview.data
   const counts = o?.counts ?? {}
@@ -82,6 +94,11 @@ export function App() {
               <Badge kind="broken">{counts.extraction_errors} extraction errors</Badge>
             )}
             {counts.docs_stale > 0 && <Badge kind="stale">{counts.docs_stale} stale docs</Badge>}
+            {decisions.data && !decisions.data.ready && (
+              <Badge kind="escalate">
+                {decisions.data.blockers.length} awaiting you
+              </Badge>
+            )}
           </>
         )}
         <span className="spacer" />
@@ -93,6 +110,7 @@ export function App() {
       <nav className="tabs">
         {(
           [
+            ['intent', 'Intent', decisions.data?.pending_invariants.length],
             ['graph', 'Graph', counts.nodes],
             ['tests', 'Tests', counts.tests],
             ['docs', 'Docs', counts.docs],
@@ -108,6 +126,8 @@ export function App() {
       </nav>
 
       <div className="content">
+        {tab === 'intent' && <IntentTab onOpenPin={openPin} onChanged={decisions.reload} />}
+
         {tab === 'graph' &&
           (graph.data ? (
             <GraphTab

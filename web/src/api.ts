@@ -1,17 +1,21 @@
 /**
- * The API client. Every endpoint is read-only except the two escalation
- * verdicts (ADR-022), and every failure carries the server's hint — the
- * command that would produce the missing data — so tabs can render
- * "not ingested yet" as guidance rather than as an error.
+ * The API client. Reads dominate; the only writes are the escalation
+ * verdicts (ADR-022) and the two decision surfaces — intent and
+ * invariants (ADR-026). Every failure carries the server's hint, the
+ * command that would produce the missing data, so tabs can render "not
+ * ingested yet" as guidance rather than as an error.
  */
 
 import type {
   Behavior,
+  DecidedInvariant,
+  Decisions,
   DiffResult,
   DocEntry,
   Escalation,
   FlightPage,
   Graph,
+  Intent,
   Interfaces,
   Invariants,
   ModuleDoc,
@@ -20,6 +24,7 @@ import type {
   SessionSummary,
   SourceFile,
   Tests,
+  Verdict,
 } from './types'
 
 /** ApiError carries the server's hint alongside the message. */
@@ -50,14 +55,20 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
-async function post<T>(path: string): Promise<T> {
-  const res = await fetch(path, { method: 'POST', headers: { Accept: 'application/json' } })
-  const body = await res.json().catch(() => ({}))
+async function send<T>(path: string, method: 'POST' | 'PUT', payload?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  })
+  const body: { error?: string; hint?: string } = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? `${res.status} ${res.statusText}`, body?.hint ?? '')
+    throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`, body.hint ?? '')
   }
   return body as T
 }
+
+const post = <T>(path: string) => send<T>(path, 'POST')
 
 export const api = {
   overview: () => get<Overview>('/api/overview'),
@@ -84,6 +95,19 @@ export const api = {
     get<{ escalations: Escalation[] }>(`/api/escalations${all ? '?all=1' : ''}`),
   resolve: (id: string, verdict: 'approve' | 'deny') =>
     post<{ escalation: Escalation }>(`/api/escalations/${encodeURIComponent(id)}/${verdict}`),
+
+  // The two decision surfaces (ADR-026) — the only writes besides
+  // escalation verdicts, and each lands in a file a human can read.
+  intent: () => get<Intent>('/api/intent'),
+  saveIntent: (text: string | null, confirm: boolean) =>
+    send<Intent>('/api/intent', 'PUT', { text: text ?? '', confirm }),
+  decisions: () => get<Decisions>('/api/decisions'),
+  decide: (key: string, verdict: Verdict) =>
+    send<{ decision: DecidedInvariant }>(
+      `/api/decisions/${encodeURIComponent(key)}`,
+      'POST',
+      verdict,
+    ),
 }
 
 /**

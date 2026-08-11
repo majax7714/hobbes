@@ -243,3 +243,54 @@ export interface Escalation {
   seconds_left: number
   resolvable: boolean
 }
+
+// --- decision surfaces (ADR-026) --------------------------------------------
+
+/** The repo policy, as the Intent panel edits it. */
+export interface Intent {
+  path: string
+  text: string
+  blob: string
+  confirmed: boolean
+  confirmed_at: string
+  /** True when repo.policy moved since it was confirmed, outside the UI. */
+  changed_since_confirm: boolean
+}
+
+/** One inferred invariant still owed a verdict. */
+export interface PendingInvariant {
+  key: string
+  id: string
+  statement: string
+  scope: string
+  evidence: Pin[]
+  guarded_by: string[]
+}
+
+export interface DecidedInvariant {
+  key: string
+  verdict: 'approved' | 'denied' | 'edited'
+  decided_at: string
+  record?: string
+  source_statement: string
+  source_scope: string
+}
+
+/** The blocking gate `hobbes up` polls. */
+export interface Decisions {
+  ready: boolean
+  intent_confirmed: boolean
+  intent_confirmed_at: string
+  pending_invariants: PendingInvariant[]
+  decided: DecidedInvariant[]
+  blockers: string[]
+}
+
+/** A human's ruling on one proposal; edits carry the revised record. */
+export interface Verdict {
+  verdict: 'approved' | 'denied' | 'edited'
+  statement?: string
+  scope?: string
+  target?: string
+  rule_yaml?: string
+}

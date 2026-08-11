@@ -89,6 +89,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/diff", s.handleDiff)
 	s.mux.HandleFunc("GET /api/refs", s.handleRefs)
 
+	// The two decision surfaces (ADR-026) — the only writes besides
+	// escalation verdicts, and each one lands in a file a human reads.
+	s.mux.HandleFunc("GET /api/intent", s.handleIntent)
+	s.mux.HandleFunc("PUT /api/intent", s.handleWriteIntent)
+	s.mux.HandleFunc("GET /api/decisions", s.handleDecisions)
+	s.mux.HandleFunc("POST /api/decisions/{key}", s.handleVerdict)
+
 	// Sessions: the flight recorder and the escalation queue.
 	s.mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	s.mux.HandleFunc("GET /api/sessions/{id}/flight", s.handleFlight)

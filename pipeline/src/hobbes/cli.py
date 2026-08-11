@@ -411,6 +411,137 @@ def _cmd_review(args: argparse.Namespace) -> int:
     return 1 if review.needs_attention else 0
 
 
+def _cmd_up(args: argparse.Namespace) -> int:
+    """`hobbes up`: bring Hobbes up on a repo and hold for decisions (ADR-026).
+
+    Does the mechanical steps — init if needed, re-ingest when the
+    artifacts are not stamped at HEAD — then serves the UI and blocks
+    until intent and every new invariant have a human verdict. It never
+    narrates: that spends quota, and the graph should be checked before
+    anything is paid for prose about it.
+    """
+    import shutil
+    import subprocess
+    import time
+
+    from hobbes import decisions
+
+    repo_root = _repo_root_from(args)
+
+    # 1. Is Hobbes here at all?
+    policy_path = repo_root / ".hobbes" / "policies" / "repo.policy"
+    if not policy_path.is_file():
+        print(f"hobbes up: no .hobbes/ in {repo_root} — initializing")
+        rc = _cmd_init(argparse.Namespace(repo=str(repo_root)))
+        if rc != 0:
+            return rc
+
+    # 2. Which commit was Hobbes last linked to?
+    graph_path = repo_root / ".hobbes" / "derived" / "graph.json"
+    head = _git_head(repo_root)
+    stamped = ""
+    if graph_path.is_file():
+        try:
+            stamped = json.loads(graph_path.read_text()).get("sha", "")
+        except (ValueError, OSError):
+            stamped = ""
+    if not stamped:
+        print("hobbes up: no skeleton yet — ingesting")
+    elif stamped != head:
+        print(f"hobbes up: artifacts stamped at {stamped[:12]}, HEAD is "
+              f"{head[:12]} — re-ingesting")
+    else:
+        print(f"hobbes up: artifacts current at {stamped[:12]}")
+    if not stamped or stamped != head:
+        rc = _cmd_ingest(argparse.Namespace(repo=str(repo_root), tf_plan=None))
+        if rc != 0:
+            return rc
+
+    # 3. What is still owed a human?
+    state = decisions.readiness(repo_root)
+    print()
+    if state.ready:
+        print("hobbes up: nothing awaiting a decision")
+    else:
+        print("hobbes up: decisions needed before this repo is ready:")
+        for blocker in state.blockers():
+            print(f"  - {blocker}")
+
+    if args.no_serve:
+        _print_ready(state, repo_root, served=False)
+        return 0 if state.ready else 1
+
+    binary = args.web_bin or shutil.which("hobbes-web")
+    if not binary:
+        print(
+            "hobbes up: hobbes-web not found on PATH — build it "
+            "(`cd go && go build -o bin/hobbes-web ./cmd/hobbes-web`) or pass "
+            "--web-bin",
+            file=sys.stderr,
+        )
+        return 1
+
+    server = subprocess.Popen(
+        [binary, "serve", "--repo", str(repo_root), "--addr", args.addr]
+    )
+    try:
+        # 4. Block until the queue is empty (ADR-026: a queue you can walk
+        # past is a queue you never empty).
+        announced = state.ready
+        if announced:
+            _print_ready(state, repo_root, served=True, addr=args.addr)
+        while True:
+            if server.poll() is not None:
+                print("hobbes up: the web surface exited", file=sys.stderr)
+                return 1
+            time.sleep(_UP_POLL_SECONDS)
+            state = decisions.readiness(repo_root)
+            if state.ready and not announced:
+                announced = True
+                _print_ready(state, repo_root, served=True, addr=args.addr)
+    except KeyboardInterrupt:
+        print("\nhobbes up: shutting down")
+        return 0
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+
+
+#: How often `hobbes up` re-reads the decision ledger while blocking.
+_UP_POLL_SECONDS = 2.0
+
+
+def _git_head(repo_root: Path) -> str:
+    """The repo's HEAD sha, or "" when git cannot answer."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _print_ready(state, repo_root: Path, served: bool, addr: str = "") -> None:
+    """The banner that says a session can start."""
+    print()
+    if not state.ready:
+        print("hobbes up: still waiting on:")
+        for blocker in state.blockers():
+            print(f"  - {blocker}")
+        if served:
+            print(f"  decide them at http://{addr}")
+        return
+    print("hobbes up: ready to develop.")
+    print(f"  hobbes-session start --repo {repo_root} --role implementer --task '...'")
+    if served:
+        print(f"  surface: http://{addr}   (ctrl-c to stop)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the hobbes argument parser (exposed for tests)."""
     parser = argparse.ArgumentParser(
@@ -538,6 +669,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="emit the rows as JSON"
     )
 
+    up_parser = sub.add_parser(
+        "up",
+        help="bring Hobbes up on this repo and hold for your decisions",
+        description=(
+            "One command for a bring-up (ADR-026): initialize if needed, "
+            "re-ingest when the artifacts are not stamped at HEAD, serve the "
+            "surface, and block until intent and every new invariant have a "
+            "verdict. Never narrates — that spends quota, and is offered in "
+            "the UI instead."
+        ),
+    )
+    up_parser.add_argument("--repo", help="repo root (default: auto-detected via .git)")
+    up_parser.add_argument(
+        "--addr", default="127.0.0.1:7777", help="surface bind address (loopback only)"
+    )
+    up_parser.add_argument("--web-bin", help="hobbes-web binary (default: from PATH)")
+    up_parser.add_argument(
+        "--no-serve",
+        action="store_true",
+        help="report what is owed and exit instead of serving (exit 1 if not ready)",
+    )
+
     review_parser = sub.add_parser(
         "review",
         help="concept-level review of a range: delta, invariants, coverage",
@@ -634,6 +787,7 @@ def main(argv: list[str] | None = None) -> int:
         "docs": _cmd_docs_status,
         "invariants": _cmd_invariants,
         "review": _cmd_review,
+        "up": _cmd_up,
         "policy": _cmd_policy_resolve,
     }
     return handlers[args.command](args)

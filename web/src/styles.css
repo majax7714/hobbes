@@ -607,3 +607,54 @@ table.grid tr:hover td {
   background: var(--ok);
   box-shadow: 0 0 0 3px #6ee7a022;
 }
+
+/* --- intent: the policy editor and verdict fields (ADR-026) --------- */
+
+.policy-editor {
+  width: 100%;
+  min-height: 16rem;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  tab-size: 2;
+}
+.policy-editor:focus-visible,
+.field textarea:focus-visible,
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.field { display: block; margin: 6px 0; }
+.field > span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.field textarea,
+.field input {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.field textarea {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  resize: vertical;
+}
+.field.inline { display: inline-block; margin: 0; }
+.field.inline input { width: 12rem; }
