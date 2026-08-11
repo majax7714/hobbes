@@ -519,3 +519,51 @@ package.json `bin` CLI entry points.
 
 **Next:** M7 — web surface (Vite + React + Cytoscape.js, D3). Not
 started; M6 awaits Max's review.
+
+---
+
+## 2026-08-11 (tenth session, addendum) — M6 verified on kbet
+
+Max reviewed M6 ("good work") and sanctioned `~/projects/kbet` — a real
+Vite + React TypeScript app (betchat frontend: 89 TS/TSX/JS files, 174
+vitest cases; Java backend out of v1 scope) — as the TS verification
+repo. SELENEX had verified the JS path; kbet is the TS path, and it
+forced five real fixes the fixture never exercised:
+
+- **tsconfig zoning**: kbet's tsconfig lives at `betchat/frontend/`,
+  not the repo root, and `@/*` path aliases are its entire import
+  idiom. Files now group by nearest tsconfig.json, one ts-morph
+  Project per zone — the "per-package tsconfigs" deferral lasted one
+  repo before reality un-deferred it. Safety overrides (allowJs,
+  skipLibCheck) on loaded configs also cured a TypeScript checker
+  internal crash on `public/sw.js`, a file the package's own build
+  never checks.
+- **Checker resilience**: per-file/per-stage try-catch — a crash
+  degrades one stage of one file and is recorded in the facts, the
+  graph (`extraction_errors`), and an ingest WARNING. Visible, never
+  silent; never zeroes a repo. (After the allowJs fix, kbet extracts
+  with zero degradations.)
+- **64KB truncation**: `process.exitCode` instead of `process.exit()`
+  — eager exit was cutting stdout at the pipe buffer on repos bigger
+  than SELENEX.
+- **JS idioms**: call-initialized consts (`create()` stores, axios
+  instances) are now `kind: const` symbols, so call edges point at
+  symbols that exist (`require()` handles excluded);
+  `require()`/dynamic imports resolve through `ts.resolveModuleName`,
+  so aliased dynamic imports work; test `reaches_modules` unions
+  resolved import targets — `stores.test.ts` guarding nothing because
+  zustand stores aren't functions was the tell. All 174 kbet tests now
+  guard at least one module. `languages` no longer claims python for a
+  TS-only repo.
+
+**Verification — passed**: kbet ingest → 104 nodes, 358 module edges,
+207 symbols, 235 call edges, 174 tests, [javascript, typescript].
+Hand-checked **20/20 edges** (12 module — aliased/type-only/default/
+relative all exact; 8 call — scopes into components and nested
+handlers correct, store-hook calls resolving to their const symbols)
+and **10/10 test mappings** (def lines match; guards sensible:
+BetCard tests → BetCard + api/bets + authStore, store tests → the
+stores, autoUpdate → the hook through vi.mock + dynamic import).
+100% against the ≥90% bar, on top of SELENEX's 100%.
+
+18 node --test cases, 226 pytest, Go untouched.

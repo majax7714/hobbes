@@ -40,12 +40,12 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   narrative generation into sandboxed sessions with the role mounts
   ADR-018 already supports (ro source, rw .hobbes/), and flight-log it.
 
-- **Per-package tsconfigs in monorepos** (from M6, deferred 2026-08-11).
-  The helper honors a repo-root `tsconfig.json` or supplies allowJs
-  defaults (ADR-021); nested per-package configs (path aliases per
-  workspace) are ignored. Revisit when a real repo's aliases fail to
-  resolve — the fix lives entirely in `tsextract/extract.mjs` project
-  setup.
+- **Per-package tsconfigs in monorepos** — *picked up 2026-08-11, same
+  day*: kbet's `@/*` aliases un-deferred this immediately; the helper
+  now zones files by nearest tsconfig.json, one ts-morph Project per
+  zone (see BUILDLOG tenth-session addendum). Remaining edge: imports
+  *across* zones don't resolve (separate programs) — revisit if a real
+  monorepo has package-to-package imports.
 
 - **Per-test JS reach** (from M6, deferred 2026-08-11). JS test reach
   is file-level: every case in a test file shares the file's

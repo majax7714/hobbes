@@ -117,9 +117,20 @@ surface) until reviewed.
   hcl+javascript+python); all 11 JS module edges + 9 call edges and 9
   node:test mappings (reach exactly the 8 imported flow.js symbols) +
   1 pytest mapping verified by hand — 100%. The spot-check caught and
-  fixed a nested-declaration call-edge leak. 224 pytest / 147 Go /
-  15 node --test cases. Deferred: per-package tsconfigs, per-test JS
-  reach, jest-globals detection, package.json bin (future_additions).
+  fixed a nested-declaration call-edge leak.
+- Verified on **kbet** (`~/projects/kbet`, Max-sanctioned real Vite+React
+  TS app): 20/20 edges + 10/10 mappings, 100%. Forced real fixes:
+  **tsconfig zoning** (nearest tsconfig per file, one Project per zone —
+  `@/*` aliases resolve; un-deferred same day), checker-crash
+  resilience (per-file/stage degradation → `extraction_errors` +
+  ingest WARNING), `process.exitCode` (64KB stdout truncation),
+  call-initialized consts as `kind: const` symbols (zustand/axios;
+  require handles excluded), `require()`/dynamic imports via
+  `ts.resolveModuleName`, test `reaches_modules` unions resolved
+  imports, TS-only repos no longer claim python. 226 pytest / 147 Go /
+  18 node --test cases. Still deferred: per-test JS reach,
+  jest-globals detection, package.json bin, cross-zone imports
+  (future_additions).
 
 - M5 (reviewed, passed): narrative pass — ADR-019 artifacts
   (`.hobbes/derived/docs/`: module docs, behavior indexes,

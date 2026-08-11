@@ -352,6 +352,7 @@ test("call-initialized consts are symbols; calls to them stay consistent", () =>
       "function create(fn: any) { return fn; }",
       "export const useStore = create(() => ({ n: 1 }));",
       "export const DATA = { n: 1 };", // plain data const: not a symbol
+      'const fs = require("node:fs");', // module handle: not a symbol
     ].join("\n"),
     "src/page.ts": [
       'import { useStore, DATA } from "./store.js";',

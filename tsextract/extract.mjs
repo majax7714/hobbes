@@ -126,7 +126,8 @@ function declQualname(decl) {
       init &&
       (Node.isArrowFunction(init) ||
         Node.isFunctionExpression(init) ||
-        Node.isCallExpression(init));
+        (Node.isCallExpression(init) &&
+          init.getExpression().getText() !== "require"));
     if (!modeled) return null;
     const name = decl.getNameNode();
     return Node.isIdentifier(name) ? name.getText() : null;
@@ -266,10 +267,14 @@ function extractSymbols(sourceFile) {
     if (!init || !Node.isIdentifier(decl.getNameNode())) continue;
     if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
       add(decl.getName(), decl.getName(), "function", decl);
-    } else if (Node.isCallExpression(init)) {
+    } else if (
+      Node.isCallExpression(init) &&
+      init.getExpression().getText() !== "require"
+    ) {
       // Call-initialized consts are the JS idiom for callable values —
       // zustand stores, axios instances, styled components. Modeling
       // them keeps call edges pointing at symbols that exist.
+      // (require() consts are module handles, not symbols.)
       add(decl.getName(), decl.getName(), "const", decl);
     }
   }
