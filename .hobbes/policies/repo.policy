@@ -16,13 +16,21 @@ rules:
     decision: deny
     reason: "never commit .hobbes/derived/ — regenerable pipeline output"
 
-  # History rewrites on the canonical repo are out.
+  # Publishing is Max's, never a session's. Pushing is not a capability
+  # an agent needs: work lands as commits on a branch and Max pushes it
+  # after review. Denied outright rather than escalated — an escalation
+  # invites the question, and there is no answer that should be yes.
+  # (Force-push stays listed for the reason it names; the general deny
+  # below already covers it.)
   - pattern: "git push --force*"
     decision: deny
     reason: "no force-push to the canonical repo"
   - pattern: "git push -f*"
     decision: deny
     reason: "no force-push to the canonical repo"
+  - pattern: "git push*"
+    decision: deny
+    reason: "pushes are the human's — sessions commit, Max publishes"
 
   # Read-only and build/test commands run freely.
   - pattern: "git status*"
@@ -41,8 +49,3 @@ rules:
     decision: allow
   - pattern: "uv sync*"
     decision: allow
-
-  # Publishing needs a human.
-  - pattern: "git push*"
-    decision: escalate
-    reason: "pushes reviewed by a human until M4's escalation queue exists"
