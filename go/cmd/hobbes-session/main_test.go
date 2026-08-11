@@ -1,0 +1,164 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func cli(args ...string) (int, string, string) {
+	var stdout, stderr bytes.Buffer
+	code := run(args, &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestNoArgsUsage(t *testing.T) {
+	if code, _, _ := cli(); code != exitUsage {
+		t.Errorf("exit = %d, want %d", code, exitUsage)
+	}
+}
+
+func TestStartRequiresRepoAndRole(t *testing.T) {
+	if code, _, _ := cli("start", "--role", "implementer"); code != exitUsage {
+		t.Errorf("missing --repo: exit = %d", code)
+	}
+	if code, _, _ := cli("start", "--repo", t.TempDir()); code != exitUsage {
+		t.Errorf("missing --role: exit = %d", code)
+	}
+}
+
+func TestStartRejectsNonGitRepo(t *testing.T) {
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("#!/bin/true\n"), 0o755)
+	code, _, stderr := cli("start", "--repo", t.TempDir(), "--role", "implementer",
+		"--proxy-bin", fakeProxy, "--sessions", t.TempDir(), "--dry-run")
+	if code != exitError || !strings.Contains(stderr, "not a git repo") {
+		t.Errorf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+// gitRepo makes a one-commit repo for worktree operations.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	run := func(args ...string) {
+		full := append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)
+		if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	os.WriteFile(filepath.Join(repo, "README.md"), []byte("hi\n"), 0o644)
+	run("add", ".")
+	run("commit", "-qm", "base")
+	return repo
+}
+
+func TestDryRunCreatesWorktreeShowsPlanAndCleansUp(t *testing.T) {
+	repo := gitRepo(t)
+	sessions := t.TempDir()
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+
+	code, stdout, stderr := cli("start", "--repo", repo, "--role", "implementer",
+		"--task", "add a helper", "--session", "S-test",
+		"--proxy-bin", fakeProxy, "--sessions", sessions, "--dry-run")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	// Plan is shown, with clean env and the worktree mount.
+	for _, want := range []string{
+		"podman run", "--network none",
+		filepath.Join(sessions, "S-test", "worktree") + ":/work:rw",
+		"HOME=/sessions/S-test", "mcpServers", "--disallowedTools Bash",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("dry-run missing %q", want)
+		}
+	}
+	// The MCP config was written host-side.
+	cfg := filepath.Join(sessions, "S-test", "mcp.json")
+	if _, err := os.Stat(cfg); err != nil {
+		t.Errorf("MCP config not written: %v", err)
+	}
+	// The disposable clone was removed on teardown...
+	if _, err := os.Stat(filepath.Join(sessions, "S-test", "worktree")); !os.IsNotExist(err) {
+		t.Errorf("session clone not removed: %v", err)
+	}
+	// ...the canonical repo has no leftover session branch (a clone never
+	// creates one there)...
+	out, _ := exec.Command("git", "-C", repo, "branch", "--list", "hobbes/S-test").CombinedOutput()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("canonical repo grew a session branch: %s", out)
+	}
+	// ...and the session dir itself (audit trail) is kept.
+	if _, err := os.Stat(filepath.Join(sessions, "S-test")); err != nil {
+		t.Errorf("session dir should survive teardown: %v", err)
+	}
+}
+
+func TestSelinuxRelabelOnMounts(t *testing.T) {
+	repo := gitRepo(t)
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+	_, stdout, _ := cli("start", "--repo", repo, "--role", "implementer",
+		"--session", "S-z", "--proxy-bin", fakeProxy, "--sessions", t.TempDir(), "--dry-run")
+	if !strings.Contains(stdout, ":/work:rw,z") {
+		t.Error("worktree mount should request an SELinux relabel (z) for rootless podman")
+	}
+}
+
+func TestSessionCloneIsSelfContained(t *testing.T) {
+	// A clone, not a linked worktree: its .git is a directory, so git
+	// works inside a container that mounts only the worktree.
+	repo := gitRepo(t)
+	sessions := t.TempDir()
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+
+	opt := options{repo: repo, role: "implementer", session: "S-clone",
+		sessions: sessions, proxyBin: fakeProxy}
+	_, worktree, cleanup, err := setup(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	info, err := os.Stat(filepath.Join(worktree, ".git"))
+	if err != nil || !info.IsDir() {
+		t.Errorf(".git should be a self-contained dir in the clone, got %v", err)
+	}
+	// git status works with no reference to any path outside the clone.
+	if out, err := exec.Command("git", "-C", worktree, "status", "--short").CombinedOutput(); err != nil {
+		t.Errorf("git in the clone failed: %v: %s", err, out)
+	}
+}
+
+func TestMissingProxyBinIsAClearError(t *testing.T) {
+	repo := gitRepo(t)
+	code, _, stderr := cli("start", "--repo", repo, "--role", "implementer",
+		"--proxy-bin", "/nonexistent/hobbes-proxy", "--sessions", t.TempDir(), "--dry-run")
+	if code != exitError || !strings.Contains(stderr, "proxy binary") {
+		t.Errorf("code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestCommandOverrideParsedAfterDoubleDash(t *testing.T) {
+	repo := gitRepo(t)
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+	code, stdout, stderr := cli("start", "--repo", repo, "--role", "implementer",
+		"--session", "S-ov", "--proxy-bin", fakeProxy, "--sessions", t.TempDir(),
+		"--dry-run", "--", "python3", "/sessions/driver.py")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "python3 /sessions/driver.py") {
+		t.Errorf("override command not in plan:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "claude") {
+		t.Error("override should replace the default claude command")
+	}
+}
