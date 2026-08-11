@@ -29,3 +29,13 @@ node_modules/
 .vscode/
 *.swp
 .DS_Store
+
+# Web surface build artifacts (M7, ADR-022) — the SPA is rebuilt from
+# web/ and embedded into hobbes-web; only the .gitkeep placeholder that
+# keeps the go:embed target present in a fresh clone is committed. The
+# directory itself must be re-included first: the generic `dist/` rule
+# above excludes it, and git cannot re-include a file whose directory is
+# excluded.
+!go/internal/web/dist/
+go/internal/web/dist/*
+!go/internal/web/dist/.gitkeep

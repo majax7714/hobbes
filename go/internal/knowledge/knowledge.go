@@ -320,21 +320,23 @@ func (c claim) cite() string {
 	return "  [" + strings.Join(cites, ", ") + "]"
 }
 
-// docSource is a blob-stamped file a narrative artifact cites.
-type docSource struct {
+// Source is a blob-stamped file a narrative artifact cites (ADR-019).
+// Exported because the web surface (ADR-022) computes the same badge
+// over the same stamps; staleness has one implementation.
+type Source struct {
 	Path    string `json:"path"`
 	BlobSHA string `json:"blob_sha"`
 }
 
 type moduleDoc struct {
-	SHA              string      `json:"sha"`
-	Dirty            bool        `json:"dirty"`
-	ID               string      `json:"id"`
-	Path             string      `json:"path"`
-	Sources          []docSource `json:"sources"`
-	Purpose          claim       `json:"purpose"`
-	Responsibilities []claim     `json:"responsibilities"`
-	Gotchas          []claim     `json:"gotchas"`
+	SHA              string   `json:"sha"`
+	Dirty            bool     `json:"dirty"`
+	ID               string   `json:"id"`
+	Path             string   `json:"path"`
+	Sources          []Source `json:"sources"`
+	Purpose          claim    `json:"purpose"`
+	Responsibilities []claim  `json:"responsibilities"`
+	Gotchas          []claim  `json:"gotchas"`
 }
 
 // ModuleDoc answers get_module_doc(node): the narrative doc for one
@@ -413,41 +415,72 @@ func docIDs(dir string) []string {
 	return ids
 }
 
-// changedSources reports which stamped sources' working-tree blobs no
+// changedSources reports which of this store's stamped sources changed.
+func (s *Store) changedSources(sources []Source) []string {
+	return ChangedSources(s.repoRoot, sources)
+}
+
+// ChangedSources reports which stamped sources' working-tree blobs no
 // longer match (ADR-019 staleness). A vanished file counts as changed;
 // git being unavailable degrades to no warning, like gitHead.
-func (s *Store) changedSources(sources []docSource) []string {
-	changed := map[string]bool{}
-	var existing []string
-	for _, src := range sources {
-		if _, err := os.Stat(filepath.Join(s.repoRoot, src.Path)); err != nil {
-			changed[src.Path] = true
-		} else {
-			existing = append(existing, src.Path)
+func ChangedSources(repoRoot string, sources []Source) []string {
+	return ChangedSourcesMulti(repoRoot, map[string][]Source{"": sources})[""]
+}
+
+// ChangedSourcesMulti answers ChangedSources for several artifacts at
+// once, hashing the working tree in a single git call. The web surface's
+// docs index (ADR-022) asks the badge question about every artifact on
+// every load; one subprocess per artifact would be the whole cost of the
+// endpoint.
+func ChangedSourcesMulti(repoRoot string, bySources map[string][]Source) map[string][]string {
+	// Hash every distinct existing path once, then answer per artifact.
+	wanted := map[string]bool{}
+	for _, sources := range bySources {
+		for _, src := range sources {
+			if _, err := os.Stat(filepath.Join(repoRoot, src.Path)); err == nil {
+				wanted[src.Path] = true
+			}
 		}
 	}
+	existing := make([]string, 0, len(wanted))
+	for p := range wanted {
+		existing = append(existing, p)
+	}
+	sort.Strings(existing)
+
+	current := map[string]string{}
 	if len(existing) > 0 {
-		cmd := exec.Command("git", "-C", s.repoRoot, "hash-object", "--stdin-paths")
+		cmd := exec.Command("git", "-C", repoRoot, "hash-object", "--stdin-paths")
 		cmd.Stdin = strings.NewReader(strings.Join(existing, "\n") + "\n")
 		if out, err := cmd.Output(); err == nil {
-			hashes := strings.Fields(string(out))
-			if len(hashes) == len(existing) {
-				current := make(map[string]string, len(existing))
+			if hashes := strings.Fields(string(out)); len(hashes) == len(existing) {
 				for i, p := range existing {
 					current[p] = hashes[i]
-				}
-				for _, src := range sources {
-					if h, ok := current[src.Path]; ok && h != src.BlobSHA {
-						changed[src.Path] = true
-					}
 				}
 			}
 		}
 	}
-	out := make([]string, 0, len(changed))
-	for p := range changed {
-		out = append(out, p)
+
+	result := make(map[string][]string, len(bySources))
+	for id, sources := range bySources {
+		changed := map[string]bool{}
+		for _, src := range sources {
+			if !wanted[src.Path] {
+				changed[src.Path] = true // gone
+				continue
+			}
+			// An unhashable tree (no git) leaves current empty: no badge,
+			// same degradation as gitHead.
+			if h, ok := current[src.Path]; ok && h != src.BlobSHA {
+				changed[src.Path] = true
+			}
+		}
+		out := make([]string, 0, len(changed))
+		for p := range changed {
+			out = append(out, p)
+		}
+		sort.Strings(out)
+		result[id] = out
 	}
-	sort.Strings(out)
-	return out
+	return result
 }
