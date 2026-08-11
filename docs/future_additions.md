@@ -60,3 +60,34 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   config file in the repo could sharpen the label. `interfaces.json`
   CLI entry points still come from pyproject only — package.json `bin`
   is the JS analog when a repo needs it.
+
+- **PR mode over the interactive graph** (from M7, deferred
+  2026-08-11). ADR-023 leaves room for it: colouring added/removed edges
+  over the same view rather than a second graph surface. It waits on M8,
+  which is where `hobbes review` computes the diff the surface would
+  render — the M2 graph-diff engine already exists in Python, so the
+  open question is only whether the Go server shells out to it or M8
+  materializes the delta as an artifact.
+
+- **Compound nodes and layout extensions** (from M7, deferred
+  2026-08-11). ADR-023 groups packages by colour and filter, not by
+  Cytoscape compound nodes — they fight force layouts at 100–200 nodes
+  and make edge endpoints ambiguous. Likewise `cytoscape-dagre`/`fcose`
+  are better layered layouts than the built-ins, but the
+  breadthfirst-on-focus rule covers the case dagre would serve. Revisit
+  if a repo arrives with few, large packages, or if focus mode stops
+  being enough.
+
+- **Push transport for the Sessions tab** (from M7, deferred
+  2026-08-11). The surface polls (ADR-022) because a push transport
+  would still need the server to watch the filesystem, or take a watcher
+  dependency, to know when to push. If a long session makes the 2.5s
+  poll feel laggy or costly, SSE over an fsnotify watch is the upgrade;
+  the `?after=` line cursor already gives it an incremental protocol.
+
+- **Symbol-level graph rendering** (from M7, deferred 2026-08-11).
+  Both renderers draw modules only (§10: store symbol-level, render
+  module-level) — the dogfood repo alone has 537 symbols and 657 call
+  edges. The inspector and `who_calls` answer symbol questions today.
+  Revisit only if a review question turns out to need the call graph
+  drawn rather than queried.

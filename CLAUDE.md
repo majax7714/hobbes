@@ -24,6 +24,12 @@ graph.
   `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding/
   get_module_doc over `.hobbes/derived/`, ADR-017/019). `cmd/hobbes-session/` +
   `internal/sandbox/` launch a session in rootless Podman (ADR-018).
+  `cmd/hobbes-web/` + `internal/web/` are the M7 surface server
+  (ADR-022): a loopback-only JSON API over the derived artifacts, the
+  repo reads a browser cannot do (source, `git diff`), the flight-log
+  tail, and the surface's only mutation — escalation approve/deny,
+  delegated to `internal/escalation`. The built SPA is embedded from
+  `internal/web/dist/` (gitignored but for its `.gitkeep`).
   Only external Go deps: `yaml.v3`, `modelcontextprotocol/go-sdk`.
 - `sandbox/` — the M4 session image (`Containerfile`), the static proxy it
   copies (gitignored build artifact), and the exit-check harness
@@ -45,7 +51,12 @@ graph.
   JSON for the Python join; own `node --test` suite (`npm test`);
   `node_modules/` gitignored, lockfile committed. Only external dep:
   ts-morph.
-- `web/` — empty until M7 (Vite + React + Cytoscape.js).
+- `web/` — the M7 surface (Vite + React + TS, Cytoscape.js per D3).
+  `src/lib/` holds the pure layer and all the vitest cases (graph model
+  and focus neighborhood, §4.2 index joins, patch parsing); `src/tabs/`
+  is one component per tab. `npm run build` typechecks, then bundles
+  into the Go embed dir — **rebuild `hobbes-web` after**, or it serves
+  the previous bundle. `npm run dev` proxies `/api` to a running server.
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs), and
   `docs/BUILDLOG.md` (append-only session log).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
@@ -54,8 +65,8 @@ graph.
 ## Build & test
 
 Go, uv, and Node are user-local installs: `~/.local/go/bin` and
-`~/.local/bin` (ensure both are on `PATH`). One-time for TS extraction:
-`cd tsextract && npm install`.
+`~/.local/bin` (ensure both are on `PATH`). One-time: `cd tsextract &&
+npm install` (TS extraction) and `cd web && npm install` (the surface).
 
 ```sh
 # Go
@@ -63,6 +74,13 @@ cd go
 go test ./...
 go build -o bin/hobbes-policy ./cmd/hobbes-policy
 go build -o bin/hobbes-proxy  ./cmd/hobbes-proxy
+go build -o bin/hobbes-web    ./cmd/hobbes-web   # after `cd web && npm run build`
+
+# Web surface (M7)
+cd web
+npm test                                          # vitest, the pure layer
+npm run build                                     # bundles into go/internal/web/dist/
+../go/bin/hobbes-web serve --repo /path/to/repo   # http://127.0.0.1:7777
 
 # Python
 cd pipeline
@@ -94,14 +112,41 @@ uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
 
 ## Current status
 
-**Active milestone: M6 (TypeScript extractor) — built; the M6 exit
-check passed on SELENEX (20/20 edges, 10/10 test mappings hand-verified
-against a 90% bar). Pending Max's review.** Do not start M7 (web
-surface) until reviewed.
+**Active milestone: M7 (web surface) — built; the exit check passed on
+the dogfood repo and on kbet, including escalation approve/deny in the
+browser against real parked commands. Pending Max's review.** Do not
+start M8 (reviewer flow + invariant compiler) until reviewed.
 
-- ADR-021: TS/JS extraction via the `tsextract/` Node helper (ts-morph)
-  invoked as a subprocess — the ADR-003 pattern; supersedes ADR-005's
-  tree-sitter-for-M6 aside per the source docs. Facts JSON in,
+- ADR-022: the surface is a **Go daemon** (`hobbes-web serve --repo
+  DIR`) serving a JSON API and the embedded SPA — not a Python
+  `hobbes serve`, because approve/deny would otherwise reimplement the
+  ADR-016 queue. Extractor artifacts pass through byte-for-byte;
+  narrative artifacts are decoded only far enough to badge.
+  **Loopback-only, enforced** at bind and per-request `Host` (no auth,
+  and it can approve commands). `/api/source` refuses traversal,
+  symlink escapes, binaries, oversize files, and `.tfstate`. Missing
+  artifacts answer 404 with the command that produces them.
+- ADR-023: interactive graph conventions — module level only, shape and
+  colour by kind, edge style by type (unknown types drawn labelled, not
+  invisible), **externals hidden by default**, and **focus mode**
+  (breadthfirst over the selected neighborhood, the rest dimmed in
+  place). Labels strip the directory every path-shaped id shares, or a
+  TS repo renders 89 identical `betchat/frontend/sr…` labels.
+- The SPA lives in `web/`, is embedded into the binary, and **must be
+  rebuilt on both sides**: `npm run build` then `go build`. The pure
+  layer (`web/src/lib/`) carries the vitest cases; the tabs render what
+  it returns.
+- Exit check (2026-08-11): five tabs real on the dogfood repo (70 nodes,
+  234 tests, 37 artifacts, 9 stale); a claim's pin resolves to the line
+  that supports it; two escalations parked through the real proxy —
+  approve unblocked and ran it, deny refused it, both logged with the
+  approver; kbet (104 nodes, 174 tests, no narrate pass) serves and
+  degrades correctly. 189 Go / 226 pytest / 38 vitest / 18 node.
+
+- M6 (reviewed, passed twice): TS/JS extraction via the `tsextract/`
+  Node helper (ts-morph) invoked as a subprocess — the ADR-003 pattern;
+  supersedes ADR-005's tree-sitter-for-M6 aside per the source docs.
+  Facts JSON in,
   artifacts out: checker-resolved imports/calls (false edges worse than
   missing; nested declarations omitted), path-based module ids
   (`src/flow`), `ext:`/`env:` nodes on M3 conventions (env joins now
@@ -109,28 +154,28 @@ surface) until reviewed.
   vitest/jest/**node:test** with file-level static reach.
   `HOBBES_TSEXTRACT_CMD` overrides; TS files + no helper = hard error,
   never a silent skip.
-- **Schema v3**: per-test `framework` field (global one gone);
-  `languages` may include typescript/javascript. Slash-bearing ids nest
-  narrative artifacts under `docs/modules/`; `get_module_doc` follows,
-  traversal blocked both sides.
-- Exit check (2026-08-11): SELENEX ingest (207 nodes, 602 module edges,
-  hcl+javascript+python); all 11 JS module edges + 9 call edges and 9
-  node:test mappings (reach exactly the 8 imported flow.js symbols) +
-  1 pytest mapping verified by hand — 100%. The spot-check caught and
-  fixed a nested-declaration call-edge leak.
-- Verified on **kbet** (`~/projects/kbet`, Max-sanctioned real Vite+React
-  TS app): 20/20 edges + 10/10 mappings, 100%. Forced real fixes:
-  **tsconfig zoning** (nearest tsconfig per file, one Project per zone —
-  `@/*` aliases resolve; un-deferred same day), checker-crash
-  resilience (per-file/stage degradation → `extraction_errors` +
-  ingest WARNING), `process.exitCode` (64KB stdout truncation),
-  call-initialized consts as `kind: const` symbols (zustand/axios;
-  require handles excluded), `require()`/dynamic imports via
-  `ts.resolveModuleName`, test `reaches_modules` unions resolved
-  imports, TS-only repos no longer claim python. 226 pytest / 147 Go /
-  18 node --test cases. Still deferred: per-test JS reach,
-  jest-globals detection, package.json bin, cross-zone imports
-  (future_additions).
+  - **Schema v3**: per-test `framework` field (global one gone);
+    `languages` may include typescript/javascript. Slash-bearing ids nest
+    narrative artifacts under `docs/modules/`; `get_module_doc` follows,
+    traversal blocked both sides.
+  - Exit check (2026-08-11): SELENEX ingest (207 nodes, 602 module edges,
+    hcl+javascript+python); all 11 JS module edges + 9 call edges and 9
+    node:test mappings (reach exactly the 8 imported flow.js symbols) +
+    1 pytest mapping verified by hand — 100%. The spot-check caught and
+    fixed a nested-declaration call-edge leak.
+  - Verified on **kbet** (`~/projects/kbet`, Max-sanctioned real Vite+React
+    TS app): 20/20 edges + 10/10 mappings, 100%. Forced real fixes:
+    **tsconfig zoning** (nearest tsconfig per file, one Project per zone —
+    `@/*` aliases resolve; un-deferred same day), checker-crash
+    resilience (per-file/stage degradation → `extraction_errors` +
+    ingest WARNING), `process.exitCode` (64KB stdout truncation),
+    call-initialized consts as `kind: const` symbols (zustand/axios;
+    require handles excluded), `require()`/dynamic imports via
+    `ts.resolveModuleName`, test `reaches_modules` unions resolved
+    imports, TS-only repos no longer claim python. 226 pytest / 147 Go /
+    18 node --test cases. Still deferred: per-test JS reach,
+    jest-globals detection, package.json bin, cross-zone imports
+    (future_additions).
 
 - M5 (reviewed, passed): narrative pass — ADR-019 artifacts
   (`.hobbes/derived/docs/`: module docs, behavior indexes,
