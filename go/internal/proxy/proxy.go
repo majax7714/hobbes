@@ -47,9 +47,9 @@ const (
 type Config struct {
 	Session    string
 	Role       string
-	RepoRoot   string // absolute repo root; commands are confined to it
-	BoxPath    string // box policy path, "" for none (ADR-003 rules)
-	SessionDir string // per-session state dir (escalations/ lives here)
+	RepoRoot   string        // absolute repo root; commands are confined to it
+	BoxPath    string        // box policy path, "" for none (ADR-003 rules)
+	SessionDir string        // per-session state dir (escalations/ lives here)
 	Timeout    time.Duration // per-command wall clock; 0 means DefaultTimeout
 	// EscalationTimeout is the park deadline; 0 means the §9 default.
 	EscalationTimeout time.Duration
