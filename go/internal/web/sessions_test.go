@@ -308,3 +308,22 @@ func TestSessionsWithNoLogDir(t *testing.T) {
 		t.Error("the server must not create the session root")
 	}
 }
+
+func TestFlightPageEchoesItsCursor(t *testing.T) {
+	f := newFixture(t)
+	flightLog(t, f.logDir, "S-1", recorder.Event{
+		TS: time.Now().UTC().Format(time.RFC3339Nano), Session: "S-1",
+		Tool: "exec", Argv: []string{"ls"}, Decision: "allow",
+	})
+	// The tail applies a page only if it starts where the client is; the
+	// echoed cursor is what makes that check possible, and without it a
+	// re-render appends the same page twice.
+	first := f.getJSON(t, "/api/sessions/S-1/flight")
+	if first["after"] != float64(0) {
+		t.Errorf("after = %v, want 0", first["after"])
+	}
+	second := f.getJSON(t, "/api/sessions/S-1/flight?after=1")
+	if second["after"] != float64(1) || second["next"] != float64(1) {
+		t.Errorf("after=%v next=%v, want 1 and 1", second["after"], second["next"])
+	}
+}

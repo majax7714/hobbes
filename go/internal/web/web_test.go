@@ -486,7 +486,84 @@ func TestUnknownPathServesTheApp(t *testing.T) {
 	if !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("content-type = %q, want html", rec.Header().Get("Content-Type"))
 	}
-	if !strings.Contains(rec.Body.String(), "hobbes") {
-		t.Errorf("body does not look like the app: %s", rec.Body.String()[:min(200, rec.Body.Len())])
+	if !strings.Contains(strings.ToLower(rec.Body.String()), "hobbes") {
+		t.Errorf("body does not look like the app: %s", rec.Body.String())
+	}
+}
+
+// TestAppIsBuiltIntoThisBinary is a build-state check, not a behaviour
+// one: it is skipped on a tree that has never run `npm run build`, and
+// asserts the real app is served when it has.
+func TestAppIsBuiltIntoThisBinary(t *testing.T) {
+	if !Built() {
+		t.Skip("web app not built; run `cd web && npm run build`")
+	}
+	f := newFixture(t)
+	rec := f.get(t, "/app.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /app.js = %d, want the bundled app", rec.Code)
+	}
+	if !strings.Contains(f.get(t, "/").Body.String(), "app.js") {
+		t.Error("index.html does not reference the bundle")
+	}
+}
+
+func TestBehaviorsJoinEveryTestDoc(t *testing.T) {
+	f := newFixture(t)
+	body := f.getJSON(t, "/api/behaviors")
+	behaviors, _ := body["behaviors"].([]any)
+	if len(behaviors) != 1 {
+		t.Fatalf("got %d behaviors, want 1", len(behaviors))
+	}
+	b := behaviors[0].(map[string]any)
+	if b["test"] != "tests/test_core.py::test_run" {
+		t.Errorf("test = %v", b["test"])
+	}
+	if b["text"] != "run returns truthy" {
+		t.Errorf("text = %v", b["text"])
+	}
+	// The badge of the artifact the line came from travels with it, so
+	// the Tests tab can show a stale summary as stale.
+	if b["status"] != "stale" {
+		t.Errorf("status = %v, want stale (the fixture's test doc is)", b["status"])
+	}
+	if b["doc_id"] != "tests.test_core" {
+		t.Errorf("doc_id = %v", b["doc_id"])
+	}
+}
+
+func TestBehaviorsWithoutNarrateGivesTheCommand(t *testing.T) {
+	f := newFixture(t)
+	if err := os.RemoveAll(filepath.Join(f.repo, ".hobbes", "derived", "docs", "tests")); err != nil {
+		t.Fatal(err)
+	}
+	body := f.getJSON(t, "/api/behaviors")
+	if got, _ := body["behaviors"].([]any); len(got) != 0 {
+		t.Fatalf("behaviors = %v, want empty", got)
+	}
+	if !strings.Contains(body["hint"].(string), "hobbes narrate") {
+		t.Errorf("hint = %v", body["hint"])
+	}
+}
+
+func TestUnmatchedAPIPathIs404JSONNotTheApp(t *testing.T) {
+	f := newFixture(t)
+	// Without an /api/ floor the SPA catch-all answers 200 with HTML, so
+	// a typo'd route or a wrong method reads as success.
+	for _, target := range []string{"/api/nope", "/api/docs/modules", "/api/graph/extra"} {
+		rec := f.get(t, target)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "json") {
+			t.Errorf("GET %s content-type = %q, want json", target, ct)
+		}
+	}
+}
+
+func TestAppRefusesWrites(t *testing.T) {
+	f := newFixture(t)
+	if rec := f.do(t, http.MethodPost, "/"); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST / = %d, want 405 — escalation verdicts are the only writes", rec.Code)
 	}
 }

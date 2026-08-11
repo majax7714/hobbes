@@ -346,6 +346,81 @@ func (s *Server) handleTestDoc(w http.ResponseWriter, r *http.Request) {
 	s.serveDoc(w, "tests", r.PathValue("id"))
 }
 
+// behavior is one test's one-line summary of what it pins down (§4.2 q1),
+// carrying the badge of the artifact it came from.
+type behavior struct {
+	Test string `json:"test"`
+	Text string `json:"text"`
+	Pins []struct {
+		Path string `json:"path"`
+		Line int    `json:"line"`
+	} `json:"pins"`
+	DocID  string `json:"doc_id"`
+	Status string `json:"status"`
+}
+
+// handleBehaviors joins every test doc into one index keyed by test id.
+// The Tests tab needs all of them at once to answer "what behavior does
+// this test guard"; fetching each artifact separately would be one
+// request per test file on every tab open.
+func (s *Server) handleBehaviors(w http.ResponseWriter, r *http.Request) {
+	dir := s.derivedPath("docs", "tests")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		writeJSON(w, http.StatusOK, map[string]any{"behaviors": []behavior{}, "hint": narrateHint})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+
+	type loaded struct {
+		id        string
+		sources   []knowledge.Source
+		behaviors []behavior
+	}
+	var docs []loaded
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if readErr != nil {
+			continue
+		}
+		var doc struct {
+			ID        string             `json:"id"`
+			Sources   []knowledge.Source `json:"sources"`
+			Behaviors []behavior         `json:"behaviors"`
+		}
+		if json.Unmarshal(data, &doc) != nil {
+			continue
+		}
+		docs = append(docs, loaded{id: doc.ID, sources: doc.Sources, behaviors: doc.Behaviors})
+	}
+
+	groups := make(map[string][]knowledge.Source, len(docs))
+	for _, d := range docs {
+		groups[d.id] = d.sources
+	}
+	changed := knowledge.ChangedSourcesMulti(s.cfg.RepoRoot, groups)
+
+	out := []behavior{}
+	for _, d := range docs {
+		status := "fresh"
+		if len(changed[d.id]) > 0 {
+			status = "stale"
+		}
+		for _, b := range d.behaviors {
+			b.DocID, b.Status = d.id, status
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Test < out[j].Test })
+	writeJSON(w, http.StatusOK, map[string]any{"behaviors": out})
+}
+
 // invariantsID is the docs-index id of the inferred-invariants artifact,
 // which has no module of its own.
 const invariantsID = "invariants.inferred"

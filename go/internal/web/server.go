@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/docs", s.handleDocsIndex)
 	s.mux.HandleFunc("GET /api/docs/module/{id...}", s.handleModuleDoc)
 	s.mux.HandleFunc("GET /api/docs/test/{id...}", s.handleTestDoc)
+	s.mux.HandleFunc("GET /api/behaviors", s.handleBehaviors)
 	s.mux.HandleFunc("GET /api/docs/invariants", s.handleInvariants)
 
 	// Repo reads: provenance links and the line diff.
@@ -94,8 +95,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/escalations", s.handleEscalations)
 	s.mux.HandleFunc("POST /api/escalations/{id}/{verdict}", s.handleResolveEscalation)
 
-	// Everything else is the app.
-	s.mux.Handle("GET /", appHandler())
+	// An unmatched /api/ path is a 404 in JSON, never the app: without
+	// this floor the SPA catch-all below answers 200 with HTML, so a
+	// wrong method or a typo'd route reads as success.
+	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "no such endpoint: "+r.Method+" "+r.URL.Path, "")
+	})
+
+	// Everything else is the app. Registered without a method so it does
+	// not conflict with the methodless /api/ floor above; appHandler
+	// refuses anything but a read.
+	s.mux.Handle("/", appHandler())
 }
 
 // Handler returns the routed server wrapped in the loopback guard.

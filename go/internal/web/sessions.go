@@ -125,6 +125,10 @@ func (s *Server) summarize(id string) sessionSummary {
 type flightPage struct {
 	Session string           `json:"session"`
 	Events  []recorder.Event `json:"events"`
+	// After is the cursor this page was read from. Echoed so a client
+	// can tell whether a page it is holding still starts where it is —
+	// without it, a re-render can append the same page twice.
+	After int `json:"after"`
 	// Next is the line cursor to pass as ?after= on the next poll.
 	Next int `json:"next"`
 	// Torn counts unparseable lines skipped in this page — usually the
@@ -163,6 +167,7 @@ func (s *Server) handleFlight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, flightPage{
 		Session: id,
 		Events:  events,
+		After:   after,
 		Next:    after + len(events) + torn,
 		Torn:    torn,
 		More:    len(events)+torn >= maxFlightLines,

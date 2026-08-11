@@ -39,17 +39,19 @@ const stubPage = `<!doctype html>
 `
 
 // appHandler serves the built app, falling back to index.html for any
-// unknown path (client-side routing) and to stubPage when unbuilt.
+// unknown path (client-side routing) and to stubPage when unbuilt. It is
+// the mux's catch-all, so it also enforces that the app is read-only:
+// the only writes this server accepts are the escalation verdicts.
 func appHandler() http.Handler {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
-		return http.HandlerFunc(serveStub)
+		return readOnly(http.HandlerFunc(serveStub))
 	}
 	if _, err := fs.Stat(sub, "index.html"); err != nil {
-		return http.HandlerFunc(serveStub)
+		return readOnly(http.HandlerFunc(serveStub))
 	}
 	files := http.FileServer(http.FS(sub))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return readOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(r.URL.Path, "/")
 		if clean == "" {
 			clean = "index.html"
@@ -60,6 +62,18 @@ func appHandler() http.Handler {
 			r.URL.Path = "/"
 		}
 		files.ServeHTTP(w, r)
+	}))
+}
+
+// readOnly refuses any method that is not a read.
+func readOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
