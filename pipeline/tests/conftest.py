@@ -1,4 +1,5 @@
-"""Shared fixtures: a fake hobbes-policy binary for hermetic CLI tests.
+"""Shared fixtures: a fake hobbes-policy binary for hermetic CLI tests,
+and a minimal committed git repo for narrative-artifact tests.
 
 The real Go binary is exercised by its own test suite (go/cmd/hobbes-policy);
 here we only test the Python side of the ADR-003 contract, so a shell script
@@ -8,8 +9,31 @@ that emits canned JSON and a chosen exit code stands in for it.
 import json
 import os
 import stat
+import subprocess
 
 import pytest
+
+#: Contents of the `git_repo` fixture's single module (6 lines).
+GIT_REPO_APP = '''"""A tiny app module."""
+
+GREETING = "hi"
+
+def greet(name):
+    return f"{GREETING} {name}"
+'''
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """A committed single-file git repo (app.py) for staleness/pin tests."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text(GIT_REPO_APP)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-qm", "one"], check=True)
+    return repo
 
 FAKE_RESOLUTION = {
     "command": "git push --force origin main",
