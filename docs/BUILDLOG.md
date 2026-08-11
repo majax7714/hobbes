@@ -756,3 +756,86 @@ emitters are verified by shape, not by execution); web PR mode.
 
 **Next:** v1 is feature-complete against the build plan. M0–M8 are all
 reviewed-and-passed except M8, which awaits Max's review.
+
+---
+
+## 2026-08-11 (thirteenth session) — ADR-026: two decision surfaces
+
+M8 reviewed and passed, with one correction to I-4 (see below) and a
+design ask: collapse bring-up to one command, and put the two things
+that need a human — **intent and invariants** — in the UI, with anything
+new getting escalation treatment. Everything else is a natural part of
+the mechanism and expected.
+
+**First, the M8 review feedback.**
+
+Max's read of I-4 was that it should say *language-specific parsing must
+not override another language's*, not that there happen to be two
+parsers — the latter reads as an argument for a fixed linear pipeline
+and stops meaning anything at the fourth language. Checking the claim
+found the design was already right where it mattered (discovery is by
+extension, so no parser sees another language's source) and **wrong in a
+way his framing predicted**: node ids could still collide across layers,
+and the merge resolved it with `setdefault` — first layer wins,
+silently. A repo-root `widget.py` plus `widget.ts` produced one node, a
+vanished TypeScript module, and `widget.run` listed twice in symbols with
+one row pointing at a module absent from the node list. Collisions are
+now reported as `extraction_errors` with an ingest WARNING, symbols stay
+unique across the merge, and I-4 is restated around ownership with four
+guards where it had none. Full cross-language id namespacing is deferred
+with a design note — it rewrites ids across a layer's nodes, edges,
+symbols, tests, and routes, which is ADR-sized.
+
+`docs/first-run.md` also landed: the walkthrough Max asked for, written
+in the order the system is meant to be used, with every command run
+before it was written. It cost the `CGO_ENABLED=0` discovery a permanent
+home — the proxy hobbes-session mounts must be static, or it fails in
+the container as "No such file or directory" (the loader, not the
+binary).
+
+**Then ADR-026.** Four forks settled by Max: intent *is* the policy file
+edited through the UI (not a layer compiling down to it); `hobbes up`
+never narrates; the gate **blocks** rather than deferring; and decisions
+stay untracked for now as a known limitation.
+
+- **`hobbes up`** — init if absent, compare the artifacts' stamped SHA
+  against HEAD and re-ingest on drift, serve, then block until the queue
+  is empty. Ingest is free so it is unconditional; narration is offered
+  in the UI with its call count, never performed by a script someone ran
+  to get started.
+- **Intent** — the policy editor writes `repo.policy` and shows the diff
+  first. An unreviewed policy is a *pending decision*: "I never looked"
+  and "I read it and it's fine" must not look alike. A hand edit after
+  confirmation is flagged, not blessed.
+- **Invariants** — approve / deny / edit, keyboard-driven, because a
+  blocking first run presents the whole queue at once and the answer is
+  to make it fast to walk rather than to shrink it. Approving writes a
+  real record into `.hobbes/invariants/`, so ADR-019's "promotion is
+  physical" rationale survives; only the trigger changed.
+
+**The subtle one:** decisions key on a **content hash of (statement,
+scope)**, never the id. `schema.py` assigns `INF-n` by enumeration, so
+`INF-3` names different text after the next narration — an id-keyed
+approval would silently bless it, which is the exact failure the gate
+exists to prevent. That hash exists in Go (the writer) and Python (the
+reader), so shared vectors in `tests/fixtures/decision-keys.json` pin it
+from both sides: drift fails a test instead of losing every decision.
+Denials persist for the same reason approvals do.
+
+ADR-026 amends **ADR-019** (promotion physical → still a file, different
+trigger) and **ADR-022** (surface read-only → three writes, each landing
+in a file a human reads). Both said something this changes; neither
+drifts silently.
+
+**Verified end to end** on a scratch repo: blocked at 2 items; edited and
+confirmed the policy in the UI with the diff shown first; approved one
+invariant and denied the other by keyboard; `hobbes up` then reported
+ready; the promoted record passed `hobbes invariants check`; `policy
+resolve` obeyed the new rule; and renumbering the inferred ids did not
+re-ask.
+
+Suites: **223 Go / 334 pytest / 44 vitest / 18 node.**
+
+**Deferred**: decisions do not survive a fresh clone (ADR-012 keeps
+`.hobbes/` untracked in target repos) — recorded as a known limitation
+with the opt-in fix ADR-012 already allows.

@@ -140,3 +140,19 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   a real repo hits the collision, or before the fourth language lands,
   whichever comes first; the extraction_errors record already names
   every case that would have been affected.
+
+- **Decisions do not survive a fresh clone** (from ADR-026, deferred
+  2026-08-11, Max-confirmed as a known limitation). ADR-012 gitignores
+  the whole `.hobbes/` in target repos, so `.hobbes/decisions.yaml`,
+  `.hobbes/invariants/`, and `.hobbes/policies/` are untracked there.
+  Every approval, denial, and intent confirmation is therefore *this
+  clone on this machine* — recloning, or moving to another box, asks the
+  whole queue again. The "set once, holds until you change it" promise
+  holds within a workspace and silently does not across them.
+
+  The fix ADR-012 already allows: opt `.hobbes/policies/` and
+  `.hobbes/invariants/` (and the ledger) into git per repo, keeping
+  `derived/` ignored — the "repos that already track .hobbes/ content"
+  path, which this repo uses. That also makes decisions reviewable in a
+  PR and shared with collaborators, which may or may not be wanted.
+  Deferred until the re-asking actually costs something.

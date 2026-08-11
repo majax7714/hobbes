@@ -9,6 +9,16 @@ sequencing rules).
 You can stop after any step and still have something useful. Steps 1–4
 spend no quota and involve no agents at all.
 
+> **The short version.** After step 0, `cd` to the repo and run
+> **`hobbes up`**. It does steps 1–3 for you — initialize if needed,
+> re-ingest when the artifacts are not stamped at HEAD, and serve the
+> surface — then holds until you have settled the two things only you can
+> answer: **intent** and **invariants** (ADR-026). It never narrates,
+> because that spends quota and the graph should be checked first.
+>
+> The steps below are what `hobbes up` is doing, and what to do when you
+> want to drive them yourself.
+
 ---
 
 ## 0. Build the tools (once)
@@ -187,17 +197,22 @@ immediately; there is no discipline required and no way to forget.
 
 Narration wrote `.hobbes/derived/docs/invariants.inferred.yaml`:
 statements your code appears to rely on. They are **inert**. Nothing
-enforces them, and nothing will, until you move a record by hand:
+enforces them, and nothing will, until you decide.
 
-```sh
-$EDITOR .hobbes/derived/docs/invariants.inferred.yaml
-# copy the ones you agree with into .hobbes/invariants/I-1-<slug>.yaml,
-# set status: confirmed, and give each a compile target
-```
+Open the **Intent** tab. Every inferred invariant is a card with its
+evidence, and every card is **approve / deny / edit** (keys `a`, `d`,
+`e`). Approving writes a real record into `.hobbes/invariants/`; denying
+records the denial so the same claim never asks again; editing lets you
+fix the wording or narrow the scope before it becomes a rule. A verdict
+holds until you change it, and decisions key on the invariant's *text*,
+so a re-narration that renumbers `INF-n` does not re-ask — only new
+wording does.
 
-**Read every word before promoting one.** An inferred statement is a
+You can still do it by hand if you prefer; the UI writes the same files.
+
+**Read every word before deciding.** An inferred statement is a
 guess about intent, and confirming a wrong one versions a false claim
-that everything downstream then enforces. Rewrite the prose if it is
+that everything downstream then enforces. Use **edit** when the prose is
 nearly right — that is normal, not a failure.
 
 Each record gets a `compile.target`:
@@ -292,10 +307,16 @@ sections is that you rarely reach the line diff.
 ## 8. The refresh loop
 
 ```sh
-hobbes ingest      # after any merge — seconds, no quota
+hobbes up          # re-ingests if HEAD moved, then holds for any new decisions
 hobbes narrate     # only regenerates what went stale
 hobbes docs status # what moved
 ```
+
+A re-narration may infer new invariants. Those arrive in the Intent tab
+with the same approve / deny / edit treatment, and `hobbes up` blocks on
+them — but only on the *new* ones. A verdict holds until you change it,
+and decisions key on the invariant's text rather than its `INF-n` id,
+which is positional and means something different every run.
 
 Put `hobbes ingest && hobbes review $BASE..HEAD` in CI and let the exit
 code do the gating.
@@ -314,6 +335,10 @@ code do the gating.
   is embedded in the binary; the old bundle keeps serving.
 - **Expecting `soft` invariants to be checked by CI.** They are checked
   by a reviewer session, or by you.
+- **Expecting decisions to survive a fresh clone.** `.hobbes/` is
+  gitignored in your repos (ADR-012), so approvals, denials, and the
+  intent confirmation live in *this* clone on *this* machine. A known
+  limitation, with the opt-in fix in `future_additions.md`.
 
 ---
 

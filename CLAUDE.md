@@ -105,6 +105,9 @@ uv run pytest
 uv run hobbes policy resolve "some command"   # needs hobbes-policy built;
                                               # set HOBBES_POLICY_BIN or PATH
 
+# Bring-up (ADR-026) — one command, blocks until decisions are made
+uv run hobbes up                              # or --no-serve to just report
+
 # Invariants and review (M8)
 uv run hobbes invariants check                # validate .hobbes/invariants/
 uv run hobbes invariants compile              # → .hobbes/derived/compiled/
@@ -139,38 +142,62 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 
 ## Current status
 
-**Active milestone: M8 (reviewer flow + invariant compiler v0) — built;
-the exit check passed, including the v1 bar's reviewer session and a
-graph-diff review of a real branch. Pending Max's review.** M8 is the
-last milestone in the build plan: with it reviewed, v1 is complete, and
-anything further comes from `docs/future_additions.md`.
+**v1 is complete — M0–M8 all built and reviewed.** Work now comes from
+`docs/future_additions.md` and from Max's design asks, not from the
+build plan.
 
-- ADR-024: invariant records live one-per-file in `.hobbes/invariants/`.
-  `statement` is the prose; **`compile.rule` is structured**, because a
-  prose rule cannot compile without an LLM and enforcement must stay
-  deterministic (sequencing rule 1). Three rule kinds
-  (forbidden-import, pattern-absent, resource-attribute) plus `soft`.
-  Only `confirmed` records compile or receive verdicts; `retired` stays
-  as history; an `inferred` record here warns and stays inert.
-  Compilation is text generation — **no target toolchain needed**, and
-  none is installed here.
-- ADR-025: `hobbes review <base>..<head>` computes verdicts **at both
-  ends**, so a regression this change introduced is distinguishable from
-  breakage it inherited. Exits 1 on regressions, lost guards, or
-  unguarded new code. Spends no quota unless `--soft`.
-- **Six confirmed invariants** (I-1..I-6), promoted from the M5 inferred
-  set. I-3 was rewritten during promotion: the inferred wording claimed
-  pushes escalate, which the push-deny made false.
-- **`git push` is denied**, not escalated (see Conventions).
-- The **reviewer role** is now enforced at the mount tier: worktree ro,
-  no Edit/Write/exec, and `.hobbes/derived/` mounted ro for every role
-  so the knowledge tools have something to read.
-- Exit check (2026-08-11): branch `m8-exit-check` added a plausible
-  feature that duplicated the parser; review reported I-4 REGRESSED with
-  both import sites cited and exited 1, and the fix flipped it to PASS.
-  Replay with `hobbes review ace9a08..cdbc085` (exit 1) and
-  `ace9a08..7d52f2e` (exit 0). A real rootless-Podman reviewer session
-  scored 5/5. 205 Go / 297 pytest / 38 vitest / 18 node.
+**Most recent: ADR-026 — two decision surfaces + `hobbes up`. Pending
+Max's review.**
+
+- Exactly two things need a human: **intent** (the repo policy) and
+  **invariants**. Everything else is a natural part of the mechanism.
+- `hobbes up` = init if absent → re-ingest when the artifacts' stamped
+  SHA is not HEAD → serve → **block until the decision queue is empty**.
+  It **never narrates**: quota is offered in the UI, never spent by a
+  script someone ran to get started.
+- Intent is `repo.policy` edited in the UI (not a layer compiling down
+  to it), with the diff shown before writing. An unconfirmed policy is a
+  pending decision, not a silent default.
+- Invariants are approve / deny / edit (keys `a`/`d`/`e`). Approving
+  writes a real record into `.hobbes/invariants/`.
+- **Decisions key on a content hash of (statement, scope), never the
+  id** — `INF-n` is positional, so an id-keyed approval would bless
+  different text after the next narration. The hash lives in Go (writer)
+  and Python (reader); `pipeline/tests/fixtures/decision-keys.json` pins
+  both. Denials persist too.
+- Amends ADR-019 (promotion is still a file, different trigger) and
+  ADR-022 (the surface now writes three things, each a readable file).
+- Known limitation: decisions are untracked (ADR-012), so they do not
+  survive a fresh clone — see `future_additions.md`.
+
+- M8 (reviewed, passed): reviewer flow + invariant compiler v0.
+
+  - ADR-024: invariant records live one-per-file in `.hobbes/invariants/`.
+    `statement` is the prose; **`compile.rule` is structured**, because a
+    prose rule cannot compile without an LLM and enforcement must stay
+    deterministic (sequencing rule 1). Three rule kinds
+    (forbidden-import, pattern-absent, resource-attribute) plus `soft`.
+    Only `confirmed` records compile or receive verdicts; `retired` stays
+    as history; an `inferred` record here warns and stays inert.
+    Compilation is text generation — **no target toolchain needed**, and
+    none is installed here.
+  - ADR-025: `hobbes review <base>..<head>` computes verdicts **at both
+    ends**, so a regression this change introduced is distinguishable from
+    breakage it inherited. Exits 1 on regressions, lost guards, or
+    unguarded new code. Spends no quota unless `--soft`.
+  - **Six confirmed invariants** (I-1..I-6), promoted from the M5 inferred
+    set. I-3 was rewritten during promotion: the inferred wording claimed
+    pushes escalate, which the push-deny made false.
+  - **`git push` is denied**, not escalated (see Conventions).
+  - The **reviewer role** is now enforced at the mount tier: worktree ro,
+    no Edit/Write/exec, and `.hobbes/derived/` mounted ro for every role
+    so the knowledge tools have something to read.
+  - Exit check (2026-08-11): branch `m8-exit-check` added a plausible
+    feature that duplicated the parser; review reported I-4 REGRESSED with
+    both import sites cited and exited 1, and the fix flipped it to PASS.
+    Replay with `hobbes review ace9a08..cdbc085` (exit 1) and
+    `ace9a08..7d52f2e` (exit 0). A real rootless-Podman reviewer session
+    scored 5/5. 205 Go / 297 pytest / 38 vitest / 18 node.
 
 - M7 (reviewed, passed): the web surface — ADR-022 `hobbes-web` (a Go
   daemon serving a loopback-only JSON API plus the embedded SPA) and
