@@ -839,3 +839,50 @@ Suites: **223 Go / 334 pytest / 44 vitest / 18 node.**
 **Deferred**: decisions do not survive a fresh clone (ADR-012 keeps
 `.hobbes/` untracked in target repos) — recorded as a known limitation
 with the opt-in fix ADR-012 already allows.
+
+## 2026-08-13 — clearing the box for a cold `hobbes up`
+
+No milestone work. Max reported that a package install had fallen behind
+and that his Go was 1.25 where `go.mod` wants 1.26, and asked for a
+report when Hobbes is clear to start from a **fresh terminal** with the
+`hobbes up` flow.
+
+**What was actually missing was `PATH`, not packages.** Go 1.26.5 was
+already installed at `~/.local/go/bin`; `.bashrc` only prepended
+`~/.local/bin`, so a new shell resolved `go` to Fedora's `/usr/bin/go`
+1.25.12 and the build failed on the toolchain line. uv, Node 24, podman
+(rootless), both `node_modules`, and the venv were all present and
+current — `uv sync` checked 10 packages and changed nothing. Nothing
+needed sudo, and nothing was installed.
+
+Two host-side fixes, both outside the repo:
+
+- `.bashrc` now prepends `~/.local/go/bin` ahead of `/usr/bin`, guarded
+  on the directory existing and on not already being on `PATH`. The
+  distro Go is shadowed, not removed.
+- `hobbes` (the venv console script) and the four Go binaries are
+  symlinked into `~/.local/bin`. `hobbes-session` resolves
+  `hobbes-proxy` through `os.Executable`, which reads `/proc/self/exe`
+  and is therefore already symlink-resolved — a dry run confirms it
+  mounts `go/bin/hobbes-proxy`, not a path inside `~/.local/bin`.
+
+Rebuilt everything under 1.26 (SPA first, then `hobbes-web`, proxy
+static) and re-ran the suites: **223 Go / 334 pytest / 44 vitest / 18
+node**, `gofmt` and `go vet` clean.
+
+**Cold-start check**, every command run under `env -i ... bash -lc` so
+nothing leaks in from this session's shell: `hobbes up` on a fresh
+scratch repo initialized it, ingested it (python + typescript), blocked
+on intent plus two planted inferred invariants, took the policy edit and
+both verdicts through the API the UI uses, printed *ready to develop*,
+and shut its server down on SIGINT. The approved record validated,
+`policy resolve` obeyed the new rule, and swapping the `INF-n` ids did
+not re-ask — the content key holds. On the dogfood repo `hobbes up`
+re-ingested off the stamped SHA (530a998 → HEAD) and reported the known
+six-invariant queue; the tree stayed clean.
+
+Two papercuts found and recorded in `future_additions.md` rather than
+fixed: `hobbes up`'s prints are block-buffered when stdout is not a tty
+(so a redirected run looks silent while it blocks), and a local `git
+clone` hardlinks by default, so `hobbes-session` cannot clone a repo
+that lives on a different filesystem than `$HOME`.

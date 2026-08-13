@@ -177,3 +177,28 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   a superseded inferred wording is the accurate verdict — you did reject
   that phrasing in favour of your own, and the ledger records the
   wording it was asked about.
+
+- **`hobbes up` output is invisible when stdout is not a tty**
+  (2026-08-13). The Python prints are block-buffered, so
+  `hobbes up > up.log 2>&1 &` shows only the Go child's lines until the
+  process exits — the "decisions needed" list and the "ready to develop"
+  banner sit in the buffer for as long as the command blocks, which is
+  the whole point of the command. In a terminal it is correct, because
+  a tty is line-buffered, so the flow Max actually uses is unaffected.
+  The fix is `flush=True` on the prints in `_cmd_up`/`_print_ready` (or
+  running the entry point unbuffered). Left alone for now because it
+  only bites redirected or supervised runs, which nothing does yet — but
+  it will the first time `hobbes up` goes into a unit file or a wrapper
+  script.
+
+- **`hobbes-session` cannot clone a repo on another filesystem**
+  (2026-08-13). The session worktree is a local `git clone` into
+  `~/.hobbes/sessions/<id>/worktree`, and a local clone hardlinks object
+  files by default. When the repo and `$HOME` are on different devices
+  the clone dies with `failed to create link ...: Invalid cross-device
+  link`, which names the symptom and not the cause. Found by pointing a
+  dry run at a repo under `/tmp` (tmpfs); a repo under `$HOME` — the
+  normal case — is unaffected. `git clone --no-hardlinks` fixes it at
+  the cost of a real copy, or the session dir could be placed beside the
+  repo instead of under `$HOME`. Worth doing before anyone works out of
+  a mounted volume or a ramdisk checkout.

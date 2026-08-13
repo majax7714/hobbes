@@ -42,8 +42,21 @@ cd ../pipeline && uv sync
 > nonsense the first time. `CGO_ENABLED=0` fixes it, and a static binary
 > works host-side too.
 
-Put `go/bin` on your `PATH`, or pass `--repo`/`HOBBES_POLICY_BIN`
-explicitly. Everything below assumes you are inside the target repo.
+`go.mod` requires **Go ≥ 1.26**. Distro packages are usually behind, so
+a user-local toolchain has to sit *ahead* of `/usr/bin` on `PATH` —
+otherwise `go build` fails on the toolchain line and it reads like the
+module is broken.
+
+Four commands have to be findable, because they find each other by
+name: `hobbes` (the `pipeline/.venv/bin/hobbes` console script — its
+shebang is absolute, so a symlink works from anywhere), and
+`hobbes-policy`, `hobbes-web`, `hobbes-session` from `go/bin`. `hobbes
+up` looks for `hobbes-web` on `PATH`; the policy wrapper looks for
+`hobbes-policy` there or in `HOBBES_POLICY_BIN`. `hobbes-session` finds
+`hobbes-proxy` next to *itself*, resolving symlinks first, so linking
+the four into one directory on `PATH` is enough.
+
+Everything below assumes you are inside the target repo.
 
 ---
 

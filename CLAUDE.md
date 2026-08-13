@@ -75,8 +75,11 @@ graph.
 ## Build & test
 
 Go, uv, and Node are user-local installs: `~/.local/go/bin` and
-`~/.local/bin` (ensure both are on `PATH`). One-time: `cd tsextract &&
-npm install` (TS extraction) and `cd web && npm install` (the surface).
+`~/.local/bin` (ensure both are on `PATH`). `go.mod` requires **Go
+≥ 1.26**, and a distro Go in `/usr/bin` is older — `~/.local/go/bin`
+must come *first*, or `go build` fails on the toolchain line rather
+than on anything real. One-time: `cd tsextract && npm install` (TS
+extraction) and `cd web && npm install` (the surface).
 
 ```sh
 # Go
