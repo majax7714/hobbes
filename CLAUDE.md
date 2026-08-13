@@ -64,9 +64,10 @@ graph.
   into the Go embed dir — **rebuild `hobbes-web` after**, or it serves
   the previous bundle. `npm run dev` proxies `/api` to a running server.
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs),
-  `docs/BUILDLOG.md` (append-only session log), and `docs/first-run.md`
+  `docs/BUILDLOG.md` (append-only session log), `docs/first-run.md`
   (bringing Hobbes up on a new app, in the order the system is meant to
-  be used).
+  be used), and `docs/m9-application-mode.md` (a *proposal*, not a
+  decision — see Current status).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
   gitignored. `invariants/` holds six confirmed records (ADR-024);
   `derived/compiled/` is where `hobbes invariants compile` writes CI
@@ -149,8 +150,27 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 `docs/future_additions.md` and from Max's design asks, not from the
 build plan.
 
-**Most recent: ADR-026 — two decision surfaces + `hobbes up`. Pending
-Max's review.**
+**PAUSED 2026-08-13** — Max moved for college. Nothing is half-finished:
+the tree is clean, all four suites are green (223 Go / 334 pytest / 44
+vitest / 18 node), and no change is in flight.
+
+**Two things wait on Max, in this order:**
+
+1. **ADR-026** (two decision surfaces + `hobbes up`) — built, verified
+   end to end, **pending his review**.
+2. **M9, "Hobbes as an application"** — his design ask of 2026-08-13,
+   assessed and written up in `docs/m9-application-mode.md`. It is a
+   **proposal with three open questions**, not an ADR and not started.
+   Do not begin implementing it; it needs his answers on the workspace
+   model, how a folder gets opened, and scope. Note it would cross
+   ADR-022's "the surface never runs the pipeline" line and would want
+   a launch token *before* the feature, not after.
+
+**Box note (2026-08-13):** `go.mod` needs Go ≥ 1.26 and Fedora ships
+1.25, so `~/.local/go/bin` must precede `/usr/bin` on `PATH` — fixed in
+`~/.bashrc`. `hobbes` and the four Go binaries are symlinked into
+`~/.local/bin`, so `hobbes up` works from any repo; they point at
+`go/bin`, so a rebuild needs no relinking.
 
 - Exactly two things need a human: **intent** (the repo policy) and
   **invariants**. Everything else is a natural part of the mechanism.

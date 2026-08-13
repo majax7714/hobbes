@@ -886,3 +886,37 @@ fixed: `hobbes up`'s prints are block-buffered when stdout is not a tty
 (so a redirected run looks silent while it blocks), and a local `git
 clone` hardlinks by default, so `hobbes-session` cannot clone a repo
 that lives on a different filesystem than `$HOME`.
+
+## 2026-08-13 (later) — pause point: M9 proposed, nothing started
+
+Max proposed moving from `hobbes up` as a per-repo command to **Hobbes
+as an application** — open a folder, then start / refresh / continue
+developing, with status captured while the user chooses the action —
+and asked what was possible before pausing to move for college.
+
+Assessed against the code, not from memory. The headline: his two status
+checks are already the two checks `hobbes up` makes (`cli.py:440-458`,
+and `/api/overview` already returns `ingested`/`sha`/`head`/`behind`),
+so this is not new logic — it is moving that status out of a process
+that holds a terminal and into a surface that reports it. Blocking
+survives as a *disabled action* rather than a held terminal, which is
+what ADR-026 was actually protecting.
+
+Three things genuinely change: the surface would run the pipeline
+(crossing ADR-022's "writes three files, never invokes the extractor"
+line, and needing refresh-never-narrates carried over from ADR-026);
+`RepoRoot` moves from startup to runtime (22 call sites, four files);
+and an unauthenticated loopback server that can open *any* folder is a
+materially wider surface than one scoped to a repo named on the command
+line — that wants a launch token before the feature, not after.
+
+Written up in full at **`docs/m9-application-mode.md`**, including what
+it fixes (the buffering papercut, by deletion), what it does not (the
+cross-device clone, still a one-liner), the two status dimensions his
+two checks would lose (dirty tree, blob-level doc staleness), a proposed
+M9a/M9b split, and the three open questions.
+
+**No code written and none planned until Max answers those three.**
+Tree clean, suites green as of the entry above: 223 Go / 334 pytest /
+44 vitest / 18 node. Nothing is half-finished — the box work landed in
+`1e6dbdd` and this is a design note, not an in-flight change.

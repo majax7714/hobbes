@@ -202,3 +202,15 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   the cost of a real copy, or the session dir could be placed beside the
   repo instead of under `$HOME`. Worth doing before anyone works out of
   a mounted volume or a ramdisk checkout.
+
+- **Hobbes as an application, not a per-repo command** (proposed by Max
+  2026-08-13, paused the same day). Open a folder; start, refresh, or
+  continue developing; status from two checks (does Hobbes exist here,
+  and is the stamped SHA HEAD) captured while the user chooses the
+  action. Full assessment, including what already exists, the ADR-022
+  boundary it crosses, the authentication question app mode raises, and
+  the three decisions it waits on: **`docs/m9-application-mode.md`**.
+
+  It subsumes the buffering papercut above by deleting the process that
+  buffers. It does *not* subsume the clone papercut — that stays a
+  one-line fix either way.
