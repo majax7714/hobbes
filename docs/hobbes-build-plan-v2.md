@@ -1,13 +1,14 @@
 # Hobbes — v2 build plan (extraction architecture)
 
-**Status: proposed, awaiting Max's approval.** Written 2026-08-14 against
-`docs/hobbes-architecture-v2.md` §7 and the code as it stands at `c3b479c`.
+**Status: approved by Max 2026-08-14, including all six deviations.** Written
+against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
+`c3b479c`. The deviations are now folded into §7.
+
+**Progress: V2.M0 done (ADR-027).** Next is V2.M1.
 
 This elaborates §7 into file-level work with exit criteria. Where it
 **deviates** from §7 it says so and gives the reason; those deviations are
-collected in the last section and, if approved, get patched into §7 in the
-same commit as the first milestone that depends on them. Nothing is patched
-into the architecture doc unilaterally.
+collected in the last section.
 
 Sequencing rules carry from v1: deterministic before generative, one
 milestone active at a time, each milestone exits on a real repo, stop at
@@ -48,7 +49,17 @@ plan:
 
 ---
 
-## V2.M0 — Spike: see real SCIP before freezing anything (1)
+## V2.M0 — Spike: see real SCIP before freezing anything (1) — **DONE**
+
+**Outcome: go on monikers-as-node-ids, with three conditions** — see
+`docs/adr/027-consuming-scip.md`. A pinned `--project-version` (the default
+embeds the git revision, so ids would change every commit); per-repo indexer
+config (a src-layout Python repo silently loses *every* test→source edge
+without it — recall 0.500 → 0.948 on this repo, 0.625 → 1.000 on
+qwen-pathology); and descriptor filtering (only ~14% of SCIP definitions are
+graph-worthy). All three are silent when wrong, which is exactly why the
+spike was worth an evening. One knock-on: the indexer-config registry moves
+from M4 to **M2**, because lane B cannot land usefully without it.
 
 **Deviation from §7 — a new milestone.** §7 opens with a moniker-keyed
 schema, but monikers are produced by lane B, which is M2. Designing the
@@ -294,8 +305,9 @@ Everything else in `future_additions.md` sits **above** the extraction layer
 
 ## Deviations from architecture §7, collected
 
-If approved, these get patched into §7 in the same commit as the milestone
-that first depends on them:
+**All six approved and patched into §7 (commit alongside ADR-027).** A
+seventh arrived from the spike itself: the indexer-config registry moves
+from M4 to M2 (ADR-027, Decision 2).
 
 1. **New V2.M0 spike** (+1 evening) — see real SCIP before freezing the
    schema.

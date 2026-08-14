@@ -109,6 +109,14 @@ migration. Lane-A-only nodes (modules in languages with no indexer yet) get
 deterministic path-based IDs in a distinct namespace, upgraded in place when an
 indexer lands.
 
+**Stability is a decision, not a property (ADR-027).** The version field in a
+moniker defaults to the git revision, so left alone every node id changes on
+every commit. Hobbes always pins `--project-version` to a constant; the price
+is that monikers carry no real version, so a future multi-repo merge keys on
+package identity alone. Monikers also become node ids only *after* descriptor
+filtering — roughly 86% of SCIP definitions are parameters, locals and meta
+symbols the graph does not want.
+
 ### 3.4 Graph builder
 Joins the lanes on file:line ranges — SCIP occurrences carry ranges, lane A
 structures carry ranges — and emits the semantic graph. Every edge records:
@@ -226,28 +234,48 @@ maintained middle.
 Language mapping unchanged: Python for pipeline and packs, Go for
 engine/proxy/supervisor, TS for web. Estimates in evenings.
 
-### V2.M1 — Graph schema v2 (2–3)
-Moniker-keyed nodes, tiered/evidenced edges, lane-A namespace, versioned JSON
-contract with a migration shim so v1 consumers (web, invariant emitters) keep
-working. *Exit: v1 graph regenerates under the v2 schema; web renders it
-unchanged.*
+### V2.M0 — Spike: real SCIP before the schema freezes (1) — **done**
+Run the indexers on the four sanctioned repos and decide, on evidence, what
+monikers can and cannot be relied on for. *Exit: ADR-027, and a go/no-go on
+monikers-as-node-ids.* **Verdict: go, with three conditions** — a pinned
+`--project-version` (the default embeds the git revision, so ids would
+otherwise change on every commit), per-repo indexer config (a src-layout
+Python repo silently loses every test→source edge without it), and
+descriptor filtering (only ~14% of SCIP definitions are graph-worthy).
+
+### V2.M1 — Graph schema v4 and the version gate (3–4)
+Moniker-keyed nodes **under ADR-027's pinning rule**, tiered/evidenced edges,
+lane-A namespace, versioned JSON contract with a migration shim so v1
+consumers (web, knowledge tools, invariant emitters) keep working. `tests.json`
+is part of the contract: its `symbol` and `reaches` fields are symbol ids.
+Schema **v4**, not v2 — the artifact schema is already at v3. Includes the
+version gate ADR-006 promises and no consumer implements, without which the
+shim has nothing to hang on. *Exit: v1 graph regenerates under v4; web renders
+it unchanged; every consumer refuses a version it does not know.*
 
 ### V2.M2 — Lane B: SCIP integration (4–5)
 Run scip-python and scip-typescript; content-hash cache + merge; SCIP → graph
-adapter. *Exit: on your dogfood repos, symbol edges from SCIP replace lane-A
-guesses; spot-check 20 semantic edges — the bar is now correctness of the
-join, target ≥95%.*
+adapter. **Carries the indexer-config registry**, moved here from M4 by
+ADR-027: lane B cannot land usefully without it, and a misconfigured indexer
+degrades silently. *Exit: on your dogfood repos, symbol edges from SCIP replace
+lane-A guesses; spot-check 20 semantic edges — the bar is now correctness of
+the join, target ≥95%.* Surface `tier` in the UI here, so the first
+human-visible v2 improvement does not wait for M6.
 
 ### V2.M3 — Lane A refactor + self-test (2–3)
 Strip symbol resolution from the v1 extractors; lane A keeps structure, routes,
-tests. Implement the lane-agreement report as a CI check. *Exit: disagreement
-report runs clean on the dogfood repos or every disagreement is an explained,
-filed bug.*
+tests. **Test reach moves to lane B in this milestone** — `collect_tests`
+consumes lane A's symbol edges today, so stripping them regresses `tests.json`
+otherwise. Implement the lane-agreement report as a CI check *and* a command.
+*Exit: disagreement report runs clean on the dogfood repos or every
+disagreement is an explained, filed bug.*
 
 ### V2.M4 — Enrichment packs (3–4)
-Pack interface + registry in `hobbes.yaml`; port FastAPI/Flask, Express/Nest,
-and the Terraform join into packs; packs declare edge tier. *Exit: deleting a
-pack cleanly removes exactly its edges; adding it back restores them.*
+Pack interface + registry in `hobbes.yaml` (**own ADR first** — a repo-level
+registry is in tension with ADR-012's "all of `.hobbes/` is personal"); port
+FastAPI/Flask, Express/Nest, and the Terraform join into packs; packs declare
+edge tier. *Exit: deleting a pack cleanly removes exactly its edges; adding it
+back restores them.*
 
 ### V2.M5 — Go language support (2–3)
 scip-go config + a small Go enrichment pack (net/http or chi routes). First
@@ -265,7 +293,10 @@ where both exist.*
 rust-analyzer `scip` output on any Rust repo. *Exit: ingestion with zero new
 builder code — P7 demonstrated on a language nobody planned for.*
 
-**Total: ~18–26 evenings.** Sequencing rules carry from v1: deterministic
+**Total: ~20–28 evenings** (M0 adds one, M1's widened scope adds one).
+`docs/hobbes-build-plan-v2.md` holds the file-level breakdown and the
+reasoning behind the deviations folded in above. Sequencing rules carry from
+v1: deterministic
 before generative, each milestone exits on a real repo, one milestone active
 at a time, stop at exits for human review.
 

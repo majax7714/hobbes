@@ -64,6 +64,12 @@ the interactive graph.
   JSON for the Python join; own `node --test` suite (`npm test`);
   `node_modules/` gitignored, lockfile committed. Only external dep:
   ts-morph.
+- `scip/` — **v2 lane B** (ADR-027): the SCIP indexers, pinned
+  (`scip-python`, `scip-typescript`), plus `analyze.mjs` / `compare.mjs`
+  — V2.M0 spike tooling kept because they are the reproducible evidence
+  for ADR-027's numbers, and `compare.mjs` prototypes §3.4's
+  lane-agreement report. No tests until the real helper lands at V2.M2.
+  One-time: `cd scip && npm install`.
 - `web/` — the M7 surface (Vite + React + TS, Cytoscape.js per D3).
   `src/lib/` holds the pure layer and all the vitest cases (graph model
   and focus neighborhood, §4.2 index joins, patch parsing); `src/tabs/`
@@ -153,25 +159,42 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 
 ## Current status
 
-**v1 is complete — M0–M8 all built and reviewed.** Work now comes from
-`docs/future_additions.md` and from Max's design asks, not from the
-build plan.
+**v1 is complete — M0–M8 all built and reviewed. v2 is underway.**
 
-**PAUSED 2026-08-13** — Max moved for college. Nothing is half-finished:
-the tree is clean, all four suites are green (223 Go / 334 pytest / 44
-vitest / 18 node), and no change is in flight.
+**Active: the v2 extraction architecture.** Source of truth is
+`docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
+is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
+deviations folded into §7). **V2.M0 is done (ADR-027); V2.M1 is next.**
 
-**Two things wait on Max, in this order:**
+V2.M1 = graph schema **v4** (moniker-keyed nodes under ADR-027's pinning
+rule, tiered/evidenced edges, `tests.json` in the contract) plus the
+version gate ADR-006 promises and no consumer implements. Do not start
+V2.M2 until M1's exit is met and reviewed by Max.
+
+Three things ADR-027 settled that any v2 session needs to know:
+`--project-version` is always pinned (its default is the git revision,
+so ids would otherwise change every commit); indexer config is **per
+repo**, not just per language, and a src-layout Python repo silently
+loses every test→source edge without it; and only ~14% of SCIP
+definitions are graph-worthy, so the descriptor filter comes before
+anything else.
+
+*(Paused 2026-08-13 for Max's move; resumed 2026-08-14 on v2.)*
+
+**Two things still wait on Max, neither blocking v2:**
 
 1. **ADR-026** (two decision surfaces + `hobbes up`) — built, verified
-   end to end, **pending his review**.
+   end to end, **still pending his review**. v2 does not touch the
+   decision surfaces, so the debt carries rather than conflicts.
 2. **M9, "Hobbes as an application"** — his design ask of 2026-08-13,
    assessed and written up in `docs/m9-application-mode.md`. It is a
    **proposal with three open questions**, not an ADR and not started.
    Do not begin implementing it; it needs his answers on the workspace
    model, how a folder gets opened, and scope. Note it would cross
    ADR-022's "the surface never runs the pipeline" line and would want
-   a launch token *before* the feature, not after.
+   a launch token *before* the feature, not after. M9 sits *above* the
+   extraction layer, so it and v2 do not conflict — but only one is
+   active at a time, and v2 is.
 
 **Box note (2026-08-13):** `go.mod` needs Go ≥ 1.26 and Fedora ships
 1.25, so `~/.local/go/bin` must precede `/usr/bin` on `PATH` — fixed in

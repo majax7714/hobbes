@@ -4,6 +4,14 @@ Reviewed-and-deferred ideas: things flagged in a BUILDLOG entry, looked at
 by Max, and consciously parked — with the context needed to pick them up
 later. Not a wishlist; everything here was deferred *on purpose*.
 
+**Subsumed by the v2 extraction architecture (2026-08-14) — do not build
+these:** *cross-language module-id namespacing* (moniker-keyed node ids
+make the `widget.py` / `widget.ts` collision a non-question),
+*per-test JS reach* (SCIP occurrences carry ranges, so reach stops being
+file-level at V2.M3), and *graph-diff rename detection* (any path-matching
+heuristic would be built against ids that V2.M1 replaces). Their entries
+stay below for the reasoning; the work does not.
+
 - **Graph-diff rename detection** (from M2, deferred 2026-08-10).
   Node identity is by id (ADR-009), so a package rename — or an id
   re-disambiguation like `tests` → `pipeline:tests` — shows as
@@ -178,7 +186,11 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   that phrasing in favour of your own, and the ledger records the
   wording it was asked about.
 
-- **`hobbes up` output is invisible when stdout is not a tty**
+- ~~**`hobbes up` output is invisible when stdout is not a tty**~~ —
+  **fixed 2026-08-14** (`6b2ac65`), before the v2 programme started.
+  Line-buffered at `main()` rather than `flush=True` per print, because
+  `narrate` prints per unit and had the same bug. Original note follows.
+
   (2026-08-13). The Python prints are block-buffered, so
   `hobbes up > up.log 2>&1 &` shows only the Go child's lines until the
   process exits — the "decisions needed" list and the "ready to develop"
@@ -191,7 +203,11 @@ later. Not a wishlist; everything here was deferred *on purpose*.
   it will the first time `hobbes up` goes into a unit file or a wrapper
   script.
 
-- **`hobbes-session` cannot clone a repo on another filesystem**
+- ~~**`hobbes-session` cannot clone a repo on another filesystem**~~ —
+  **fixed 2026-08-14** (`6b2ac65`): `git clone --local --no-hardlinks`,
+  guarded by a test that asserts object link count rather than staging
+  two filesystems. Original note follows.
+
   (2026-08-13). The session worktree is a local `git clone` into
   `~/.hobbes/sessions/<id>/worktree`, and a local clone hardlinks object
   files by default. When the repo and `$HOME` are on different devices

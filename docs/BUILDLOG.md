@@ -978,3 +978,82 @@ before M0.
 **Nothing built. The plan and the deviations need Max's approval, and
 ADR-026 is still unreviewed** — v2 does not touch the decision surfaces,
 so there is no technical conflict, but the review debt carries forward.
+
+## 2026-08-14 (later) — V2.M0: the SCIP spike, and three silent traps
+
+Max approved the v2 build plan and all six deviations, cleared the two
+papercuts for a chore commit, and said go to M0.
+
+**Chores first** (`6b2ac65`). `hobbes-session` now clones with
+`--no-hardlinks`, so a repo on a different filesystem than `$HOME` works;
+the test asserts object link count rather than staging two filesystems (a
+default `--local` clone gives nlink 2, so it has teeth). `hobbes up`'s
+progress is no longer swallowed when stdout is not a tty — fixed at
+`main()` with line buffering rather than `flush=True` per print, because
+`narrate` prints one line per unit and had the same bug.
+
+**Then the spike.** New `scip/` helper on the `tsextract/` conventions;
+both indexers install from npm (`scip-python` 0.6.6, `scip-typescript`
+0.4.0), so lane B needs no new package manager. Ran them over all four
+sanctioned repos and compared the result against lane A's current edges.
+
+The verdict is **go on monikers-as-node-ids** — but three things had to
+be decided first, and all three are silent when wrong. That is the whole
+value of having spiked rather than discovering them at M2.
+
+1. **The version field defaults to the git revision.** Indexing a
+   two-commit scratch repo, an unchanged `hello()` had moniker
+   `…vertest c9b3bbd… mod/hello().` at one commit and
+   `…vertest 5d87e72… mod/hello().` at the next. Left alone, *every node
+   id changes on every commit* and `hobbes diff` reports the repo as
+   removed-and-re-added each time — destroying the exact thing v2 exists
+   to sharpen. Precedence is `--project-version` > a declared
+   pyproject/package.json version > the git rev, so the behaviour also
+   varies by repo. Hobbes pins it to a constant, and §3.3's "stable
+   across re-indexes" is now true *because of* this ADR rather than
+   inherently.
+
+2. **Indexer config is per repo, not just per language.** On
+   `pipeline/`, recall against lane A was **0.500** — every test→source
+   edge missing. Cause: under a src layout `src/hobbes/cli.py` indexes as
+   module `src.hobbes.cli` while `tests/` imports it as `hobbes.cli`
+   through the editable install, so the reference dangles
+   (`…hobbes 0 hobbes/__init__:` referenced, never defined). One line of
+   Pyright config (`extraPaths: ["src"]`) took it to **0.948**;
+   qwen-pathology went **0.625 → 1.000**, zero misses. The 5 residual
+   here are explained, not misses: 3 are `minits` TS/JS files scip-python
+   correctly ignores, 2 are the nested `miniapp` fixture — M6's
+   tsconfig-zoning problem recurring for Python. This moves the
+   indexer-config registry from M4 onto **M2's critical path**.
+
+3. **Only ~14% of SCIP definitions are graph-worthy.** kbet's frontend
+   offers 6,696 definitions; 5,054 are meta, 532 local, 160 parameters.
+   Filtering to namespace/type/method/term leaves 949 — for scale, the
+   entire current dogfood graph has 834 symbols. The descriptor filter
+   comes before anything else in the builder, and it belongs in the
+   helper so 7x the data never crosses the process boundary.
+
+A fourth, worth its own note: **a successful exit is not a successful
+index.** `scip-typescript` on kbet with no `node_modules` exited 0 in
+1.5s and wrote a plausible 2.4MB index whose most-referenced package was
+TypeScript's own bundled lib (2,643 refs) and whose `external_symbols`
+was empty. Every third-party edge was absent and nothing said so. The
+adapter computes its own degradation signal instead of trusting the exit
+code (ADR-027, Decision 4).
+
+Also settled: the reader is a **Node helper** on the ADR-021 pattern
+rather than the `scip` CLI or a Python protobuf dependency — `scip/`
+already has the indexers, and the filter has to run before the boundary.
+Cost is comfortable: 1.5–5.5s cold per repo.
+
+The 11 scip-only edges are lane B being *more precise* than lane A
+(`cli.py → invariants/schema.py` where lane A stops at
+`invariants/__init__.py`, because SCIP follows the re-export). First real
+instances of the §3.4 disagreement report, and they favour lane B.
+
+Written up as **ADR-027**; §3.3 and §7 patched with the approved
+deviations plus this one; `analyze.mjs`/`compare.mjs` kept as the
+reproducible evidence (`compare.mjs` is a working prototype of the
+lane-agreement report). Suites unchanged and green: 223 Go / 336 pytest /
+44 vitest / 18 node. **Next: V2.M1** — graph schema v4 and the version
+gate. ADR-026 remains unreviewed; it does not block v2.
