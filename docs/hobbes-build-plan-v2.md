@@ -4,7 +4,7 @@
 against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
-**Progress: V2.M0 done (ADR-027).** Next is V2.M1.
+**Progress: V2.M0 done (ADR-027), V2.M1 done (ADR-028).** Next is V2.M2.
 
 This elaborates §7 into file-level work with exit criteria. Where it
 **deviates** from §7 it says so and gives the reason; those deviations are
@@ -95,7 +95,15 @@ revisiting before M1 rather than after M2.
 
 ---
 
-## V2.M1 — Graph schema v4 and the version gate (3–4)
+## V2.M1 — Graph schema v4 and the version gate (3–4) — **DONE**
+
+**Outcome: ADR-028.** v4 is additive over v3 — every edge gains `tier`,
+every evidence entry gains `lane` — so the "migration shim" is a version
+*range* rather than a translation layer, and a v3 artifact still serves and
+still renders. The gate ADR-006 promised now exists in all three languages
+(`hobbes/artifacts.py`, `go/internal/derived`, `api.ts`) and refuses rather
+than half-reads. It immediately caught a real bug: the web test fixture's
+`interfaces.json` carried no `schema_version` at all.
 
 **Deviation from §7 — scope widened** by two items (tests.json, and the
 gate). §7 budgets 2–3 for graph.json alone.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hobbes.extract import ingest
+from hobbes.extract import SCHEMA_VERSION, ingest
 from hobbes.extract.emit import (
     StampError,
     ensure_hobbes_ignored,
@@ -117,7 +117,7 @@ class TestIngest:
         sha = repo_stamp(git_fixture)["sha"]
         for path in paths:
             doc = json.loads(path.read_text())
-            assert doc["schema_version"] == 3
+            assert doc["schema_version"] == SCHEMA_VERSION
             assert doc["sha"] == sha
             assert doc["dirty"] is False
 
@@ -213,3 +213,48 @@ class TestLayerOwnership:
         )
         assert [s["id"] for s in merged] == ["widget.run"]
         assert merged[0]["line"] == 1
+
+
+class TestV4EdgeVocabularyIsUniform:
+    """Every edge from every layer carries tier and lane (ADR-028).
+
+    Asserted across a whole extraction rather than per-extractor: the
+    failure this guards is one layer forgetting the vocabulary, which is
+    invisible until a consumer treats a missing tier as a missing edge.
+    """
+
+    def _graph(self, tmp_path):
+        import shutil
+
+        from hobbes.extract import extract_repo
+
+        repo = tmp_path / "repo"
+        shutil.copytree(FIXTURE, repo)
+        return extract_repo(repo).graph
+
+    def test_every_edge_declares_a_tier(self, tmp_path):
+        from hobbes.extract.schema import TIERS
+
+        graph = self._graph(tmp_path)
+        edges = graph["module_edges"] + graph["symbol_edges"]
+        assert edges, "fixture produced no edges; the assertion checked nothing"
+        for edge in edges:
+            assert edge["tier"] in TIERS, edge
+
+    def test_every_evidence_entry_names_its_lane(self, tmp_path):
+        graph = self._graph(tmp_path)
+        seen = 0
+        for edge in graph["module_edges"] + graph["symbol_edges"]:
+            for item in edge["evidence"]:
+                assert item["lane"] == "tree-sitter", edge
+                assert set(item) == {"path", "line", "lane"}, item
+                seen += 1
+        assert seen, "no evidence entries; the assertion checked nothing"
+
+    def test_lane_a_never_claims_to_be_semantic(self, tmp_path):
+        # Until lane B lands (V2.M2) nothing is SCIP-proven. An edge
+        # claiming otherwise would let an invariant violation be reported
+        # as a finding when it is only a suspicion (§3.4).
+        graph = self._graph(tmp_path)
+        for edge in graph["module_edges"] + graph["symbol_edges"]:
+            assert edge["tier"] == "syntactic", edge

@@ -164,12 +164,18 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 **Active: the v2 extraction architecture.** Source of truth is
 `docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0 is done (ADR-027); V2.M1 is next.**
+deviations folded into §7). **V2.M0 (ADR-027) and V2.M1 (ADR-028) are done; V2.M2 is next.**
 
-V2.M1 = graph schema **v4** (moniker-keyed nodes under ADR-027's pinning
-rule, tiered/evidenced edges, `tests.json` in the contract) plus the
-version gate ADR-006 promises and no consumer implements. Do not start
-V2.M2 until M1's exit is met and reviewed by Max.
+Artifacts are at **schema v4** (ADR-028): every edge carries a `tier`
+(`semantic`|`syntactic`|`dynamic`) and every evidence entry a `lane`.
+v4 is *additive* over v3, so consumers declare a version **range** —
+`hobbes/artifacts.py`, `go/internal/derived`, and `api.ts` are the three
+gates, and they refuse rather than half-read. Lane A emits everything as
+`syntactic`/`tree-sitter`; nothing claims `semantic` until lane B lands.
+
+V2.M2 = lane B (SCIP integration). **Its first requirement is ADR-027's
+seven-clause staging contract** — Hobbes never writes to the target repo.
+Do not start it until M1's exit is reviewed by Max.
 
 Three things ADR-027 settled that any v2 session needs to know:
 `--project-version` is always pinned (its default is the git revision,

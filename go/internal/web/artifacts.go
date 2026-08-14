@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/majax7714/hobbes/go/internal/derived"
 	"github.com/majax7714/hobbes/go/internal/knowledge"
 )
 
@@ -36,6 +37,14 @@ func (s *Server) artifactHandler(name string) http.HandlerFunc {
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "")
+			return
+		}
+		// The bytes pass through untouched (ADR-022), but the version does
+		// not pass unchecked: the SPA restates this schema in types.ts, so
+		// serving one it cannot read would surface as a blank tab rather
+		// than as the mismatch it is.
+		if err := derived.Unmarshal(name, data, derived.V3Compatible, nil); err != nil {
+			writeError(w, http.StatusConflict, err.Error(), ingestHint)
 			return
 		}
 		writeRawJSON(w, data)
@@ -155,7 +164,11 @@ func (s *Server) readDerived(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, v)
+	// Version-gated (ADR-028). Every caller here reads only fields present
+	// since v3, and v4 is additive, so both are accepted — but a version
+	// this build does not know is refused rather than half-decoded into a
+	// struct whose zero values would read as real counts.
+	return derived.Unmarshal(name, data, derived.V3Compatible, v)
 }
 
 // gitOutput runs a read-only git command in the repo, returning "" on any

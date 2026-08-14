@@ -62,7 +62,12 @@ class TestReferences:
             if e["from"] == "tf:aws_lambda_function.worker"
             and e["to"] == "tf:aws_iam_role.worker"
         )
-        assert edge["evidence"] == [{"path": "infra/main.tf", "line": 17}]
+        # The infra layer goes through the same v4 edge constructor as the
+        # app layer (ADR-028) — one vocabulary, not one per extractor.
+        assert edge["evidence"] == [
+            {"path": "infra/main.tf", "line": 17, "lane": "tree-sitter"}
+        ]
+        assert edge["tier"] == "syntactic"
 
 
 class TestEnvJoin:

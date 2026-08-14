@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from hobbes import cli
+from hobbes.extract import SCHEMA_VERSION
 from tests.conftest import FAKE_RESOLUTION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "miniapp"
@@ -240,6 +241,7 @@ class TestInvariantsCommand:
         (derived / "graph.json").write_text(
             json.dumps(
                 {
+                    "schema_version": SCHEMA_VERSION,
                     "sha": "abc",
                     "dirty": False,
                     "nodes": [{"id": "app.core", "kind": "module", "path": "src/core.py"}],

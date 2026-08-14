@@ -54,7 +54,13 @@ class TestModuleEdges:
             for e in graph["module_edges"]
             if e["from"] == "miniapp.core" and e["to"] == "miniapp.util"
         )
-        assert edge["evidence"] == [{"path": "src/miniapp/core.py", "line": 5}]
+        # v4 (ADR-028): evidence names the lane that saw it, and the edge
+        # carries the tier that says how far to trust it. Lane A resolves
+        # syntactically, and says so rather than leaving it to be assumed.
+        assert edge["evidence"] == [
+            {"path": "src/miniapp/core.py", "line": 5, "lane": "tree-sitter"}
+        ]
+        assert edge["tier"] == "syntactic"
 
 
 class TestSymbolEdges:

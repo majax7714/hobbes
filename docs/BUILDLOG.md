@@ -1192,3 +1192,64 @@ versions). Partial merging becomes a refinement to measure, not the
 primary mechanism. Recorded in ADR-027; no change to the milestone.
 
 Proceeding to V2.M1.
+
+## 2026-08-14 (fourth) — V2.M1: graph schema v4, and the gate ADR-006 promised
+
+Built. **ADR-028.**
+
+**v4 is additive over v3.** Every edge gains `tier`
+(`semantic`|`syntactic`|`dynamic`), every evidence entry gains `lane` —
+architecture v2 §3.4's contract exactly. Nothing is removed, renamed, or
+re-typed, and no id changes. That is what makes §7's "migration shim"
+cheap: there is no translation layer, because a v3 reader that ignores
+unknown fields already reads v4 correctly. The shim is a version *range*.
+
+Deliberately **not** done: §3.3's lane-A/lane-B node namespace. There is
+only one namespace until M2, and a field with one possible value is the
+speculative abstraction the conventions forbid. What M1 does decide is
+that lane-B ids will carry a `scip:` prefix, which cannot collide with
+any current form — so the two namespaces can coexist while lane B's
+coverage is partial, and M2's "upgraded in place" can never silently
+alias a lane-A node.
+
+**The gate is the substance.** ADR-006 has said since M1-of-v1 that
+consumers reject versions they don't know; none did. Now three do, one
+per language, each at a chokepoint that already existed except on the
+Python side, which had none:
+
+- `pipeline/src/hobbes/artifacts.py` — new; the CLI read `graph.json`
+  from five call sites with a bare `json.loads(path.read_text())`.
+- `go/internal/derived` — new; wired into `knowledge.go:loadInto` and
+  `web/artifacts.go:readDerived`, **and into the byte-for-byte
+  pass-through**, which now 409s rather than handing the SPA a version it
+  cannot render.
+- `web/src/api.ts` — the SPA restates the schema in `types.ts`, so it
+  checks its own side too.
+
+Refusal never decodes: `derived.Unmarshal` version-checks before it
+unmarshals, so a caller cannot act on a partially-populated struct whose
+zero values would read as real counts. A Go test asserts exactly that.
+
+**The gate caught a real bug immediately**: the web test fixture's
+`interfaces.json` carried no `schema_version`, though `hobbes ingest`
+stamps all three artifacts. Six other fixtures across the Go tests were
+hand-built without one. Those were latent — a fixture that cannot
+represent what the pipeline writes is a test proving the wrong thing.
+
+Verified end to end on the dogfood repo rather than in fixtures: 114
+nodes re-ingested at v4 (1337 edges all `syntactic`, 1839 evidence
+entries all `tree-sitter`); `/api/graph` and `/api/overview` serve v4;
+all five knowledge tools answer from it with correct file:line
+provenance; `render`, `diff`, `review`, `invariants check/compile` all
+read it. Then the shim proof: the on-disk graph downgraded to v3 with
+`tier`/`lane` stripped still serves, still reports ingested, still
+renders — and was restored.
+
+A cross-language guard keeps the two version constants in step: a Go test
+reads `SCHEMA_VERSION` out of the pipeline source and fails if they drift,
+because Go silently refusing what Python just wrote would be a very
+confusing morning.
+
+223 → **12 Go packages / 349 pytest / 49 vitest / 18 node**, gofmt and go
+vet clean. **Next: V2.M2**, whose first requirement is ADR-027's staging
+contract. M1's exit wants Max's review first.

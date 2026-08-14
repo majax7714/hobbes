@@ -17,6 +17,7 @@ from collections import defaultdict
 
 from hobbes.extract.discover import ModuleInfo
 from hobbes.extract.pysource import FromImport, ParsedFile, PlainImport
+from hobbes.extract.schema import tiered_edge
 
 _SELF_NAMES = ("self", "cls")
 
@@ -96,12 +97,12 @@ def _symbol_records(modules: list[ModuleInfo], parsed: dict[str, ParsedFile]) ->
 
 def _edge_list(edges: dict[tuple, list]) -> list[dict]:
     return [
-        {
-            "from": from_id,
-            "to": to_id,
-            "type": edge_type,
-            "evidence": sorted(evidence, key=lambda e: (e["path"], e["line"])),
-        }
+        tiered_edge(
+            from_id,
+            to_id,
+            edge_type,
+            sorted(evidence, key=lambda e: (e["path"], e["line"])),
+        )
         for (from_id, to_id, edge_type), evidence in sorted(edges.items())
     ]
 

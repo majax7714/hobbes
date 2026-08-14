@@ -2,15 +2,23 @@
  * The shapes the API serves.
  *
  * Extractor artifacts (graph/tests/interfaces) pass through the server
- * untouched, so these mirror the pipeline's schema v3 (ADR-006/021) and
- * are the one place the surface restates it — the reason `npm run build`
- * typechecks before it bundles.
+ * untouched, so these mirror the pipeline's schema v4 (ADR-006/021/028)
+ * and are the one place the surface restates it — the reason `npm run
+ * build` typechecks before it bundles.
  */
 
 export interface Pin {
   path: string
   line: number
+  /** Which producer saw this evidence (v4, ADR-028). */
+  lane?: Lane
 }
+
+/** How far an edge is to be trusted (v4, architecture v2 §3.4). */
+export type Tier = 'semantic' | 'syntactic' | 'dynamic'
+
+/** Which lane produced a sighting. */
+export type Lane = 'tree-sitter' | 'scip' | string
 
 export type NodeKind =
   | 'module'
@@ -32,6 +40,8 @@ export interface GraphEdge {
   from: string
   to: string
   type: string
+  /** Absent only on pre-v4 artifacts, which the API now refuses. */
+  tier?: Tier
   evidence?: Pin[]
 }
 

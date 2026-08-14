@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from hobbes.extract import SCHEMA_VERSION
+
 from hobbes.extract.tssource import (
     HELPER_VERSION,
     TsExtractError,
@@ -425,7 +427,7 @@ class TestIntegrationIngest:
 
         paths = {p.name: json.loads(p.read_text()) for p in ingest(repo)}
         graph = paths["graph.json"]
-        assert graph["schema_version"] == 3
+        assert graph["schema_version"] == SCHEMA_VERSION
         assert graph["languages"] == ["javascript", "python", "typescript"]
         ids = {n["id"] for n in graph["nodes"]}
         assert {"app", "src/server", "src/util"} <= ids

@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from hobbes import __version__, policy
+from hobbes import __version__, artifacts, policy
 
 #: Starter repo policy written by `hobbes init` (format per ADR-001).
 _STARTER_POLICY = """\
@@ -155,14 +155,12 @@ def _cmd_render(args: argparse.Namespace) -> int:
     from hobbes.render import to_mermaid
 
     repo_root = _repo_root_from(args)
-    artifact = repo_root / ".hobbes" / "derived" / "graph.json"
-    if not artifact.is_file():
-        print(
-            f"hobbes render: {artifact} not found — run `hobbes ingest` first",
-            file=sys.stderr,
-        )
+    try:
+        graph = artifacts.load_graph(repo_root)
+    except artifacts.ArtifactError as exc:
+        print(f"hobbes render: {exc}", file=sys.stderr)
         return 1
-    print(to_mermaid(json.loads(artifact.read_text())), end="")
+    print(to_mermaid(graph), end="")
     return 0
 
 
@@ -292,16 +290,19 @@ def _load_invariants(repo_root, strict_guards: bool = True):
 
     known = None
     if strict_guards:
-        tests_path = repo_root / ".hobbes" / "derived" / "tests.json"
-        if tests_path.is_file():
-            known = {t["id"] for t in json.loads(tests_path.read_text())["tests"]}
+        if artifacts.artifact_path(repo_root, "tests.json").is_file():
+            known = {t["id"] for t in artifacts.load_tests(repo_root)["tests"]}
     return load_all(repo_root, known_tests=known)
 
 
 def _read_graph(repo_root):
-    """Load graph.json, or None when the repo has not been ingested."""
-    path = repo_root / ".hobbes" / "derived" / "graph.json"
-    return json.loads(path.read_text()) if path.is_file() else None
+    """Load graph.json, or None when the repo has not been ingested.
+
+    A *wrong version* is not an absence and does not become None — it
+    raises, so the caller cannot mistake "refused" for "never ingested"
+    (ADR-028).
+    """
+    return artifacts.graph_if_ingested(repo_root)
 
 
 def _cmd_invariants(args: argparse.Namespace) -> int:

@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/majax7714/hobbes/go/internal/derived"
 )
 
 // Store reads one repo's derived artifacts.
@@ -102,8 +104,12 @@ func (s *Store) loadInto(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+	// Version-check before decoding (ADR-028): these answers are cited at
+	// agents with file:line, so a silently half-read graph would produce
+	// confident wrong provenance. The tools read only fields present since
+	// v3, so v4's additive tier/lane do not concern them.
+	if err := derived.Unmarshal(name, data, derived.V3Compatible, v); err != nil {
+		return err
 	}
 	return nil
 }

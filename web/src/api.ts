@@ -38,6 +38,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Artifact schema versions this build can render (ADR-028).
+ *
+ * The server gates too, but the SPA restates the schema in types.ts and is
+ * what would actually mis-render: an unknown version reaching the tabs
+ * shows as an empty graph rather than as the mismatch it is. Cheap to
+ * check on this side as well, and it keeps `npm run dev` against an older
+ * server honest.
+ */
+export const SUPPORTED_SCHEMA = [3, 4]
+
+function checkSchema(name: string, body: unknown): void {
+  const found = (body as { schema_version?: number })?.schema_version
+  if (found === undefined || SUPPORTED_SCHEMA.includes(found)) return
+  throw new ApiError(
+    409,
+    `${name} is schema v${found}, but this build reads ${SUPPORTED_SCHEMA.join(', ')}`,
+    'the surface and the pipeline are different versions — rebuild, then re-run `hobbes ingest`',
+  )
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
@@ -72,8 +93,16 @@ const post = <T>(path: string) => send<T>(path, 'POST')
 
 export const api = {
   overview: () => get<Overview>('/api/overview'),
-  graph: () => get<Graph>('/api/graph'),
-  tests: () => get<Tests>('/api/tests'),
+  graph: async () => {
+    const g = await get<Graph>('/api/graph')
+    checkSchema('graph.json', g)
+    return g
+  },
+  tests: async () => {
+    const t = await get<Tests>('/api/tests')
+    checkSchema('tests.json', t)
+    return t
+  },
   interfaces: () => get<Interfaces>('/api/interfaces'),
 
   docs: () => get<{ artifacts: DocEntry[] }>('/api/docs'),

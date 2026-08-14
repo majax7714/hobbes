@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	schema "github.com/majax7714/hobbes/go/internal/derived"
 	"github.com/majax7714/hobbes/go/internal/escalation"
 	"github.com/majax7714/hobbes/go/internal/knowledge"
 	"github.com/majax7714/hobbes/go/internal/recorder"
@@ -452,10 +453,11 @@ func TestKnowledgeQueryAnswersAndLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	sha := git(t, repo, "rev-parse", "HEAD")
-	graph := fmt.Sprintf(`{"sha":%q,"dirty":false,
+	graph := fmt.Sprintf(`{"schema_version":%d,"sha":%q,"dirty":false,
 		"nodes":[{"id":"app.a","kind":"module","path":"a.py"},{"id":"app.b","kind":"module","path":"b.py"}],
-		"module_edges":[{"from":"app.a","to":"app.b","type":"imports","evidence":[{"path":"a.py","line":1}]}],
-		"symbols":[],"symbol_edges":[]}`, sha)
+		"module_edges":[{"from":"app.a","to":"app.b","type":"imports","tier":"syntactic",
+			"evidence":[{"path":"a.py","line":1,"lane":"tree-sitter"}]}],
+		"symbols":[],"symbol_edges":[]}`, schema.Current, sha)
 	if err := os.WriteFile(filepath.Join(derived, "graph.json"), []byte(graph), 0o644); err != nil {
 		t.Fatal(err)
 	}

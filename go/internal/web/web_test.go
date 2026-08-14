@@ -101,8 +101,12 @@ func newFixture(t *testing.T) *fixture {
 				"reaches": []string{"app.core.run"}, "reaches_modules": []string{"app.core"}},
 		},
 	})
+	// Stamped like the other two: `hobbes ingest` writes the same header
+	// onto all three artifacts, and the version gate (ADR-028) refuses one
+	// that carries none — this fixture used to omit it.
 	writeJSONFile(t, filepath.Join(derived, "interfaces.json"), map[string]any{
-		"dirty": false, "routes": []any{}, "cli_entry_points": []any{},
+		"schema_version": 3, "sha": sha, "dirty": false,
+		"routes": []any{}, "cli_entry_points": []any{},
 	})
 
 	// A fresh module doc: sources stamped with the real current blob.
@@ -569,5 +573,36 @@ func TestAppRefusesWrites(t *testing.T) {
 	f := newFixture(t)
 	if rec := f.do(t, http.MethodPost, "/"); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST / = %d, want 405 — escalation verdicts are the only writes", rec.Code)
+	}
+}
+
+// The surface restates the artifact schema in types.ts, so serving a
+// version it cannot render would surface as a blank tab rather than as
+// the mismatch it is (ADR-028). Both the byte-for-byte pass-through and
+// the parsed overview must refuse it.
+func TestArtifactVersionIsGated(t *testing.T) {
+	f := newFixture(t)
+	derived := filepath.Join(f.repo, ".hobbes", "derived")
+	writeJSONFile(t, filepath.Join(derived, "graph.json"), map[string]any{
+		"schema_version": 99, "sha": "abc", "nodes": []any{}, "module_edges": []any{},
+	})
+
+	res := f.get(t, "/api/graph")
+	if res.Code != http.StatusConflict {
+		t.Errorf("GET /api/graph on an unknown version = %d, want 409", res.Code)
+	}
+	if !strings.Contains(res.Body.String(), "schema v99") {
+		t.Errorf("the refusal should name the version found: %s", res.Body.String())
+	}
+
+	// The overview parses rather than passing through, and must not report
+	// a repo as ingested off an artifact it could not read.
+	var out map[string]any
+	res = f.get(t, "/api/overview")
+	if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["ingested"] == true {
+		t.Error("overview claimed ingested from a refused artifact")
 	}
 }

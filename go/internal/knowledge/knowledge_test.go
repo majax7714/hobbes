@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/majax7714/hobbes/go/internal/derived"
 )
 
 // fixtureRepo builds a git repo with hand-written derived artifacts.
@@ -26,7 +28,8 @@ func fixtureRepo(t *testing.T) string {
 	sha := git("rev-parse", "HEAD")
 
 	graph := map[string]any{
-		"sha": sha, "dirty": false,
+		"schema_version": derived.Current,
+		"sha":            sha, "dirty": false,
 		"nodes": []map[string]any{
 			{"id": "app.core", "kind": "module", "path": "src/app/core.py"},
 			{"id": "app.api", "kind": "module", "path": "src/app/api.py"},
@@ -34,24 +37,25 @@ func fixtureRepo(t *testing.T) string {
 			{"id": "env:APP_MODE", "kind": "env", "name": "APP_MODE"},
 		},
 		"module_edges": []map[string]any{
-			{"from": "app.api", "to": "app.core", "type": "imports",
-				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 3}}},
-			{"from": "app.core", "to": "ext:requests", "type": "imports",
-				"evidence": []map[string]any{{"path": "src/app/core.py", "line": 1}}},
-			{"from": "app.core", "to": "env:APP_MODE", "type": "env-read",
-				"evidence": []map[string]any{{"path": "src/app/core.py", "line": 9}}},
+			{"from": "app.api", "to": "app.core", "type": "imports", "tier": "syntactic",
+				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 3, "lane": "tree-sitter"}}},
+			{"from": "app.core", "to": "ext:requests", "type": "imports", "tier": "syntactic",
+				"evidence": []map[string]any{{"path": "src/app/core.py", "line": 1, "lane": "tree-sitter"}}},
+			{"from": "app.core", "to": "env:APP_MODE", "type": "env-read", "tier": "syntactic",
+				"evidence": []map[string]any{{"path": "src/app/core.py", "line": 9, "lane": "tree-sitter"}}},
 		},
 		"symbols": []map[string]any{
 			{"id": "app.core.run", "module": "app.core", "kind": "function", "line": 5},
 			{"id": "app.api.handler", "module": "app.api", "kind": "function", "line": 7},
 		},
 		"symbol_edges": []map[string]any{
-			{"from": "app.api.handler", "to": "app.core.run", "type": "calls",
-				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 9}}},
+			{"from": "app.api.handler", "to": "app.core.run", "type": "calls", "tier": "syntactic",
+				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 9, "lane": "tree-sitter"}}},
 		},
 	}
 	tests := map[string]any{
-		"sha": sha, "dirty": false,
+		"schema_version": derived.Current,
+		"sha":            sha, "dirty": false,
 		"tests": []map[string]any{
 			{"id": "tests/test_core.py::test_run", "file": "tests/test_core.py",
 				"line": 4, "reaches": []string{"app.core.run"},
@@ -486,5 +490,44 @@ func TestListInvariantsSkipsUnreadableRecords(t *testing.T) {
 	}
 	if !strings.Contains(out, "I-1") {
 		t.Errorf("the readable record should still list:\n%s", out)
+	}
+}
+
+// The knowledge tools cite file:line at agents, so a half-read graph
+// would produce confident wrong provenance. Refuse instead (ADR-028).
+func TestUnknownSchemaVersionIsRefused(t *testing.T) {
+	repo := fixtureRepo(t)
+	path := filepath.Join(repo, ".hobbes", "derived", "graph.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["schema_version"] = derived.Current + 1
+	out, _ := json.Marshal(doc)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, q := range []struct {
+		name string
+		run  func() (string, error)
+	}{
+		{"Neighborhood", func() (string, error) { return Open(repo).Neighborhood("app.core") }},
+		{"WhoCalls", func() (string, error) { return Open(repo).WhoCalls("app.core.run") }},
+		{"TestsGuarding", func() (string, error) { return Open(repo).TestsGuarding("app.core") }},
+	} {
+		t.Run(q.name, func(t *testing.T) {
+			answer, err := q.run()
+			if err == nil {
+				t.Fatalf("expected a refusal, got answer %q", answer)
+			}
+			if !strings.Contains(err.Error(), "schema v") {
+				t.Errorf("refusal should name the version: %v", err)
+			}
+		})
 	}
 }

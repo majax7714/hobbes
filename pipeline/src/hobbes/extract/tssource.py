@@ -23,6 +23,7 @@ from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
 from hobbes.extract.discover import SKIPPED_DIR_NAMES
+from hobbes.extract.schema import tiered_edge
 
 #: Environment variable holding a shell-split command prefix that replaces
 #: ``node <repo>/tsextract/extract.mjs``.
@@ -198,14 +199,20 @@ def join_facts(facts: dict) -> dict:
 
 
 def _edge_list(edges: dict[tuple, list]) -> list[dict]:
-    """Mirror of graph._edge_list: sorted typed edges with merged evidence."""
+    """Mirror of graph._edge_list: sorted typed edges with merged evidence.
+
+    Tier and lane come from the shared v4 vocabulary (ADR-028) rather than
+    being restated here — the helper's checker-resolved edges are still
+    lane A, and stay ``syntactic`` until scip-typescript replaces them at
+    V2.M2/M3.
+    """
     return [
-        {
-            "from": source,
-            "to": target,
-            "type": edge_type,
-            "evidence": sorted(evidence, key=lambda e: (e["path"], e["line"])),
-        }
+        tiered_edge(
+            source,
+            target,
+            edge_type,
+            sorted(evidence, key=lambda e: (e["path"], e["line"])),
+        )
         for (source, target, edge_type), evidence in sorted(edges.items())
     ]
 
