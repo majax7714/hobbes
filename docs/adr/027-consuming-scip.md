@@ -93,9 +93,61 @@ because SCIP follows a re-export to the real definition site. These are the
 first real instances of the §3.4 lane-disagreement report, and they favour
 lane B.
 
+### The config is derived, not authored (amended 2026-08-14)
+
+Max asked whether a hand-written `extraPaths` would survive a dirtier repo,
+or whether the roots should be worked out systematically. Measured, and the
+answer is that **Hobbes already computes the exact set and should never ask
+a human for it.**
+
+`discover.py:_import_root` walks each file's `__init__.py` chain and returns
+the directory *above* the topmost package — which is, by definition, what
+has to be on `sys.path`. The distinct set of `ModuleInfo.root` **is** the
+`extraPaths` list. Feeding it straight in, python-only recall against lane A:
+
+| repo | no config | hand-written `["src"]` | **derived roots** |
+|---|---|---|---|
+| hobbes/`pipeline` | 0.516 | 0.978 (2 missed) | **1.000 (0 missed)** |
+| qwen-pathology | 0.625 | — | **1.000 (0 missed)** |
+| SELENEX | 0.655 | — | **1.000 (0 missed)** |
+
+The derived set beats the hand-written one on the repo it was written for:
+it picks up `tests/fixtures/miniapp` and `tests/fixtures/miniapp/src`, the
+nested-project roots dismissed above as explained residual. They were not
+residual, only unconfigured.
+
+SELENEX is the dirty case and settles the question. Its eight roots are
+`core`, `core/src`, `core/migrations`, `core/migrations/versions`,
+`core-frontend/core-auth`, `core-frontend/core-login`,
+`core-frontend/core-login-local`, `infra-core/lambda/pretoken` — not one a
+top-level `src`. No hand-written guess or `src`-shaped heuristic would have
+found them; the mechanical walk gets all eight and misses nothing.
+
+**This is not a lane boundary violation.** `discover.py` imports `Counter`,
+`Iterator`, `dataclass` and `Path` — no tree-sitter, no parsing. Import-root
+discovery is *filesystem topology*, a shared pre-pass both lanes consume:
+lane A to compute module ids, lane B to configure its indexer. Neither
+consumes the other's output, so §3.2's "semantic providers never consume
+tree-sitter ASTs" is intact. The same shape already exists for TypeScript —
+M6's nearest-tsconfig zoning is root discovery by another name — and `go.mod`
+will be the Go version of it. Root discovery per language belongs in §3.7's
+checklist.
+
+**One wrinkle for M2, measured and unresolved:** the config has to sit at the
+repo root while indexing. `scip-python` indexes what is under `--cwd`, so
+pointing `--cwd` at a config directory outside the repo yields zero
+documents (tried, twice — with the config under `.hobbes/derived/`, where
+pyright's `**/.*` auto-exclude also bites, and with an absolute `include`
+from a temp dir). So M2 writes `pyrightconfig.json` into the target repo for
+the duration of the index and removes it after, respecting a pre-existing
+one rather than clobbering it. That transiently touches a tree Hobbes
+otherwise only reads, and it needs to be crash-safe. It is an implementation
+decision for M2, not a change to this one.
+
 **Consequences:** the indexer-config registry is needed at **M2**, not M4 —
-lane B cannot land usefully without it. And Hobbes must *detect* a degraded
-index rather than trust the exit code (Decision 4).
+lane B cannot land usefully without it — and it holds *derived* roots plus
+whatever a human overrides, not hand-authored paths. And Hobbes must
+*detect* a degraded index rather than trust the exit code (Decision 4).
 
 ## Decision 3 — a moniker is a node id only after filtering
 

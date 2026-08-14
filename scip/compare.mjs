@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import pkg from '@sourcegraph/scip-typescript/dist/src/scip.js'
 
 const { scip } = pkg
-const [, , scipPath, graphPath, prefix = ''] = process.argv
+const [, , scipPath, graphPath, prefix = '', extFilter = ''] = process.argv
 
 const index = scip.Index.deserialize(readFileSync(scipPath))
 const graph = JSON.parse(readFileSync(graphPath, 'utf8'))
@@ -29,6 +29,7 @@ for (const doc of index.documents) {
     if ((o.symbol_roles & scip.SymbolRole.Definition) !== 0) continue
     const target = definedIn.get(o.symbol)
     if (!target || target === doc.relative_path) continue
+    if (extFilter && !(doc.relative_path.endsWith(extFilter) && target.endsWith(extFilter))) continue
     scipEdges.add(`${prefix}${doc.relative_path} -> ${prefix}${target}`)
   }
 }
@@ -44,6 +45,9 @@ for (const e of graph.module_edges) {
   const to = pathOf.get(e.to)
   if (!from || !to) continue // ext:/env: nodes have no path
   if (!from.startsWith(prefix) || !to.startsWith(prefix)) continue
+  // An indexer only owns its own language, so comparing across the whole
+  // repo scores scip-python on files it correctly never looked at.
+  if (extFilter && !(from.endsWith(extFilter) && to.endsWith(extFilter))) continue
   laneA.add(`${from} -> ${to}`)
 }
 

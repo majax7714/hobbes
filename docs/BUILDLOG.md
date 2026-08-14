@@ -1057,3 +1057,52 @@ reproducible evidence (`compare.mjs` is a working prototype of the
 lane-agreement report). Suites unchanged and green: 223 Go / 336 pytest /
 44 vitest / 18 node. **Next: V2.M1** — graph schema v4 and the version
 gate. ADR-026 remains unreviewed; it does not block v2.
+
+## 2026-08-14 (addendum) — the indexer config should be derived, not authored
+
+Max, before M1: the `extraPaths: ["src"]` fix covered the current repos,
+but would a dirtier layout need something smarter — and is that cheap or a
+future addition?
+
+Measured rather than argued, and it is cheaper than the hand-written
+version because **the answer is already computed**.
+`discover.py:_import_root` walks each file's `__init__.py` chain and
+returns the directory above the topmost package — which is exactly what
+must be on `sys.path`. The distinct set of `ModuleInfo.root` *is* the
+`extraPaths` list. Python-only recall against lane A:
+
+| repo | no config | hand-written `["src"]` | derived roots |
+|---|---|---|---|
+| hobbes/pipeline | 0.516 | 0.978 (2 missed) | **1.000 (0)** |
+| qwen-pathology | 0.625 | — | **1.000 (0)** |
+| SELENEX | 0.655 | — | **1.000 (0)** |
+
+The derived set beats the hand-written one *on the repo it was written
+for*: it picks up the nested `miniapp` fixture roots that yesterday's
+entry called explained residual. They were not residual, only
+unconfigured.
+
+SELENEX settles the dirty case — eight roots (`core`, `core/src`,
+`core/migrations/versions`, `core-frontend/core-auth`,
+`infra-core/lambda/pretoken`, …), not one a top-level `src`. No
+`src`-shaped heuristic finds those; the mechanical walk gets all eight.
+
+Not a lane boundary violation: `discover.py` imports `Counter`,
+`Iterator`, `dataclass`, `Path` — no tree-sitter, no parsing. Import-root
+discovery is filesystem topology, a shared pre-pass both lanes consume
+(lane A for module ids, lane B for indexer config), so §3.2's "semantic
+providers never consume tree-sitter ASTs" holds. M6's nearest-tsconfig
+zoning is the same shape, and `go.mod` will be the Go version — root
+discovery per language belongs in §3.7's checklist.
+
+One wrinkle found and left for M2: the config must sit at the repo root
+while indexing. `scip-python` indexes what is under `--cwd`, so a config
+directory outside the repo yields zero documents — tried twice, once
+under `.hobbes/derived/` (where pyright's `**/.*` auto-exclude also
+bites) and once from a temp dir with an absolute `include`. M2 writes the
+file transiently and removes it, respecting any pre-existing one. That
+touches a tree Hobbes otherwise only reads, so it has to be crash-safe.
+
+ADR-027 amended with all of it. `compare.mjs` gained an extension filter,
+because scoring scip-python against a repo's JS files was measuring the
+wrong thing. No production code changed; M1 is still next.
