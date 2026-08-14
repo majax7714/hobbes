@@ -139,10 +139,18 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 	// sessions never share a tree). A clone rather than a linked worktree
 	// because the container mounts only /work — a worktree's .git points
 	// back into the canonical repo's gitdir, which is deliberately not
-	// mounted; a `--local` clone hardlinks objects (cheap) yet needs no
-	// path outside /work, so git works inside the sandbox and the
-	// canonical repo is never reachable from the container (ADR-018).
-	if out, err := gitOut(repo, "clone", "--local", "--quiet", repo, worktree); err != nil {
+	// mounted; a `--local` clone copies the object store into the session
+	// dir and so needs no path outside /work, which is what lets git work
+	// inside the sandbox while the canonical repo stays unreachable from
+	// the container (ADR-018).
+	//
+	// `--no-hardlinks` because a local clone hardlinks objects by default,
+	// and a hardlink cannot cross a filesystem: with the repo and the
+	// sessions dir (under $HOME) on different devices, the clone died with
+	// "Invalid cross-device link", which names the symptom and not the
+	// cause. The cost is a real copy of the object store; the benefit is
+	// that a repo on a mounted volume or a ramdisk checkout works at all.
+	if out, err := gitOut(repo, "clone", "--local", "--no-hardlinks", "--quiet", repo, worktree); err != nil {
 		return nil, "", noop, fmt.Errorf("git clone: %v: %s", err, out)
 	}
 	if out, err := gitOut(worktree, "checkout", "-q", "-b", "hobbes/"+opt.session); err != nil {

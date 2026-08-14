@@ -777,6 +777,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
+    # Report progress as it happens, not at exit. Python block-buffers
+    # stdout when it is not a tty, and the two commands that take real time
+    # print while they work: `up` lists the decisions it is blocking on and
+    # then holds, `narrate` prints one line per unit. Redirected or
+    # supervised (`hobbes up > up.log &`), both looked silent for exactly as
+    # long as they were doing their job. A tty is line-buffered already, so
+    # this changes nothing about interactive use.
+    #
+    # Guarded because a captured stdout (pytest's capsys, a StringIO) has no
+    # reconfigure, and buffering is not its problem anyway.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     args = build_parser().parse_args(argv)
     handlers = {
         "init": _cmd_init,

@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -133,6 +135,49 @@ func TestSessionCloneIsSelfContained(t *testing.T) {
 	// git status works with no reference to any path outside the clone.
 	if out, err := exec.Command("git", "-C", worktree, "status", "--short").CombinedOutput(); err != nil {
 		t.Errorf("git in the clone failed: %v: %s", err, out)
+	}
+}
+
+func TestSessionCloneDoesNotHardlinkObjects(t *testing.T) {
+	// A local clone hardlinks objects by default, and a hardlink cannot
+	// cross a filesystem — so a repo on a different device than the
+	// sessions dir failed to clone at all. Asserting link count rather
+	// than staging two filesystems: unlinked objects are the property
+	// that makes the cross-device case work, and it holds anywhere.
+	repo := gitRepo(t)
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+
+	opt := options{repo: repo, role: "implementer", session: "S-links",
+		sessions: t.TempDir(), proxyBin: fakeProxy}
+	_, worktree, cleanup, err := setup(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	objects := 0
+	err = filepath.WalkDir(filepath.Join(worktree, ".git", "objects"),
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			objects++
+			if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+				t.Errorf("%s has %d links; the clone must not hardlink into the "+
+					"canonical repo (breaks across filesystems)", path, st.Nlink)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objects == 0 {
+		t.Fatal("no object files found in the clone; the assertion checked nothing")
 	}
 }
 

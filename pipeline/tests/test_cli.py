@@ -1,5 +1,6 @@
 """Tests for the hobbes CLI: init/ingest/render/diff behavior, passthrough."""
 
+import io
 import json
 import shutil
 import subprocess
@@ -250,3 +251,35 @@ class TestInvariantsCommand:
         assert "importlinter.ini" in capsys.readouterr().out
         manifest = json.loads((derived / "compiled" / "manifest.json").read_text())
         assert manifest["outputs"][0]["invariants"] == ["I-1"]
+
+
+class TestProgressIsNotBuffered:
+    """`up` and `narrate` print while they work, so a redirected run has to
+    show those lines as they happen rather than at exit."""
+
+    def test_main_line_buffers_a_redirected_stdout(self, tmp_path, monkeypatch):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        log = tmp_path / "out.log"
+        with open(log, "w") as handle:
+            # A real file object, as a redirect gives — block-buffered by
+            # default, which is the papercut.
+            assert handle.line_buffering is False
+            monkeypatch.setattr("sys.stdout", handle)
+            assert cli.main(["init", "--repo", str(repo)]) == 0
+            assert handle.line_buffering is True
+            # Already on disk, with the command still running.
+            assert log.read_text() != ""
+
+    def test_a_captured_stdout_without_reconfigure_still_works(
+        self, tmp_path, monkeypatch
+    ):
+        # pytest's capsys and a plain StringIO have no reconfigure; buffering
+        # is not their problem, and main must not assume the attribute.
+        buffer = io.StringIO()
+        assert not hasattr(buffer, "reconfigure")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.setattr("sys.stdout", buffer)
+        assert cli.main(["init", "--repo", str(repo)]) == 0
+        assert buffer.getvalue() != ""
