@@ -920,3 +920,61 @@ M9a/M9b split, and the three open questions.
 Tree clean, suites green as of the entry above: 223 Go / 334 pytest /
 44 vitest / 18 node. Nothing is half-finished — the box work landed in
 `1e6dbdd` and this is a design note, not an in-flight change.
+
+## 2026-08-14 — v2 extraction architecture: docs committed, build plan proposed
+
+Max returned with `docs/hobbes-architecture-v2.md` written the same day —
+extraction splits into two parallel lanes (tree-sitter for structure,
+routes and tests; SCIP indexers for symbols), joined over monikers as
+node ids, with edges carrying a confidence tier and invariants moving
+toward one checker over the graph. It arrived untracked; committed in
+`c3b479c` along with the CLAUDE.md pointer that makes it source of
+truth. The v1 architecture and build-plan docs stay in the tree —
+accurate for the carried subsystems, historical for extraction.
+
+Verified state before planning, by running things rather than reading
+the status notes: 223 Go / 334 pytest / 44 vitest / 18 node all green,
+artifacts stamped at HEAD, tree otherwise clean.
+
+Then read the extraction layer against §7 to turn it into a real plan.
+Six findings shaped it:
+
+- The artifact schema is **already at v3**, so §7's "graph schema v2" is
+  schema **v4**.
+- **Nothing gates on the graph schema version.** ADR-006 says consumers
+  reject versions they don't know; only the policy file and the
+  tsextract facts actually do. `artifacts.go` passes it straight to the
+  UI. §7's migration shim has nothing to hang on until that gate exists.
+- **Test reach is derived from lane A's symbol edges**
+  (`extract/__init__.py:62`), so stripping lane A's call resolution
+  regresses `tests.json` unless reach moves to lane B in the same
+  milestone.
+- **`hobbes.yaml` does not exist**, and a repo-level indexer/pack
+  registry is in genuine tension with ADR-012's "all of `.hobbes/` is
+  personal."
+- Both key indexers install from **npm** (`scip-python` 0.6.6,
+  `scip-typescript` 0.4.0) — lane B is the ADR-021 helper pattern again,
+  no new package manager.
+- **Hobbes cannot see its own Go.** The dogfood graph is hcl/js/py/ts;
+  9.4k lines of runtime are invisible to it. V2.M5 closes that loop.
+
+Written up as `docs/hobbes-build-plan-v2.md` — file-level work and exit
+criteria per milestone, with six deviations from §7 collected at the end
+(a V2.M0 spike to see real SCIP before the schema freezes; the v4
+correction; M1 widened to cover tests.json and the version gate; M3's
+unstated test-reach coupling; an ADR for `hobbes.yaml`; and tier in the
+UI at M2 so the programme is not fifteen evenings of invisible work).
+20–28 evenings against §7's 18–26.
+
+Recommendation reported: **proceed to v2, do not clear the backlog
+first.** The largest deferred item — cross-language module-id
+namespacing — is dissolved by moniker-keyed ids and would be thrown
+away; per-test JS reach and rename detection likewise. Everything else
+in `future_additions.md` sits above the extraction layer. The two
+exceptions are the one-line papercuts (`flush=True` in `_cmd_up`,
+`git clone --no-hardlinks` in `hobbes-session`), worth a chore commit
+before M0.
+
+**Nothing built. The plan and the deviations need Max's approval, and
+ADR-026 is still unreviewed** — v2 does not touch the decision surfaces,
+so there is no technical conflict, but the review debt carries forward.
