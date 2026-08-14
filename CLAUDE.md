@@ -4,11 +4,18 @@
 
 Hobbes: an agentic development environment that ingests a repo and produces a
 policy-governed environment where agents do line-level work and humans review
-at the concept level. **Source of truth:** `docs/hobbes-architecture.md` and
-`docs/hobbes-build-plan.md` — read them before writing code. Locked decisions
-(not open for relitigation): **D1** Python + Go + TS split by focus, **D2**
-Podman rootless for session isolation, **D3** Cytoscape.js for the interactive
-graph.
+at the concept level.
+
+**Source of truth:** `docs/hobbes-architecture-v2.md` — read it fully before
+writing code. It supersedes the v1 extraction layer and restates every other
+subsystem, so it is self-contained. `docs/hobbes-architecture.md` and
+`docs/hobbes-build-plan.md` remain as the v1 record: still accurate for the
+carried subsystems, historical for extraction. Deviations from v2 need an ADR
+*and* a patch to that document in the same commit.
+
+Locked decisions (not open for relitigation): **D1** Python + Go + TS split by
+focus, **D2** Podman rootless for session isolation, **D3** Cytoscape.js for
+the interactive graph.
 
 ## Project map
 
