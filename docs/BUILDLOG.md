@@ -1106,3 +1106,52 @@ touches a tree Hobbes otherwise only reads, so it has to be crash-safe.
 ADR-027 amended with all of it. `compare.mjs` gained an extension filter,
 because scoring scip-python against a repo's JS files was measuring the
 wrong thing. No production code changed; M1 is still next.
+
+## 2026-08-14 (addendum 2) — lane B stops writing to the repo at all
+
+Max, on the transient-`pyrightconfig.json` design from the previous
+addendum: verify the create/index/remove pipeline is deterministic, be
+certain it only ever deletes its own creation, and treat that safeguard as
+more important than continuing to M1.
+
+**First, the audit.** The spike itself left nothing behind — no stray
+`pyrightconfig.json`, no `.scip`, no `scipcfg` in any of the four repos;
+all four working trees clean. The two `M .gitignore` entries in
+qwen-pathology and kbet are ADR-012's `.hobbes/` and `*.tfstate` lines from
+earlier ingests, confirmed by diff, not from this session.
+
+**Then the design.** There was no pipeline to verify — it existed only as a
+sentence in ADR-027 and my manual shell during the spike. Rather than
+harden a transient write, tested whether it could be avoided entirely, and
+it can: `--cwd` does not have to be the repo, it can be a **staging tree
+Hobbes owns**, holding copies of the sources plus the generated config.
+Recall stayed 1.000 with zero misses on both hobbes/pipeline and SELENEX —
+identical to the in-repo config — and `git status` stayed empty throughout.
+Third-party resolution survives (217 external symbols vs 218) because
+`venvPath` points at the real environment absolutely; without it Decision
+4's degradation would fire on every run. Cost on SELENEX: 0.38s and 696KB
+to stage 144 files, against 5.5s to index them.
+
+**Three things measured that would have been quiet bugs at M2:**
+
+- **Hardlinks are not safe here.** `chmod` through a hardlink changes the
+  *original* file's mode — a staged link is a live handle into the user's
+  tree. Staging copies.
+- **The `.scip` file is not path-independent.** Two runs over one staging
+  tree are byte-identical, but the same content staged elsewhere differs
+  (1307039 vs 1307050 bytes) because `metadata.project_root` carries the
+  absolute path. The extracted facts are identical across both (2279 defs,
+  920 graph-worthy, 15330 occurrences). So `.scip` is an intermediate, the
+  adapter drops `project_root`, and ADR-006's byte-identical guarantee is
+  asserted at the artifact. Corollary: §3.6's cache must key on source
+  content, not on index bytes, or it misses on every relocation.
+- **Stage lane A's discovered file set, not `git ls-files`.**
+  `discover_modules` walks the filesystem and never consults git, so it
+  sees untracked `.py` files; staging from git would hand the lanes
+  different inputs and manufacture false disagreements in the §3.4 report.
+
+ADR-027's transient-write design is **withdrawn** and replaced with a
+seven-clause safety contract, stated at length because the cost of getting
+it wrong lands in a repo Hobbes does not own. V2.M2 now names satisfying
+that contract as its first requirement, with the removal-guard tests in the
+same commit as the removal code. Still no production code; M1 next.

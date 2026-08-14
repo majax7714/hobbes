@@ -133,16 +133,73 @@ M6's nearest-tsconfig zoning is root discovery by another name — and `go.mod`
 will be the Go version of it. Root discovery per language belongs in §3.7's
 checklist.
 
-**One wrinkle for M2, measured and unresolved:** the config has to sit at the
-repo root while indexing. `scip-python` indexes what is under `--cwd`, so
-pointing `--cwd` at a config directory outside the repo yields zero
-documents (tried, twice — with the config under `.hobbes/derived/`, where
-pyright's `**/.*` auto-exclude also bites, and with an absolute `include`
-from a temp dir). So M2 writes `pyrightconfig.json` into the target repo for
-the duration of the index and removes it after, respecting a pre-existing
-one rather than clobbering it. That transiently touches a tree Hobbes
-otherwise only reads, and it needs to be crash-safe. It is an implementation
-decision for M2, not a change to this one.
+### Lane B never writes to the target repo (revised 2026-08-14)
+
+An earlier draft of this ADR had M2 write `pyrightconfig.json` into the
+target repo for the duration of the index and delete it after. **That design
+is withdrawn.** Max pushed back on it before M1 — a transient write into a
+tree Hobbes otherwise only reads is a footgun that has to be crash-safe,
+interrupt-safe, and careful never to delete a file it did not create. The
+safer design turned out to also work, so there is no trade to make.
+
+`scip-python` indexes what is under `--cwd`. Pointing `--cwd` at a config
+directory outside the repo yields zero documents (tried twice — once under
+`.hobbes/derived/`, where pyright's `**/.*` auto-exclude also bites, once
+from a temp dir with an absolute `include`). But `--cwd` does not have to be
+the repo: it can be a **staging tree Hobbes owns outright**, holding a copy
+of the source files and the generated config. Measured, python-only recall
+against lane A:
+
+| | in-repo config | **staged copy** |
+|---|---|---|
+| hobbes/`pipeline` | 1.000 (0 missed) | **1.000 (0 missed)** |
+| SELENEX | 1.000 (0 missed) | **1.000 (0 missed)** |
+
+Identical results, and `git status` on both repos stayed empty throughout.
+Third-party resolution survives (217 external symbols staged vs 218 in
+place) because `venvPath`/`venv` in the generated config point at the real
+environment by absolute path — without that, Decision 4's degradation would
+fire on every staged run. Staging cost on SELENEX: **0.38s, 696KB for 144
+files**, against 5.5s to index them.
+
+### The safety contract — M2 must satisfy all of it
+
+Aggressively stated because it is the part that touches someone else's repo,
+and because every clause below is a failure that would be quiet:
+
+1. **Hobbes never writes to the target repo.** Not transiently, not under a
+   lock, not "and deletes it after". Lane B reads the repo and writes only
+   under its own cache root.
+2. **Staging copies; it never hardlinks.** Verified hazard: `chmod` through
+   a hardlink changes the *original* file's mode, so a staged link is a live
+   handle into the user's tree. The copy is cheap (see above) and removes
+   the entire class.
+3. **The staging root is Hobbes-owned, outside the repo, and its path is
+   derived** from (repo path, SHA) — never `mktemp`-random, or the cache in
+   §3.6 cannot find it and removal cannot be idempotent.
+4. **Removal deletes only a path Hobbes computed**, and refuses any path not
+   under the cache root. No globs, no paths read back from the repo, no
+   user-supplied paths. A stale staging dir is garbage-collected on the next
+   run and its absence is never load-bearing.
+5. **Stage exactly the file set lane A discovered** — `discover_modules`
+   walks the filesystem and consults git not at all, so it includes
+   untracked `.py` files. Staging from `git ls-files` instead would hand the
+   two lanes different file sets and manufacture false disagreements in
+   §3.4's report.
+6. **The `.scip` file is an intermediate, never an artifact.** Measured: two
+   runs over one staging tree are byte-identical, but the same content
+   staged at a *different path* produces different bytes (1307039 vs
+   1307050) because `metadata.project_root` holds the absolute staging path.
+   The extracted facts are identical across both (2279 definitions, 920
+   graph-worthy, 15330 occurrences). So the adapter drops `project_root` and
+   never propagates it, and ADR-006's byte-identical guarantee is asserted
+   at the artifact, which is where it is actually required.
+7. **§3.6's cache keys on source content, never on `.scip` bytes** — those
+   embed the staging path, so hashing them would miss on every relocation
+   and silently re-index.
+
+This is M2's code and gets built there. It is recorded here at this length
+because the cost of getting it wrong lands in a repo Hobbes does not own.
 
 **Consequences:** the indexer-config registry is needed at **M2**, not M4 —
 lane B cannot land usefully without it — and it holds *derived* roots plus

@@ -125,6 +125,15 @@ per consumer proving the refusal.
 
 ## V2.M2 — Lane B: SCIP integration (4–5)
 
+**Hard requirement before anything else in this milestone:** the staging
+and safety contract in ADR-027 ("Lane B never writes to the target repo").
+Seven clauses, each a quiet failure if skipped — copy-never-hardlink, a
+derived staging path, removal that refuses anything outside the cache root,
+staging lane A's discovered file set rather than `git ls-files`, and the
+`.scip` file treated as an intermediate whose `project_root` never reaches
+an artifact. Tests for the removal guard land in the same commit as the
+removal code, not after.
+
 Work:
 
 - Run the indexers per language zone (the tsconfig-zoning lesson from M6
