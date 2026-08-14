@@ -1155,3 +1155,40 @@ seven-clause safety contract, stated at length because the cost of getting
 it wrong lands in a repo Hobbes does not own. V2.M2 now names satisfying
 that contract as its first requirement, with the removal-guard tests in the
 same commit as the removal code. Still no production code; M1 next.
+
+## 2026-08-14 (addendum 3) — correcting the staging number, and what it says about the cache
+
+Max asked why staging was so much faster than indexing. Measuring it
+turned up an error in a number the previous addendum published as
+evidence.
+
+**Staging SELENEX is 9ms for 421KB, not 0.38s for 696KB.** The timing had
+measured a shell loop spawning `mkdir`+`cp` per file — 288 process spawns
+around an operation that is 9ms of sequential I/O — and the size was `du`
+block-rounding rather than bytes. Roughly 40× off, in the direction that
+flattered the argument. The conclusion is unchanged and stronger: the real
+ratio against indexing is ~600×, not the ~14× the old figures implied.
+
+**Why they differ is not a fair fight.** Staging is `read()`+`write()`.
+Indexing is whole-program type inference: Pyright reads the 144 staged
+files *plus their entire transitive import closure* — typeshed stdlib
+stubs plus boto3, pydantic, httpx, pytest here — and binds and
+type-checks all of it to resolve every reference. That closure is exactly
+what buys the semantic tier, and it is why lane A is fast.
+
+**Where the time goes, measured:** a *one-file* repo indexes in 1.19s,
+all of it Node boot, Pyright init and typeshed load before any repo code
+is read. SELENEX's ~6s is roughly 1s startup, ~2s "parse and search for
+dependencies", ~3s emitting SCIP for 144 files.
+
+**So §3.6's cache design needs revisiting at M2.** Caching partial
+indexes by content hash and merging them buys less than it appears:
+changing one source file does not let the indexer skip typeshed or
+re-parse fewer dependencies, so a partial re-index still pays most of the
+fixed and dependency-shaped cost. The first thing worth building is
+skipping the run entirely when nothing changed — a whole-index cache
+keyed on (file set, content hashes, indexer version, resolved dependency
+versions). Partial merging becomes a refinement to measure, not the
+primary mechanism. Recorded in ADR-027; no change to the milestone.
+
+Proceeding to V2.M1.

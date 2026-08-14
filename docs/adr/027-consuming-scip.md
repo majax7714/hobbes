@@ -159,8 +159,39 @@ Identical results, and `git status` on both repos stayed empty throughout.
 Third-party resolution survives (217 external symbols staged vs 218 in
 place) because `venvPath`/`venv` in the generated config point at the real
 environment by absolute path — without that, Decision 4's degradation would
-fire on every staged run. Staging cost on SELENEX: **0.38s, 696KB for 144
-files**, against 5.5s to index them.
+fire on every staged run.
+
+**Staging cost on SELENEX: 9ms to copy 421KB across 144 files**, against
+~5.5s to index them — a ratio of roughly 600×. (An earlier revision of this
+ADR said 0.38s and 696KB. Both were wrong: the timing measured a shell loop
+spawning `mkdir`+`cp` per file, so 288 process spawns dominated an operation
+that is 9ms of sequential I/O, and the size was `du` block-rounding rather
+than bytes. The conclusion is unchanged and stronger.)
+
+The asymmetry is not surprising once the two are named honestly: staging is
+`read()`+`write()`, while indexing is whole-program type inference. Pyright
+does not read the 144 staged files, it reads those *plus their entire
+transitive import closure* — typeshed's stdlib stubs plus `boto3`,
+`pydantic`, `httpx`, `pytest` on this repo — and binds and type-checks all
+of it to resolve every reference. That closure is what buys the semantic
+tier; lane A is fast precisely because it does not do this.
+
+**Where the time goes**, and it matters for §3.6: indexing a *one-file* repo
+takes **1.19s**, all of it Node boot, Pyright init and typeshed load before
+any repo code is examined. On SELENEX's ~6s, roughly 1s is startup, ~2s is
+"parse and search for dependencies", and ~3s is emitting SCIP for the 144
+files. So the fixed and dependency-shaped costs together outweigh the
+per-file work.
+
+**Consequence for the cache:** §3.6 plans to cache partial indexes by
+content hash and merge them. That buys less than it appears to. Changing one
+source file does not let the indexer skip reloading typeshed or re-parsing
+third-party packages, so a partial re-index still pays most of the fixed and
+dependency cost. The win worth building first is **skipping the run entirely
+when nothing changed** — a whole-index cache keyed on (file set, content
+hashes, indexer version, resolved dependency versions) — with partial
+merging treated as a later refinement rather than the primary mechanism.
+M2 should measure a partial re-index before investing in one.
 
 ### The safety contract — M2 must satisfy all of it
 
