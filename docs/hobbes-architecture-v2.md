@@ -88,8 +88,15 @@ Fast, incremental, error-tolerant; runs on every commit and works on code that
 doesn't compile. Produces: file/module structure and folder topology,
 framework-declared interfaces readable syntactically (FastAPI/Flask decorators,
 Express/Nest registrations), test inventory and structure, and *approximate*
-module-level dependency edges. Lane A no longer attempts symbol resolution —
-that duty moves entirely to lane B.
+module-level dependency edges.
+
+**Lane A no longer *resolves* symbols; it still *detects* syntax (ADR-029).**
+An earlier wording said resolution "moves entirely to lane B", which assumed
+lane B could answer everything lane A could. It cannot answer *is this a
+call*: SCIP occurrences carry a `syntax_kind` that would say so, and
+scip-python populates it for none of them. So lane A owns call-site
+detection, lane B owns resolution, and the answer that matters — a call
+pointing where it actually goes — comes from joining them (§3.4).
 
 ### 3.2 Lane B — semantics (SCIP indexers)
 Per-language batch indexers emitting SCIP, the universal IR: `scip-python`
@@ -119,7 +126,13 @@ symbols the graph does not want.
 
 ### 3.4 Graph builder
 Joins the lanes on file:line ranges — SCIP occurrences carry ranges, lane A
-structures carry ranges — and emits the semantic graph. Every edge records:
+structures carry ranges — **before the graph is built**, through two IRs
+(ADR-029): providers emit range-anchored observations into an *evidence IR*,
+the join resolves them into a *semantic IR*, and the builder projects that
+onto ids without resolving anything itself. Joining finished edges instead
+cannot produce an edge that is a call *because* tree-sitter saw one and
+points where it does *because* SCIP resolved it — that edge belongs to
+neither lane alone. Every edge records:
 
 - `type` — imports | call | http-call | db-read | db-write | queue | env-read |
   infra edge types from the Terraform pack

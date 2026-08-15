@@ -1253,3 +1253,62 @@ confusing morning.
 223 → **12 Go packages / 349 pytest / 49 vitest / 18 node**, gofmt and go
 vet clean. **Next: V2.M2**, whose first requirement is ADR-027's staging
 contract. M1's exit wants Max's review first.
+
+## 2026-08-14 (fifth) — V2.M2 in progress: staging, the helper, and two IRs
+
+Max reviewed M1 and cleared M2. Three chunks landed; the exit check and
+the UI tier badge remain.
+
+**Chunk 1 — the safety contract** (`f0c6cd4`). `staging.py` keeps
+ADR-027's five clauses, each tested adversarially because each failure
+would be quiet: a refused removal is asserted to have removed *nothing*;
+a symlink inside the cache pointing at the repo is refused, or `rmtree`
+would follow it out; crash safety is a `.partial` build plus rename.
+`git status` on a real repo stays empty across a full staging run.
+
+**Chunks 2–3 — the helper and the join** (`7c77a92`). Module-level recall
+against lane A: **0.971**, and the disagreements are M0's re-export class
+again — lane A stops at the package `__init__`, lane B follows through to
+the definition site.
+
+**Then the finding that reshaped the milestone.** SCIP occurrences carry
+a `syntax_kind` that would separate a call from a type annotation, and
+`scip-python` populates it for **0 of 8575** occurrences. So lane B's
+symbol edges included `except` clauses and annotations: 1422 against lane
+A's 1029, a 38% difference that is a *different question being answered*.
+That breaks §3.1's plan for M3 — stripping lane A would have lost the
+call graph rather than upgraded it, and `who_calls` would silently have
+become `who_references`.
+
+Put three options to Max; he chose intersection, and added the structural
+part: **tree-sitter is the syntax provider, SCIP the semantic one, joined
+through an evidence IR into a semantic IR, before graphing.** That is
+better than what was built. A post-hoc merge of finished edges can only
+compare edges that already exist, so it can never produce the edge that
+matters — a call *because* tree-sitter saw a call, pointing where it does
+*because* SCIP resolved it. That edge has no lane; it has two providers.
+
+**ADR-029**, and §3.1/§3.4 amended in the same commit. `merge_lane` is
+superseded and gone.
+
+Measured on the dogfood pipeline — 3051 tree-sitter call sites joined
+against 2924 SCIP resolutions:
+
+- **1145 calls, every one semantic**; 385 references
+- **0.998 recall** of lane A's call graph (1081 of 1083)
+- **64 calls lane A could not resolve at all**, now proven — e.g.
+  `hobbes.cli._cmd_up -> hobbes.decisions.Readiness.blockers`, a method
+  on a returned object, which is exactly what static resolution cannot do
+- 2 lane-A-only, both the same false positive: a local variable named
+  `write` that lane A bound to a module-level function
+
+So the intersection is both more complete and more honest than either
+lane. Two providers, two IRs, one answer.
+
+Also required: `pysource` now records each call site's terminal column,
+and the helper emits each resolution's column and bare name — line alone
+is ambiguous when one line holds several references, and the first cut
+had discarded both.
+
+394 pytest / 10 node. Remaining for M2: wire the join into `ingest`, tier
+in the UI, and the exit check (20 semantic edges ≥95%, kbet, SELENEX).

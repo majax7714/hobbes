@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { classify, GRAPH_KINDS, packageOf, decode, degradations } from '../index.mjs'
+import {
+  classify,
+  decode,
+  degradations,
+  GRAPH_KINDS,
+  packageOf,
+  terminalName,
+} from '../index.mjs'
 
 // Real monikers, pasted from scip-python 0.6.6 and scip-typescript 0.4.0
 // output during the V2.M0 spike (ADR-027).
@@ -61,23 +68,6 @@ test('definitions carry one-based lines and drop noise kinds', () => {
   })
 })
 
-test('a reference resolves to the file and line of its definition', () => {
-  const idx = fakeIndex([
-    {
-      relative_path: 'src/a.py',
-      occurrences: [{ symbol: `${PY}/run().`, symbol_roles: DEF, range: [4, 0, 8, 0] }],
-    },
-    {
-      relative_path: 'src/b.py',
-      occurrences: [{ symbol: `${PY}/run().`, symbol_roles: 0, range: [2, 4, 2, 7] }],
-    },
-  ])
-  const { references } = decode(idx)
-  assert.deepEqual(references, [
-    { file: 'src/b.py', line: 3, def_file: 'src/a.py', def_line: 5 },
-  ])
-})
-
 test('references to symbols defined outside the index are not edges', () => {
   const idx = fakeIndex([
     {
@@ -122,4 +112,29 @@ test('resolving the declared dependencies is not degradation', () => {
   ])
   const out = degradations(idx, decode(idx), { declaredDeps: ['axios'] })
   assert.equal(out.filter((d) => d.stage === 'scip-resolve').length, 0)
+})
+
+test('terminalName reads the bare name a syntax provider would have seen', () => {
+  assert.equal(terminalName(`${PY}/run().`), 'run')
+  assert.equal(terminalName(`${PY}/Engine#run().`), 'run')
+  assert.equal(terminalName(`${PY}/CONFIG.`), 'CONFIG')
+  assert.equal(terminalName(`${PY}/Thing#`), 'Thing')
+  assert.equal(terminalName(`${TS}/api.`), 'api')
+  assert.equal(terminalName('nonsense'), '')
+})
+
+test('references carry the column and name the join needs', () => {
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/a.py',
+      occurrences: [{ symbol: `${PY}/run().`, symbol_roles: DEF, range: [4, 0, 8, 0] }],
+    },
+    {
+      relative_path: 'src/b.py',
+      occurrences: [{ symbol: `${PY}/run().`, symbol_roles: 0, range: [2, 17, 2, 20] }],
+    },
+  ])
+  assert.deepEqual(decode(idx).references, [
+    { file: 'src/b.py', line: 3, col: 17, name: 'run', def_file: 'src/a.py', def_line: 5 },
+  ])
 })

@@ -13,9 +13,11 @@ identity: the graph's ids stay lane A's, and what lane B contributes is
 ``syntactic``. ADR-028 reserved a ``scip:`` namespace for ids lane B would
 have to invent; the range join means M2 barely needs it.
 
-Both lanes emit the same edge *types* on purpose. An agreement report
-(V2.M3) can only compare like with like, and an edge both lanes found is
-the case worth reporting as agreement rather than as two edges.
+Since ADR-029 the join is not between two finished edge sets but between
+two *providers*: tree-sitter's call sites and SCIP's resolutions meet in
+the evidence IR (:mod:`hobbes.extract.evidence`) before any graph exists.
+This module's job is to get SCIP's facts into that IR and to project the
+result back onto lane A's module and symbol ids.
 """
 
 from __future__ import annotations
@@ -28,7 +30,8 @@ from bisect import bisect_right
 from pathlib import Path
 
 from hobbes.extract import staging
-from hobbes.extract.schema import LANE_SCIP, SEMANTIC, tiered_edge
+from hobbes.extract.evidence import SCIP as SCIP_LANE
+from hobbes.extract.schema import LANE_SCIP, LANE_TREE_SITTER, tiered_edge
 
 #: Shell-split command replacing ``node <repo>/scip/index.mjs``.
 SCIP_CMD_ENV = "HOBBES_SCIP_CMD"
@@ -142,103 +145,84 @@ class _SymbolIndex:
         return matches[-1] if matches else None
 
 
-def join_facts(facts: dict, nodes: list[dict], symbols: list[dict]) -> dict:
-    """Turn helper facts into semantic module and symbol edges (pure).
+def resolution_sites(facts: dict) -> list:
+    """SCIP's references as evidence-IR resolution sites (ADR-029)."""
+    from hobbes.extract.evidence import RESOLUTION, SCIP, Site
 
-    A reference is attributed to the symbol enclosing it; when nothing
-    encloses it — module-level code — the module itself is the source, which
-    is lane A's own convention for an unscoped call.
+    return [
+        Site(
+            provider=SCIP,
+            kind=RESOLUTION,
+            file=ref["file"],
+            line=ref["line"],
+            name=ref.get("name", ""),
+            col=ref.get("col", -1),
+            def_file=ref["def_file"],
+            def_line=ref["def_line"],
+        )
+        for ref in facts.get("references", [])
+    ]
+
+
+def project(resolved: list, nodes: list[dict], symbols: list[dict]) -> dict:
+    """Project semantic-IR facts onto lane A's module and symbol ids.
+
+    The IR speaks in files and lines because that is what both providers
+    can agree on; the graph speaks in ids. This is the only place the two
+    vocabularies meet, and it resolves ends the same way for every fact
+    kind — the source is whatever symbol encloses the site, the target is
+    whatever symbol the definition starts.
     """
     index = _SymbolIndex(nodes, symbols)
     module_evidence: dict[tuple, list] = {}
     symbol_evidence: dict[tuple, list] = {}
 
-    for ref in facts.get("references", []):
-        source_module = index.module(ref["file"])
-        target_module = index.module(ref["def_file"])
+    for fact in resolved:
+        source_module = index.module(fact.source_file)
+        target_module = index.module(fact.def_file)
         if source_module is None or target_module is None:
             continue  # a file lane A never discovered; not ours to name
+        lane = LANE_SCIP if SCIP_LANE in fact.lanes else LANE_TREE_SITTER
+        site = {"path": fact.source_file, "line": fact.line}
+
         if source_module != target_module:
-            key = (source_module, target_module, "imports")
-            module_evidence.setdefault(key, []).append(
-                {"path": ref["file"], "line": ref["line"]}
-            )
-        caller = index.enclosing(source_module, ref["line"]) or source_module
-        callee = index.starting_at(target_module, ref["def_line"])
+            key = (source_module, target_module, "imports", fact.tier, lane)
+            module_evidence.setdefault(key, []).append(site)
+
+        caller = fact.scope or index.enclosing(source_module, fact.line) or source_module
+        callee = index.starting_at(target_module, fact.def_line)
         if callee is None or caller == callee:
             continue
-        # ``references``, not ``calls``. SCIP occurrences carry a
-        # ``syntax_kind`` that would separate a call from a type annotation
-        # or an ``except`` clause — and scip-python populates it for 0 of
-        # 8575 occurrences, so the distinction is not available. Lane A's
-        # ``calls`` is an under-approximated call graph; lane B's
-        # ``references`` is an exact use graph. Naming the second one
-        # ``calls`` would put a type annotation in the call graph, which is
-        # the false edge ADR-007 says is worse than a missing one.
-        key = (caller, callee, "references")
-        symbol_evidence.setdefault(key, []).append(
-            {"path": ref["file"], "line": ref["line"]}
-        )
+        key = (caller, callee, fact.kind, fact.tier, lane)
+        symbol_evidence.setdefault(key, []).append(site)
 
     return {
         "module_edges": _edges(module_evidence),
         "symbol_edges": _edges(symbol_evidence),
-        "degraded": list(facts.get("degraded", [])),
-        "packages": facts.get("packages", {}),
     }
 
 
 def _edges(evidence: dict[tuple, list]) -> list[dict]:
+    """Collapse sightings into edges, keeping tier and lane distinct.
+
+    Two facts with the same endpoints but different tiers are two different
+    claims — one proven, one guessed — so they stay separable here, and the
+    graph decides which survives rather than this function guessing.
+    """
     out = []
-    for (source, target, edge_type), sightings in sorted(evidence.items()):
-        unique = sorted(
-            {(s["path"], s["line"]) for s in sightings}
-        )
+    for (source, target, edge_type, tier, lane), sightings in sorted(evidence.items()):
+        unique = sorted({(s["path"], s["line"]) for s in sightings})
         out.append(
             tiered_edge(
                 source,
                 target,
                 edge_type,
-                [{"path": p, "line": line} for p, line in unique],
-                tier=SEMANTIC,
-                lane=LANE_SCIP,
+                [{"path": path, "line": line} for path, line in unique],
+                tier=tier,
+                lane=lane,
             )
         )
     return out
-
-
-def merge_lane(graph: dict, lane_b: dict) -> list[dict]:
-    """Fold lane B's edges into *graph*, upgrading what both lanes found.
-
-    An edge both lanes produced is not two edges — it is one edge that lane
-    B *proved*, so it keeps the semantic tier and carries both lanes'
-    evidence. That is §3.4's agreement case, and recording it this way is
-    what lets V2.M3's disagreement report be a query rather than a rerun.
-    """
-    upgraded = []
-    for layer in ("module_edges", "symbol_edges"):
-        existing = {(e["from"], e["to"], e["type"]): e for e in graph[layer]}
-        for edge in lane_b[layer]:
-            key = (edge["from"], edge["to"], edge["type"])
-            prior = existing.get(key)
-            if prior is None:
-                existing[key] = edge
-                continue
-            # Both lanes saw it: semantic wins, and lane A's sighting stays
-            # as corroboration rather than being thrown away.
-            merged = dict(edge)
-            seen = {(ev["path"], ev["line"], ev["lane"]) for ev in edge["evidence"]}
-            merged["evidence"] = edge["evidence"] + [
-                ev
-                for ev in prior["evidence"]
-                if (ev["path"], ev["line"], ev["lane"]) not in seen
-            ]
-            existing[key] = merged
-            upgraded.append(key)
-        graph[layer] = sorted(
-            existing.values(), key=lambda e: (e["from"], e["to"], e["type"])
-        )
-    return upgraded
 
 
 def extract_scip(

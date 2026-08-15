@@ -80,6 +80,22 @@ export function classify(symbol) {
 /** Descriptor kinds that become graph symbols. */
 export const GRAPH_KINDS = new Set(['namespace', 'type', 'method', 'term'])
 
+/**
+ * The terminal descriptor's bare name, which is what a syntax provider
+ * saw at the call site (ADR-029 matches on it).
+ *
+ * `…\`src.a\`/Engine#run().` -> `run`;  `…/CONFIG.` -> `CONFIG`.
+ */
+export function terminalName(symbol) {
+  const parts = String(symbol).split(' ')
+  if (parts.length < 5) return ''
+  const desc = parts.slice(4).join(' ')
+  // Strip the descriptor suffix, then take the last path/member segment.
+  const bare = desc.replace(/(\(\)\.|#|\.|\/|:)$/, '')
+  const seg = bare.split(/[/#.]/).filter(Boolean).pop() ?? ''
+  return seg.replace(/`/g, '')
+}
+
 /** `<manager>:<package>` for a symbol, or '' when it has no package. */
 export function packageOf(symbol) {
   const p = String(symbol).split(' ')
@@ -131,6 +147,10 @@ export function decode(index) {
       references.push({
         file: doc.relative_path,
         line: occ.range[0] + 1,
+        // Column and name are what let the join tell two same-named
+        // occurrences on one line apart (ADR-029).
+        col: occ.range[1],
+        name: terminalName(occ.symbol),
         def_file: target.file,
         def_line: target.line,
       })

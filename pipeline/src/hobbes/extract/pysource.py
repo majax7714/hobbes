@@ -90,6 +90,10 @@ class Call:
     scope: str | None
     callee: str
     line: int
+    #: Column of the callee's terminal identifier (0-based), or -1 when
+    #: unknown. One line routinely holds several calls, so the range join
+    #: (ADR-029) needs more than a line to match a call to its resolution.
+    col: int = -1
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,21 @@ def _text(node: Node) -> str:
 
 def _line(node: Node) -> int:
     return node.start_point.row + 1
+
+
+def _terminal(node: Node) -> Node | None:
+    """The last identifier in an identifier/attribute chain.
+
+    ``a.b.c`` resolves to ``c`` — the name SCIP records an occurrence for,
+    and therefore the one the ADR-029 join matches on.
+    """
+    if node is None:
+        return None
+    if node.type == "identifier":
+        return node
+    if node.type == "attribute":
+        return node.child_by_field_name("attribute")
+    return None
 
 
 def _dotted(node: Node) -> str | None:
@@ -300,7 +319,11 @@ def _walk(
                 var = _string_literal(first)
                 if var is not None:
                     parsed.env_reads.append(EnvRead(var, line))
-            parsed.calls.append(Call(_scope_qualname(stack), dotted, line))
+            terminal = _terminal(function)
+            column = terminal.start_point.column if terminal is not None else -1
+            parsed.calls.append(
+                Call(_scope_qualname(stack), dotted, line, column)
+            )
         for child in node.children:
             _walk(child, stack, parsed, ())
         return
