@@ -17,7 +17,13 @@ import { pathToFileURL } from "node:url";
 
 import { Node, Project, ts } from "ts-morph";
 
-export const HELPER_VERSION = 1;
+// v2 (V2.M3, ADR-029/031): `calls` carries every call site rather than
+// only resolved ones, positioned on the terminal identifier with a
+// 0-based `col` and its bare `name`, so the evidence IR can join it
+// against SCIP occurrences; `callee`/`callee_path` are null when the
+// checker could not resolve it, and are now the join's fallback rather
+// than an edge. Test cases carry `end_line`, so reach can be per case.
+export const HELPER_VERSION = 2;
 
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
@@ -305,20 +311,59 @@ function resolveCallTarget(call, repoRoot, fileSet) {
   return resolveExpressionTarget(call.getExpression(), repoRoot, fileSet);
 }
 
+/** The identifier that names the callee — what a reader would point at,
+ * and what SCIP puts its occurrence on. `f()` -> `f`; `a.b.c()` -> `c`. */
+function terminalIdentifier(expr) {
+  if (Node.isIdentifier(expr)) return expr;
+  if (Node.isPropertyAccessExpression(expr)) return expr.getNameNode();
+  return null;
+}
+
+/**
+ * Every call site, resolved or not (ADR-029's evidence IR; V2.M3).
+ *
+ * Before V2.M3 this emitted a record only when the checker resolved the
+ * callee, which made lane A's TS call sites invisible in two ways that
+ * both mattered: the join had nothing to match SCIP's resolutions
+ * *against* (SCIP cannot tell a call from a reference, so tree-sitter's
+ * — here ts-morph's — "this is a call" is the half it cannot supply),
+ * and resolution coverage had no denominator, so a TS repo would have
+ * reported 100% accounted no matter how much it missed.
+ *
+ * The gate mirrors `pysource`'s: a callee that is a plain identifier or
+ * an attribute chain. `f()()` and `xs[0].m()` are not call *sites* this
+ * lane claims to see, and pretending otherwise would put a denominator
+ * under sites nothing could ever resolve.
+ *
+ * Position is the **terminal identifier's**, not the call expression's,
+ * because that is where the semantic provider puts its occurrence. They
+ * differ on a wrapped chain (`obj\n  .method()`), and a line mismatch
+ * there is a silently unjoined call rather than an error.
+ */
 function extractCalls(sourceFile, repoRoot, fileSet) {
   const calls = [];
   sourceFile.forEachDescendant((node) => {
     if (!Node.isCallExpression(node)) return;
+    const terminal = terminalIdentifier(node.getExpression());
+    if (!terminal) return;
     const target = resolveCallTarget(node, repoRoot, fileSet);
-    if (!target) return;
+    const { line, column } = sourceFile.getLineAndColumnAtPos(terminal.getStart());
     calls.push({
-      callee: target.qualname,
-      callee_path: target.path,
-      line: node.getStartLineNumber(),
+      // Lane A's own resolution, kept as the join's fallback rather than
+      // as an edge (ADR-031). Null when the checker could not resolve it.
+      callee: target ? target.qualname : null,
+      callee_path: target ? target.path : null,
+      // 1-based line, 0-based column — SCIP's convention, so the join
+      // compares like with like.
+      line,
+      col: column - 1,
+      name: terminal.getText(),
       scope: enclosingScope(node),
     });
   });
-  return calls.sort((a, b) => a.line - b.line || a.callee.localeCompare(b.callee));
+  return calls.sort(
+    (a, b) => a.line - b.line || a.col - b.col || a.name.localeCompare(b.name)
+  );
 }
 
 function extractEnvReads(sourceFile) {
@@ -491,6 +536,11 @@ function extractTests(sourceFile, filePath, imports) {
     if (title === null) return;
     cases.push({
       line: node.getStartLineNumber(),
+      // The case's extent, so reach can be attributed per case rather than
+      // per file (C-11). A JS test body is an anonymous closure with no
+      // symbol to hang an edge on, so range containment is the only way to
+      // ask "which calls belong to this `it()`".
+      end_line: node.getEndLineNumber(),
       qualname: [...describeChain(node), title].join(" > "),
     });
   });

@@ -155,9 +155,47 @@ test("calls resolve locally, through imports, and to methods; externals omitted"
     [
       ["local", "src/util.js", "helper"],
       ["run", "src/main.js", "local"],
+      // express() resolves outside the repo. Since V2.M3 it is still a
+      // call *site* — the join needs it to match SCIP against, and
+      // coverage needs it in the denominator — with a null resolution.
+      ["run", null, null],
       [null, "src/main.js", "run"],
     ]
-  ); // express() resolves outside the repo: omitted
+  );
+  // ...and it is identifiable, because the site carries the text that was
+  // written even when nothing resolved it.
+  assert.deepEqual(calls.map((c) => c.name), ["helper", "local", "express", "run"]);
+});
+
+test("call sites carry the terminal identifier's name and 0-based column", () => {
+  const root = makeRepo({
+    "src/util.js": "export function helper() { return 1; }\nexport const obj = { helper };\n",
+    "src/main.js": [
+      'import { helper, obj } from "./util.js";',
+      "helper(); obj.helper();",
+    ].join("\n"),
+  });
+  const calls = byPath(extractRepo(root), "src/main.js").calls;
+  // Both sites are named `helper` on one line — the case line-only
+  // matching cannot resolve, which is why the IR carries a column.
+  assert.deepEqual(
+    calls.map((c) => [c.name, c.line, c.col]),
+    [["helper", 2, 0], ["helper", 2, 14]]
+  );
+});
+
+test("a wrapped call chain is positioned on the callee, not the expression", () => {
+  const root = makeRepo({
+    "src/main.js": ["const obj = { run() {} };", "obj", "  .run();"].join("\n"),
+  });
+  const calls = byPath(extractRepo(root), "src/main.js").calls;
+  // The call expression starts at `obj` on line 2; SCIP puts its
+  // occurrence on `run` at line 3. Reporting line 2 would leave the site
+  // permanently unjoinable — a silently missing edge, not an error.
+  assert.deepEqual(
+    calls.map((c) => [c.name, c.line]),
+    [["run", 3]]
+  );
 });
 
 test("env reads: process.env and import.meta.env, both access styles", () => {
@@ -281,7 +319,7 @@ test("output is deterministic across runs", () => {
   assert.equal(a, b);
 });
 
-test("calls to nested declarations are omitted (only top-level symbols exist)", () => {
+test("calls to nested declarations resolve to nothing (only top-level symbols exist)", () => {
   const root = makeRepo({
     "src/main.js": [
       "export function outer() {",
@@ -293,9 +331,13 @@ test("calls to nested declarations are omitted (only top-level symbols exist)", 
     ].join("\n"),
   });
   const calls = byPath(extractRepo(root), "src/main.js").calls;
+  // They are call sites and are reported as such; what they must never do
+  // is carry a resolution, because the symbol they'd point at does not
+  // exist in the graph. A null `callee` produces no edge downstream, so
+  // the M6 guarantee holds while coverage still counts the site.
   assert.deepEqual(
     calls.map((c) => [c.scope, c.callee]),
-    [[null, "outer"]]
+    [["outer", null], ["outer", null], [null, "outer"]]
   );
 });
 
@@ -328,11 +370,12 @@ test("nested tsconfig zone resolves its own path aliases", () => {
       ["@/api/auth", "web/src/api/auth.ts"], // dynamic import, alias-resolved
     ]
   );
+  // Ordered by position now, not by callee name: both sit on line 3.
   assert.deepEqual(
     app.calls.map((c) => [c.callee_path, c.callee]),
     [
-      ["web/src/app.ts", "lazy"],
       ["web/src/api/auth.ts", "login"],
+      ["web/src/app.ts", "lazy"],
     ]
   );
   // The zone-less files still resolve through the default project.

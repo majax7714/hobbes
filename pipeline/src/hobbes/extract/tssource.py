@@ -30,7 +30,12 @@ from hobbes.extract.schema import tiered_edge
 TSEXTRACT_CMD_ENV = "HOBBES_TSEXTRACT_CMD"
 
 #: The facts schema this join understands (helper HELPER_VERSION).
-HELPER_VERSION = 1
+#: v2 (V2.M3): ``calls`` carries every call site, not only resolved ones,
+#: positioned on the terminal identifier with ``col`` and ``name`` so the
+#: evidence IR can join it against SCIP occurrences (ADR-029); ``callee``
+#: is None where the checker resolved nothing. Test cases carry
+#: ``end_line``.
+HELPER_VERSION = 2
 
 #: Extensions the helper extracts; used only for the cheap "does this repo
 #: have TS/JS at all" scan that decides whether the helper must run.
@@ -163,6 +168,11 @@ def join_facts(facts: dict) -> dict:
                 }
             )
         for call in f["calls"]:
+            # A site the checker could not resolve is real evidence (it
+            # feeds the join and coverage's denominator) and is not an
+            # edge: the symbol it would point at does not exist here.
+            if not call["callee_path"]:
+                continue
             source = f"{mid}.{call['scope']}" if call["scope"] else mid
             target = f"{module_id(call['callee_path'])}.{call['callee']}"
             symbol_edges[(source, target, "calls")].append(
@@ -254,6 +264,8 @@ def _collect_tests(
                 if bare in symbols_by_module[target_mid]:
                     seeds.add(f"{target_mid}.{bare}")
         for call in f["calls"]:
+            if not call["callee_path"]:
+                continue
             seeds.add(f"{module_id(call['callee_path'])}.{call['callee']}")
 
         reached = set(seeds)
