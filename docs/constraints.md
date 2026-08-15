@@ -312,25 +312,74 @@ information appears in both, and the entries cross-reference.
   user will recognise, which is not the same as being told.
 - **Source:** ADR-026, `future_additions.md`.
 
+### C-22 — Lane B links the repo's `node_modules`, and trusts it not to be written
+- **Cannot tell you:** with structural certainty that indexing a TypeScript
+  repo cannot modify its dependency tree. The staging tree symlinks
+  `node_modules` rather than copying it (222 MB on kbet), so for the
+  duration of an index there is a live handle into the user's tree.
+- **Because:** copying is infeasible at that size, and the alternative that
+  preserves the copy — an absolute `paths` fallback — measured a **6.4%
+  loss of semantic references**, which is the lane's whole output.
+- **Bites at:** nothing observed. Two properties were verified rather than
+  assumed: a full index modified **0 files** under the real
+  `node_modules`, and `shutil.rmtree` unlinks a symlinked directory instead
+  of recursing into it, so removing a stage cannot delete the target.
+- **You find out:** **surfaced by test, not by artifact** — both properties
+  carry regression tests (`test_staging.py`), so a change that breaks
+  either fails the suite rather than a user's machine. This is the correct
+  surfacing for a constraint whose audience is a future maintainer rather
+  than a reviewer.
+- **Honest residue:** measured, not structurally enforced. A future indexer
+  that emits, or a dependency with a build step run during indexing, would
+  invalidate it and the tests are what would catch it.
+- **Source:** ADR-032.
+
+### C-23 — TypeScript semantics need an installed dependency tree
+- **Cannot tell you:** where a call goes when its receiver's type comes
+  from a package that is not installed. Measured on kbet with no
+  `node_modules`: **19% of internal references and 73% of external
+  references disappear**, and 20 of 23 packages resolve to nothing.
+- **Because:** the indexer's resolution is whole-program type inference,
+  and an absent dependency has no types to infer from. It exits 0 and
+  produces a plausible index regardless.
+- **Bites at:** any TS repo ingested without `npm install` having been run
+  — a fresh clone, a CI job that skips install, a monorepo package the user
+  never built.
+- **You find out:** **surfaced** — `dependency_coverage: {declared,
+  resolved, missing[]}` is reported on every run, plus an
+  `extraction_errors` entry and an ingest WARNING below a ratio.
+  Previously **unsurfaced and actively misleading**: the old all-or-nothing
+  test could never fire for TypeScript, because the indexer bundles
+  `typescript` itself and that one always-resolving package kept the
+  "everything missing" condition false forever. 1 of 23 resolved, and it
+  said nothing.
+- **Honest residue:** a *partially* installed environment still degrades in
+  proportion, and the ratio is a threshold rather than a proof.
+- **Source:** ADR-032, found by the control variant in the V2.M3 spike.
+
 ---
-
-## Open at V2.M3
-
-Entries expected from the milestone in progress, listed so the register
-does not quietly lag the code:
-
-- **TypeScript semantic resolution without `node_modules`** — pending the
-  V2.M3 spike. kbet has no `node_modules` installed, which is verbatim
-  ADR-027 Decision 4's degraded case.
-- **Whatever the TS staging strategy concedes** — file-set fidelity
-  (ADR-027 clause 5) if the indexer picks its own inputs from
-  `tsconfig.include` rather than lane A's discovery.
 
 ## Debt summary
 
-Nine of twenty-one entries are **unsurfaced** (C-3, C-4, C-5, C-11, C-12,
+Nine of twenty-three entries are **unsurfaced** (C-3, C-4, C-5, C-11, C-12,
 C-14, C-16, C-19, C-20). That number is the point of keeping the register:
 it was not knowable before this file existed, and it is the backlog P8
-generates. C-11 and C-16 are the two that mislead *actively* rather than
-merely staying quiet — C-11 inflates JS test coverage, C-16 makes a
-degradation check look like it ran — so they rank first.
+generates.
+
+Ranked by how badly each misleads, worst first:
+
+1. **C-11** — inflates JS test coverage; a file-level reach row is
+   indistinguishable from a precise pytest one.
+2. **C-16** — a degradation check that appears to run and reports nothing,
+   on the repo Hobbes dogfoods against.
+3. **C-3** — "imports no stdlib" and "stdlib not modelled" look identical,
+   and the question is usually a security one.
+
+The rest stay quiet rather than lying, which is a real difference.
+
+**Track record so far:** two of the three entries added at V2.M3 were
+*already true and already invisible* before the register existed — C-23 in
+particular had a check written specifically to catch it that could not fire
+under any circumstances. That is the argument for P8 restated as evidence:
+both were documented honestly in an ADR at the moment of decision, and both
+went on to mislead anyway.
