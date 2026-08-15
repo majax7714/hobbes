@@ -77,7 +77,8 @@ the interactive graph.
   into the Go embed dir — **rebuild `hobbes-web` after**, or it serves
   the previous bundle. `npm run dev` proxies `/api` to a running server.
 - `docs/` — the two source docs, `docs/adr/` (numbered ADRs),
-  `docs/BUILDLOG.md` (append-only session log), `docs/first-run.md`
+  `docs/constraints.md` (the P8 register of what Hobbes cannot tell you,
+  ADR-030), `docs/BUILDLOG.md` (append-only session log), `docs/first-run.md`
   (bringing Hobbes up on a new app, in the order the system is meant to
   be used), and `docs/m9-application-mode.md` (a *proposal*, not a
   decision — see Current status).
@@ -141,6 +142,11 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
   `test/docs/chore`.
 - One short ADR (`docs/adr/NNN-title.md`) for every design decision the two
   source docs don't already make. Number sequentially.
+- **Every decision that concedes information gets a `C-n` entry in
+  `docs/constraints.md`, in the same commit** (P8, ADR-030). An entry is
+  not done when written — it carries a *surfacing status* naming where a
+  user meets the limit; `unsurfaced` means documented only, and is debt.
+  Hobbes is unusable as a known liar and worse as a fake-honest one.
 - `docs/BUILDLOG.md` is append-only; one dated entry per session. Never edit
   old entries.
 - Every package/module gets doc comments explaining purpose and contract;

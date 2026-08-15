@@ -4,6 +4,15 @@ Reviewed-and-deferred ideas: things flagged in a BUILDLOG entry, looked at
 by Max, and consciously parked — with the context needed to pick them up
 later. Not a wishlist; everything here was deferred *on purpose*.
 
+**Not to be confused with `docs/constraints.md`.** This file parks deferred
+*work*; the constraint register records conceded *information* — what
+Hobbes cannot tell a user, and where they find that out (P8, ADR-030). A
+deferral that loses information belongs in both, and the entries
+cross-reference: per-test JS reach is C-11, cross-zone TS imports C-12,
+package.json bin C-14, cross-language namespacing C-15, soft verdicts C-18,
+unexecuted CI configs C-19, clone-local decisions C-20, re-inferred
+invariants C-21.
+
 **Subsumed by the v2 extraction architecture (2026-08-14) — do not build
 these:** *cross-language module-id namespacing* (moniker-keyed node ids
 make the `widget.py` / `widget.ts` collision a non-question),

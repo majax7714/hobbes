@@ -34,6 +34,14 @@ checker over the graph.
 - **P7 — Languages are configuration, not integrations.** (new) Adding a
   language means an indexer config entry plus an optional enrichment pack.
   If it requires touching the graph builder's core, the design has failed.
+- **P8 — Every concession is a registered constraint.** (new) When Hobbes
+  cannot recover information — a limit of static analysis, a deliberate
+  filter, a deferred sharpening — the gap is entered in
+  `docs/constraints.md` together with the place a user meets it. P6 covers
+  the run that failed; P8 covers what was never knowable. A constraint
+  whose only surfacing is a document is recorded as *unsurfaced*, because
+  a confident artifact concealing a known gap costs more trust than one
+  that fails loudly (ADR-030).
 
 ---
 
@@ -97,6 +105,15 @@ call*: SCIP occurrences carry a `syntax_kind` that would say so, and
 scip-python populates it for none of them. So lane A owns call-site
 detection, lane B owns resolution, and the answer that matters — a call
 pointing where it actually goes — comes from joining them (§3.4).
+
+**Lane A's resolver is demoted, not deleted (ADR-031).** It stops producing
+edges and becomes the join's *fallback*, consulted only where the semantic
+provider resolved nothing and stamped `syntactic` when it is. There is one
+resolver of record and it is lane B; what remains beneath it is a labelled
+floor, not a second opinion. Without it, a repo whose language has no
+indexer — or a box without one installed — would hold no call graph at all,
+which P6 forbids and P7 would make permanent. The cost is registered as
+constraint **C-8**.
 
 ### 3.2 Lane B — semantics (SCIP indexers)
 Per-language batch indexers emitting SCIP, the universal IR: `scip-python`
@@ -277,10 +294,13 @@ human-visible v2 improvement does not wait for M6.
 
 ### V2.M3 — Lane A refactor + self-test, and M2's TS half (4–5)
 Strip symbol *resolution* from the v1 extractors — lane A keeps structure,
-routes, tests, and call-site **detection** (ADR-029). **Test reach moves to
-lane B in this milestone** — `collect_tests` consumes lane A's symbol edges
-today, so stripping them regresses `tests.json` otherwise. Implement the
-lane-agreement report as a CI check *and* a command.
+routes, tests, and call-site **detection** (ADR-029), and its resolver is
+**demoted to the join's fallback rather than deleted** (ADR-031), because
+deleting it leaves any repo without a working indexer holding no call graph
+at all. **Test reach moves to lane B in this milestone** — `collect_tests`
+consumes lane A's symbol edges today, so stripping them regresses
+`tests.json` otherwise. Implement the lane-agreement report as a CI check
+*and* a command.
 
 **Carries M2's asterisk:** `scip-typescript` was in M2's scope and was not
 wired, so it lands here, where `tssource.py` is already being opened to strip
@@ -327,7 +347,9 @@ at a time, stop at exits for human review.
 Session context = this file + CLAUDE.md + the last two BUILDLOG entries.
 Standing discipline is unchanged: plan file-by-file before implementing; ADR
 for every decision this document doesn't make, patched into this document in
-the same commit when it changes the architecture; BUILDLOG entry and CLAUDE.md
+the same commit when it changes the architecture; **a `C-n` entry in
+`docs/constraints.md` for every decision that concedes information (P8,
+ADR-030)**; BUILDLOG entry and CLAUDE.md
 status update every session; tests with code; conventional commits; never read
 `.tfstate`, never commit `derived/`. Milestone exits stop and hand the wheel
 to the human — spot-checks and walkthroughs are theirs to run. In the kickoff

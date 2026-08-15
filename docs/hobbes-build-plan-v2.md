@@ -207,9 +207,15 @@ Work:
   produces semantic call edges, hand-verified at the same ≥95% bar Python
   met at 20/20.**
 
-- **Delete call resolution from `extract/graph.py`** — `_resolve_call`,
-  `_SymbolTable`, and the symbol-edge production, i.e. ADR-007 rules 1–4:
-  roughly 110 of the file's 256 lines. **Keep** `_Index`, `_NameEnv`, and
+- **Demote call resolution in `extract/graph.py`** — *revised by ADR-031
+  (2026-08-15); the original wording said delete.* `_resolve_call` and
+  `_SymbolTable` stop producing `symbol_edges` and become the range join's
+  fallback table, consulted only where SCIP resolved nothing and stamped
+  `syntactic` when it is. Deleting them outright drops the 131 labelled
+  fallback edges this repo has, and — the real cost — leaves any repo
+  whose language has no indexer, or any box without `scip/` installed,
+  holding **no call graph at all**, which P6 forbids. Registered as
+  constraint **C-8**. **Keep** `_Index`, `_NameEnv`, and
   module-level import resolution — §3.1 keeps approximate module edges in
   lane A on purpose, and they are exactly what the agreement self-test
   compares against.
@@ -217,13 +223,23 @@ Work:
   `graph["symbol_edges"]`; once those come from SCIP, reach gets more
   precise for free — and the deferred *per-test JS reach* item
   (`future_additions.md`) is subsumed rather than built.
-- **`tssource.py` loses its symbol layer too.** §3.1 says lane A no longer
+- **`tssource.py` is demoted symmetrically.** §3.1 says lane A no longer
   resolves symbols, which retires M6's checker-resolved call edges in
-  favour of `scip-typescript`. Naming it plainly: **M3 deletes working,
-  hand-verified M6 code.** That is the intent of the architecture, but it
-  should be a deliberate call rather than a discovery mid-milestone.
-- **Lane-agreement report** as a CI check: wherever both lanes can produce
-  the same module-level edge they must agree.
+  favour of `scip-typescript`. Naming it plainly: **M3 retires working,
+  hand-verified M6 code.** That is the intent of the architecture, and
+  under ADR-031 those resolutions survive as TS's fallback arm rather than
+  being deleted — the same floor Python keeps.
+- **Fix the `uses` leak (M2 knock-on).** `project()` puts `uses` facts into
+  `symbol_edges` and **no consumer filters symbol edges by type** —
+  `knowledge.go`'s `WhoCalls` iterates all of them, and `testmap._closure`
+  builds its adjacency from all of them. So 392 type annotations and
+  `except` clauses currently read as callers, and test reach silently
+  widened at M2. This is the `who_calls`-becomes-`who_references` failure
+  ADR-029 set out to avoid, arriving by another route.
+- **Lane-agreement report** as a CI check *and* a command: wherever both
+  lanes can produce the same module-level edge they must agree, and —
+  richer, per ADR-029 — wherever both resolved the same call *site*, they
+  must resolve it to the same place.
 
 **Exit:** the disagreement report runs clean on the dogfood repos, or every
 disagreement is an explained, filed bug — **and kbet produces semantic
