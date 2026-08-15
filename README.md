@@ -15,13 +15,9 @@ registered, and the limits of the third-party indexers Hobbes runs are
 owned as Hobbes's own. Abstraction is the product; accuracy is the
 precondition.
 
-Where it's going: **single-use agents under derived, systematic context.** A
-model's accuracy falls as context grows and tasks accumulate, so the fix is
-a smaller job rather than a bigger window — per-task context and per-task
-policy derived from the architecture itself. That is what the sandboxes are
-for. A command outside the policy isn't refused, it's *absent*: if an agent
-cannot run something in a space where it literally cannot, then it literally
-cannot.
+The graph is not the goal, though. It is the thing that makes **single-use
+agents under derived, systematic context** possible — see [where this is
+going](#where-this-is-going).
 
 Joern(github.com/joernio/joern) is a code property graph software that accomplishes a lot of the things Hobbes looks to solve
 though not directly related as joerns focus is on vulnerability discovery and research for static program analysis.
@@ -86,6 +82,49 @@ Because "how much did you miss" matters as much as "what did you find",
 `graph.json` also carries per-file **resolution coverage**: call sites,
 how many resolved in-repo, how many to an external package, and how many
 to nothing at all.
+
+## Where this is going
+
+An accurate graph of a repo is useful on its own. It is not what Hobbes is
+for.
+
+**A model's accuracy falls as its context grows and as tasks accumulate in
+one session.** Everyone has watched it happen: the agent that was sharp on
+the first task is confidently wrong by the fifth, still fluent, working from
+a context window that is now mostly its own earlier output. The usual
+answers are a bigger window and a better prompt. Both treat the symptom.
+
+The answer Hobbes is built around is **a smaller job**. If you know a repo's
+real structure, you can derive — *per task* — the context that task actually
+needs and the policy that task is actually permitted, start one agent inside
+both, and let it end when the task does. Context becomes something **scoped
+by the architecture and regenerated**, rather than something assembled by a
+prompt and accumulated until it rots. That is the difference between an
+agent that has read the right twelve files and one that has been handed
+everything and told to be careful.
+
+The policy half is what makes it safe to actually do this, and it is why the
+sandbox sits below the model instead of inside it. **A rule in a prompt is a
+request.** A command outside the policy is not refused — it is *absent*: no
+binary on the path, no mount to write through, no route to the network. In
+the project's own words: *if an agent cannot execute a command in a space
+where it literally cannot, then it literally cannot.* Enforcement that
+depends on the model's cooperation is not enforcement, and an agent that
+cannot be talked out of its constraints does not need to be trusted.
+
+Three of the four pieces exist today:
+
+| Piece | State |
+|---|---|
+| A graph accurate enough to derive context *from* | built — this is what v2's extraction layer is for |
+| Invariants that make the result checkable | built (`hobbes review`, the reviewer role) |
+| Enforcement that is real rather than advisory | built (rootless Podman + the Go policy engine and proxy) |
+| **The derivation itself** — per-task context and policy generated *from* the architecture | **not built.** Not a milestone yet |
+
+That last row is the honest one, and it stays in the README rather than
+being implied away. Nothing in the current design should make it harder to
+reach, and that is the test any new work here has to pass — but it has not
+been started, and Hobbes is not it yet.
 
 ## Status
 

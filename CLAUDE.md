@@ -99,7 +99,11 @@ the interactive graph.
   new app, in the order the system is meant to be used), and
   `docs/m9-application-mode.md` (**parked** — see Current status).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
-  gitignored. `invariants/` holds six confirmed records (ADR-024);
+  gitignored. `invariants/` holds eleven confirmed records (ADR-024) —
+  I-1..I-6 promoted at M8, I-7..I-11 approved through the surface on
+  2026-08-15 and each a **reworded restatement** of one of the first six
+  (C-21); the duplication is noted in a comment at the top of each file,
+  and the I-1..I-6 record is the one of reference where they overlap;
   `derived/compiled/` is where `hobbes invariants compile` writes CI
   configs.
 
@@ -341,7 +345,11 @@ anything else.
     unguarded new code. Spends no quota unless `--soft`.
   - **Six confirmed invariants** (I-1..I-6), promoted from the M5 inferred
     set. I-3 was rewritten during promotion: the inferred wording claimed
-    pushes escalate, which the push-deny made false.
+    pushes escalate, which the push-deny made false. **That exact clause
+    came back** on 2026-08-15 in I-9, approved through the surface before
+    anyone noticed — corrected on the same day. If you are promoting an
+    inferred invariant, read the confirmed records covering its scope
+    first; nothing in the queue does it for you (C-21).
   - **`git push` is denied**, not escalated (see Conventions).
   - The **reviewer role** is now enforced at the mount tier: worktree ro,
     no Edit/Write/exec, and `.hobbes/derived/` mounted ro for every role

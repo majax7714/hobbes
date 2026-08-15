@@ -1774,3 +1774,63 @@ decision surface — an inferred statement should arrive next to the confirmed
 records overlapping its scope. The record itself is Max's to correct; the
 untracked `.hobbes/` decisions and records were left uncommitted for him,
 not swept into this commit.
+
+---
+
+## 2026-08-15 (fifth) — the decision set committed, with I-9 corrected
+
+Max's call on the finding above: **"we can keep pushes off the table"** —
+and the context for why it slipped, worth recording because it changes how
+to read the dogfood repo's own invariants:
+
+> i was fine with the ask just because hobbes on itself is testing, hobbes
+> is incomplete so treating everything as stone isnt really worth.
+
+So the approvals were a test of the decision surface, not a considered
+ruling on eleven invariants. Committed on that understanding, with two
+corrections made first.
+
+**I-9's false clause is fixed.** "all other pushes escalate" → every push,
+forced or not, denied outright, with unmatched commands still escalating by
+default. The file carries a comment recording that the inferred text was the
+same wording M8 caught in I-3, so the next reader sees the loop rather than
+just the fix.
+
+**All five new records are restatements, and now say so.** Checking each
+against the confirmed set: I-7 restates I-1 (tfstate), I-8 restates I-2
+(derived never committed), I-9 restates I-3 (publishing), I-10 restates I-5
+(narrative validation), I-11 restates I-6 (env joins) — and the one Max
+*denied* was the I-4 duplicate. That is C-21 landing in full: all six
+inferred records correspond 1:1 to the confirmed set and none match by key,
+because the inference unit is told about the repo but not about
+`.hobbes/invariants/`.
+
+Each new file gained a `RESTATES I-n (C-21)` comment naming the record of
+reference and what the older one says that the newer one drops — I-1 names
+three enforcement sites where I-7 names one; I-6 covers JS env-reads where
+I-11 says only Python. **Comments, not fields:** the schema rejects unknown
+keys (`_RECORD_FIELDS` in `invariants/schema.py`), and a comment cannot
+change what gets checked. `hobbes invariants check` reports 11 valid, 11
+confirmed.
+
+The duplication is left in place rather than resolved, because retiring five
+records Max approved hours ago is his call and the register now makes the
+overlap legible. The real fix is upstream and already named in C-21: an
+inferred statement should reach the decision queue *next to* the confirmed
+records overlapping its scope.
+
+**README rewritten around the vision.** The intro keeps the identity and
+hands off to a new **"Where this is going"** section: accuracy falls as
+context grows and tasks accumulate, so the answer is a smaller job rather
+than a bigger window — per-task context and per-task policy derived from the
+architecture, one agent inside both, ending when the task does. Context
+scoped by the architecture and regenerated, rather than assembled by a
+prompt and accumulated until it rots. The policy half is why the sandbox
+sits below the model: a rule in a prompt is a request, while a command
+outside the policy is *absent*.
+
+It ends on a four-row table of which pieces exist, and the fourth row says
+**not built, not a milestone yet**. That row is the reason the section can
+sit in a README at all — a vision stated next to an honest account of how
+much of it is real is a plan; stated alone it is marketing, and this project
+has a principle about that.
