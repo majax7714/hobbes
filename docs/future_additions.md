@@ -186,6 +186,27 @@ stay below for the reasoning; the work does not.
   that phrasing in favour of your own, and the ledger records the
   wording it was asked about.
 
+- **The build-session reports are the spec for `hobbes review`'s prose**
+  (Max, 2026-08-14). He noted that the stage-by-stage reports these
+  sessions produce — what was measured, what surprised, what it means for
+  the next decision — are doing by hand exactly what Hobbes is meant to do
+  mechanically, and that the *small notes* are the part that carries.
+
+  Worth treating as evidence rather than a compliment: it says the
+  concept-level review a human wants is not a diff summary and not a
+  verdict table, but **the short list of things that would have been
+  discovered late**. Today `hobbes review` (ADR-025) emits delta,
+  verdicts, and coverage — accurate, and none of it is that. The ADR-019
+  claim/pin schema already fits: a finding is a claim plus the evidence
+  that produced it.
+
+  Concretely, the reports that landed were: a measurement that contradicted
+  a published number, a design withdrawn because a safer one measured the
+  same, and a gate that caught a fixture bug on first run. All three are
+  derivable — a metric that moved, a decision reversed, a test that failed
+  for a new reason. Revisit when V2.M6's tier-aware verdicts give the
+  reviewer something richer to write from.
+
 - ~~**`hobbes up` output is invisible when stdout is not a tty**~~ —
   **fixed 2026-08-14** (`6b2ac65`), before the v2 programme started.
   Line-buffered at `main()` rather than `flush=True` per print, because
