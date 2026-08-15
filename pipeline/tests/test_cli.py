@@ -101,6 +101,70 @@ class TestRender:
         assert "hobbes ingest" in capsys.readouterr().err
 
 
+class TestLanes:
+    """`hobbes lanes` — §3.4's self-test as a command, not only a CI file."""
+
+    def test_clean_report_exits_zero(self, git_fixture, capsys):
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        capsys.readouterr()
+        assert cli.main(["lanes", "--repo", str(git_fixture)]) == 0
+        out = capsys.readouterr().out
+        assert "lane agreement @" in out
+        assert "the lanes agree wherever both can answer" in out
+
+    def test_a_site_disagreement_exits_one(self, git_fixture, capsys):
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        graph_path = git_fixture / ".hobbes" / "derived" / "graph.json"
+        graph = json.loads(graph_path.read_text())
+        graph["lane_agreement"]["site_disagreements"].append(
+            {
+                "file": "src/miniapp/core.py",
+                "line": 16,
+                "name": "normalize",
+                "syntactic": "src/miniapp/util.py:6",
+                "semantic": "src/miniapp/other.py:2",
+            }
+        )
+        graph_path.write_text(json.dumps(graph))
+        capsys.readouterr()
+
+        assert cli.main(["lanes", "--repo", str(git_fixture)]) == 1
+        out = capsys.readouterr().out
+        assert "1 disagree" in out
+        assert "src/miniapp/core.py:16 normalize()" in out
+        assert "syntactic -> src/miniapp/util.py:6" in out
+        assert "semantic  -> src/miniapp/other.py:2" in out
+
+    def test_module_edge_differences_alone_do_not_fail(self, git_fixture, capsys):
+        """Lane B following a re-export past the package is not a bug.
+
+        ADR-027 measured exactly this and it favours lane B, so it is
+        reported and does not fail the check.
+        """
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        graph_path = git_fixture / ".hobbes" / "derived" / "graph.json"
+        graph = json.loads(graph_path.read_text())
+        graph["lane_agreement"]["module_edges_lane_b_only"].append(
+            {"from": "miniapp.cli", "to": "miniapp.core"}
+        )
+        graph_path.write_text(json.dumps(graph))
+        capsys.readouterr()
+
+        assert cli.main(["lanes", "--repo", str(git_fixture)]) == 0
+        assert "lane B only: miniapp.cli -> miniapp.core" in capsys.readouterr().out
+
+    def test_a_graph_without_the_report_says_so(self, git_fixture, capsys):
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        graph_path = git_fixture / ".hobbes" / "derived" / "graph.json"
+        graph = json.loads(graph_path.read_text())
+        del graph["lane_agreement"]
+        graph_path.write_text(json.dumps(graph))
+        capsys.readouterr()
+
+        assert cli.main(["lanes", "--repo", str(git_fixture)]) == 2
+        assert "re-run `hobbes ingest`" in capsys.readouterr().err
+
+
 class TestDiff:
     @pytest.fixture
     def two_commit_fixture(self, git_fixture):

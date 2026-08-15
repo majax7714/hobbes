@@ -170,3 +170,73 @@ class TestCoverage:
 
     def test_a_file_with_no_calls_reports_nothing_rather_than_zero_percent(self):
         assert ev.coverage([], []) == []
+
+
+class TestLaneAgreement:
+    """§3.4's self-test, in ADR-029's sharper form.
+
+    Not "do the two edge sets match" but "given the same site, do the two
+    providers point at the same definition". Only sites *both* lanes
+    resolved are compared — a site one lane alone could answer is the
+    division of labour working, and counting it would bury the real
+    signal under hundreds of expected differences.
+    """
+
+    def test_agreeing_sites_are_compared_and_produce_nothing(self):
+        compared, bad = ev.agreement(
+            [call("a.py", 1, "run")],
+            [resolution("a.py", 1, "run", "b.py", 10)],
+            {("a.py", 1, "run"): ("b.py", 10)},
+        )
+        assert compared == 1
+        assert bad == []
+
+    def test_a_site_the_lanes_resolve_differently_is_reported(self):
+        compared, (row,) = ev.agreement(
+            [call("a.py", 1, "run")],
+            [resolution("a.py", 1, "run", "real.py", 3)],
+            {("a.py", 1, "run"): ("guess.py", 7)},
+        )
+        assert compared == 1
+        assert (row.file, row.line, row.name) == ("a.py", 1, "run")
+        assert (row.syntactic_file, row.syntactic_line) == ("guess.py", 7)
+        assert (row.semantic_file, row.semantic_line) == ("real.py", 3)
+
+    def test_a_site_only_the_semantic_lane_resolved_is_not_a_disagreement(self):
+        compared, bad = ev.agreement(
+            [call("a.py", 1, "run")],
+            [resolution("a.py", 1, "run", "b.py", 10)],
+            {},
+        )
+        assert (compared, bad) == (0, [])
+
+    def test_a_site_only_the_syntax_lane_resolved_is_not_a_disagreement(self):
+        compared, bad = ev.agreement(
+            [call("a.py", 1, "run")], [], {("a.py", 1, "run"): ("b.py", 10)}
+        )
+        assert (compared, bad) == (0, [])
+
+    def test_imports_are_not_compared_here(self):
+        # Import sites are compared at the module-edge level, where lane
+        # A's ext:/env: reach makes a set comparison meaningful.
+        compared, bad = ev.agreement(
+            [imported("a.py", 1, "os")],
+            [resolution("a.py", 1, "os", "b.py", 1)],
+            {("a.py", 1, "os"): ("c.py", 2)},
+        )
+        assert (compared, bad) == (0, [])
+
+    def test_disagreements_are_ordered_for_a_stable_report(self):
+        sites = [call("b.py", 5, "z"), call("a.py", 9, "y"), call("a.py", 2, "x")]
+        semantic = [
+            resolution("b.py", 5, "z", "r.py", 1),
+            resolution("a.py", 9, "y", "r.py", 2),
+            resolution("a.py", 2, "x", "r.py", 3),
+        ]
+        fallback = {
+            ("b.py", 5, "z"): ("g.py", 1),
+            ("a.py", 9, "y"): ("g.py", 2),
+            ("a.py", 2, "x"): ("g.py", 3),
+        }
+        _, bad = ev.agreement(sites, semantic, fallback)
+        assert [(d.file, d.line) for d in bad] == [("a.py", 2), ("a.py", 9), ("b.py", 5)]

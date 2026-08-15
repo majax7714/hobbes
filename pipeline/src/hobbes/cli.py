@@ -202,6 +202,69 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 1 if has_changes(delta) else 0
 
 
+def _cmd_lanes(args: argparse.Namespace) -> int:
+    """Report where the two extraction lanes disagree (§3.4)."""
+    from hobbes.artifacts import ArtifactError, load_graph
+
+    repo_root = _repo_root_from(args)
+    try:
+        graph = load_graph(repo_root)
+    except ArtifactError as exc:
+        print(f"hobbes lanes: {exc}", file=sys.stderr)
+        return 2
+
+    report = graph.get("lane_agreement")
+    if report is None:
+        print(
+            "hobbes lanes: this graph predates the lane-agreement report — "
+            "re-run `hobbes ingest`",
+            file=sys.stderr,
+        )
+        return 2
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 1 if _has_disagreement(report) else 0
+
+    sites = report["sites_compared"]
+    site_bad = report["site_disagreements"]
+    print(f"lane agreement @ {graph['sha'][:12]}")
+    print(
+        f"  call sites both lanes resolved: {sites}"
+        f" — {len(site_bad)} disagree"
+    )
+    for row in site_bad[:20]:
+        print(f"    {row['file']}:{row['line']} {row['name']}()")
+        print(f"      syntactic -> {row['syntactic']}")
+        print(f"      semantic  -> {row['semantic']}")
+    if len(site_bad) > 20:
+        print(f"    ... and {len(site_bad) - 20} more")
+
+    only_a = report["module_edges_lane_a_only"]
+    only_b = report["module_edges_lane_b_only"]
+    print(
+        f"  module edges compared: {report['module_edges_compared']}"
+        f" — {len(only_a)} lane A only, {len(only_b)} lane B only"
+    )
+    for row in only_a[:10]:
+        print(f"    lane A only: {row['from']} -> {row['to']}")
+    for row in only_b[:10]:
+        print(f"    lane B only: {row['from']} -> {row['to']}")
+    if not _has_disagreement(report):
+        print("  the lanes agree wherever both can answer")
+    return 1 if _has_disagreement(report) else 0
+
+
+def _has_disagreement(report: dict) -> bool:
+    """Whether the report contains anything a human must look at.
+
+    Site disagreements only. A module edge one lane alone produced is
+    usually the division of labour working — lane B follows a re-export
+    to the real definition where lane A stops at the package (ADR-027) —
+    so it is reported and does not fail the check.
+    """
+    return bool(report["site_disagreements"])
+
+
 def _cmd_narrate(args: argparse.Namespace) -> int:
     """Run the cartographer narrative pass (ADR-019/020). Spends quota."""
     from hobbes.extract.emit import StampError
@@ -610,6 +673,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--repo", help="repo root (default: auto-detected via .git)"
     )
 
+    lanes_parser = sub.add_parser(
+        "lanes",
+        help="where the two extraction lanes disagree",
+        description=(
+            "Architecture v2 §3.4's self-test. Wherever both the syntax "
+            "lane and the semantic lane resolved the same call site, they "
+            "must point at the same definition; a disagreement is an "
+            "extractor bug in one of them. Exit 1 when any site disagrees, "
+            "so this runs as a CI check as well as a command."
+        ),
+    )
+    lanes_parser.add_argument(
+        "--json", action="store_true", help="emit the full report as JSON"
+    )
+    lanes_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+
     narrate_parser = sub.add_parser(
         "narrate",
         help="cartographer narrative pass — module docs, test behaviors, "
@@ -796,6 +877,7 @@ def main(argv: list[str] | None = None) -> int:
         "ingest": _cmd_ingest,
         "render": _cmd_render,
         "diff": _cmd_diff,
+        "lanes": _cmd_lanes,
         "narrate": _cmd_narrate,
         "docs": _cmd_docs_status,
         "invariants": _cmd_invariants,

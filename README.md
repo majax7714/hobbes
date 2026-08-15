@@ -1,9 +1,14 @@
 # Hobbes
 
-**Hobbes** (after Calvin and Hobbes) is an agentic development environment: it
+**Hobbes** (based on hobbes the hilarious tiger) is an agentic development environment: it
 ingests a repo and produces a policy-governed environment where agents do the
 line-level work and humans review at the concept level — docs, test behavior,
 and architecture, not diffs.
+
+The comic is a wonderful masterpiece i recommend everyone take a read once, anyone is allowed to use hobbes
+though my only request is please keep some reference to the funny tiger in your uses of hobbes.
+
+
 
 The design lives in two documents, which are the source of truth:
 

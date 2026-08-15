@@ -190,6 +190,69 @@ def join(
 
 
 @dataclass(frozen=True)
+class Disagreement:
+    """One call site the two lanes resolved to different places."""
+
+    file: str
+    line: int
+    name: str
+    syntactic_file: str
+    syntactic_line: int
+    semantic_file: str
+    semantic_line: int
+
+
+def agreement(
+    syntax: list[Site],
+    semantic: list[Site],
+    fallback: dict[tuple[str, int, str], tuple[str, int]],
+) -> tuple[int, list[Disagreement]]:
+    """Compare the two lanes wherever *both* resolved the same call site.
+
+    Architecture v2 §3.4's self-test, in the sharper form ADR-029 made
+    possible: not "do the two edge sets match" but "given the same site,
+    do the two providers point at the same definition". A post-hoc set
+    comparison cannot ask that — it has already lost which site produced
+    which edge.
+
+    Returns ``(sites compared, disagreements)``. Sites only one lane
+    resolved are not disagreements: that is the division of labour working
+    (lane B resolves what lane A cannot, and the fallback covers the
+    reverse), and counting it would drown the real signal.
+
+    A disagreement is an extractor bug in one lane or the other. It is
+    free to detect and it is the only check in the system that can catch a
+    resolver being confidently wrong rather than merely silent.
+    """
+    buckets = index_resolutions(semantic)
+    compared = 0
+    out: list[Disagreement] = []
+    for site in syntax:
+        if site.kind != CALL_SITE:
+            continue
+        guess = fallback.get((site.file, site.line, site.name))
+        if guess is None:
+            continue
+        hit = match_resolution(site, buckets)
+        if hit is None:
+            continue
+        compared += 1
+        if (hit.def_file, hit.def_line) != guess:
+            out.append(
+                Disagreement(
+                    file=site.file,
+                    line=site.line,
+                    name=site.name,
+                    syntactic_file=guess[0],
+                    syntactic_line=guess[1],
+                    semantic_file=hit.def_file,
+                    semantic_line=hit.def_line,
+                )
+            )
+    return compared, sorted(out, key=lambda d: (d.file, d.line, d.name))
+
+
+@dataclass(frozen=True)
 class Coverage:
     """How much of a file's syntax the semantic provider could account for.
 

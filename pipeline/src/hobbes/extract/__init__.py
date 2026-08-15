@@ -177,6 +177,9 @@ def _build_symbol_layer(
 
     resolved = ev.join(syntax, resolutions, fallback=fallback)
     projected = scipsource.project(resolved, graph["nodes"], graph["symbols"])
+    graph["lane_agreement"] = _lane_agreement(
+        syntax, resolutions, fallback, graph["module_edges"], projected["module_edges"]
+    )
     graph["symbol_edges"] = projected["symbol_edges"]
     graph["module_edges"] = _merge_module_edges(
         graph["module_edges"], projected["module_edges"]
@@ -192,6 +195,59 @@ def _build_symbol_layer(
         for row in ev.coverage(syntax, resolutions, external)
     ]
     return degraded
+
+
+#: Node id prefixes only lane A can produce — third-party packages,
+#: environment variables, and the Terraform layer. Lane B never sees them,
+#: so their absence from its edge set is not a disagreement.
+_LANE_A_ONLY = ("ext:", "env:", "tf:")
+
+
+def _lane_agreement(
+    syntax, resolutions, fallback, lane_a_edges, lane_b_edges
+) -> dict:
+    """The §3.4 self-test: where both lanes can answer, they must agree.
+
+    Two comparisons, because the lanes overlap in two places. Call sites
+    both resolved (the sharp one, ADR-029) and module-level import edges
+    both could produce. Only edges between two repo modules are compared —
+    ``ext:``/``env:``/``tf:`` nodes are lane A's alone, and counting them
+    would report hundreds of false disagreements and bury the real ones.
+    """
+    compared, disagreements = ev.agreement(syntax, resolutions, fallback)
+
+    def repo_imports(edges):
+        return {
+            (e["from"], e["to"])
+            for e in edges
+            if e["type"] == "imports"
+            and not e["from"].startswith(_LANE_A_ONLY)
+            and not e["to"].startswith(_LANE_A_ONLY)
+        }
+
+    a, b = repo_imports(lane_a_edges), repo_imports(lane_b_edges)
+    return {
+        "sites_compared": compared,
+        "site_disagreements": [
+            {
+                "file": d.file,
+                "line": d.line,
+                "name": d.name,
+                "syntactic": f"{d.syntactic_file}:{d.syntactic_line}",
+                "semantic": f"{d.semantic_file}:{d.semantic_line}",
+            }
+            for d in disagreements
+        ],
+        # Only meaningful when lane B ran at all; an empty lane B would
+        # otherwise report every module edge as "lane A only".
+        "module_edges_compared": len(a | b) if b else 0,
+        "module_edges_lane_a_only": (
+            [{"from": f, "to": t} for f, t in sorted(a - b)] if b else []
+        ),
+        "module_edges_lane_b_only": [
+            {"from": f, "to": t} for f, t in sorted(b - a)
+        ],
+    }
 
 
 def _lane_b_facts(repo_root: Path, modules, ts: dict | None, degraded: list[dict]):
