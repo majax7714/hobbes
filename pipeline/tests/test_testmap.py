@@ -95,3 +95,56 @@ class TestCollectionRules:
         modules = discover_modules(tmp_path)
         parsed = {m.id: parse_source((tmp_path / m.path).read_bytes()) for m in modules}
         assert collect_tests(modules, parsed, []) == []
+
+
+class TestReachFollowsCallsOnly:
+    """`uses` edges must not widen reach (ADR-029, V2.M3).
+
+    Lane B emits a `uses` edge for a resolution no call site claimed — a
+    type annotation, an `except` clause, a value passed by name. They are
+    true, and following them would let a test claim it guards code it only
+    names. Reach is the basis of "which tests guard this", so it is the one
+    number that must never inflate.
+    """
+
+    @staticmethod
+    def _fixture(tmp_path):
+        (tmp_path / "lib.py").write_text(
+            "class Widget:\n    pass\n\n\ndef build():\n    return 1\n"
+        )
+        (tmp_path / "test_x.py").write_text(
+            "from lib import Widget, build\n\n\n"
+            "def test_one():\n"
+            "    w: Widget = None\n"
+            "    return build()\n"
+        )
+        modules = discover_modules(tmp_path)
+        parsed = {
+            m.id: parse_source((tmp_path / m.path).read_bytes()) for m in modules
+        }
+        return modules, parsed
+
+    def test_uses_edge_is_not_reach(self, tmp_path):
+        modules, parsed = self._fixture(tmp_path)
+        edges = [
+            {"from": "test_x.test_one", "to": "lib.build", "type": "calls",
+             "tier": "semantic", "evidence": []},
+            {"from": "test_x.test_one", "to": "lib.Widget", "type": "uses",
+             "tier": "semantic", "evidence": []},
+        ]
+        (record,) = collect_tests(modules, parsed, edges)
+        assert record["reaches"] == ["lib.build"]
+        assert record["reaches_modules"] == ["lib"]
+
+    def test_uses_edge_does_not_extend_the_closure(self, tmp_path):
+        """A `uses` edge must not act as a bridge into further code."""
+        modules, parsed = self._fixture(tmp_path)
+        edges = [
+            {"from": "test_x.test_one", "to": "lib.Widget", "type": "uses",
+             "tier": "semantic", "evidence": []},
+            # Reachable only *through* the uses edge above.
+            {"from": "lib.Widget", "to": "lib.build", "type": "calls",
+             "tier": "semantic", "evidence": []},
+        ]
+        (record,) = collect_tests(modules, parsed, edges)
+        assert record["reaches"] == []

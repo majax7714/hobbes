@@ -47,10 +47,16 @@ func fixtureRepo(t *testing.T) string {
 		"symbols": []map[string]any{
 			{"id": "app.core.run", "module": "app.core", "kind": "function", "line": 5},
 			{"id": "app.api.handler", "module": "app.api", "kind": "function", "line": 7},
+			{"id": "app.api.Config", "module": "app.api", "kind": "class", "line": 12},
 		},
 		"symbol_edges": []map[string]any{
 			{"from": "app.api.handler", "to": "app.core.run", "type": "calls", "tier": "syntactic",
 				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 9, "lane": "tree-sitter"}}},
+			// A resolution no call site claimed (ADR-029): names the symbol,
+			// does not call it. V2.M2 introduced the type; V2.M3 stopped
+			// consumers counting it as a call.
+			{"from": "app.api.Config", "to": "app.core.run", "type": "uses", "tier": "semantic",
+				"evidence": []map[string]any{{"path": "src/app/api.py", "line": 14, "lane": "scip"}}},
 		},
 	}
 	tests := map[string]any{
@@ -122,6 +128,46 @@ func TestWhoCallsWithEvidence(t *testing.T) {
 	}
 	if !strings.Contains(out, "app.api.handler") || !strings.Contains(out, "[src/app/api.py:9]") {
 		t.Errorf("caller with provenance missing:\n%s", out)
+	}
+}
+
+// who_calls must answer who *calls*, not who names. Since V2.M2 the symbol
+// layer carries `uses` edges too (ADR-029), and nothing filtered on type —
+// so type annotations and except clauses read as callers, which is the
+// exact failure ADR-029 was written to prevent, arriving by another route.
+func TestWhoCallsSeparatesUsesFromCalls(t *testing.T) {
+	s := Open(fixtureRepo(t))
+	out, err := s.WhoCalls("app.core.run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callers, _, found := strings.Cut(out, "references app.core.run without calling it")
+	if !found {
+		t.Fatalf("uses edges not reported under their own heading:\n%s", out)
+	}
+	if strings.Contains(callers, "app.api.Config") {
+		t.Errorf("a `uses` edge is being counted as a caller:\n%s", out)
+	}
+	if !strings.Contains(callers, "app.api.handler") {
+		t.Errorf("the real caller is missing:\n%s", out)
+	}
+	// Dropping the uses edge would be its own dishonesty (P8) — it is true,
+	// just not a call.
+	if !strings.Contains(out, "app.api.Config") {
+		t.Errorf("the `uses` edge was discarded rather than relabelled:\n%s", out)
+	}
+}
+
+// Tier is the graph's trust signal (§3.4); a syntactic call edge is lane
+// A's own resolution and can be wrong (C-7), so an agent must see that.
+func TestWhoCallsMarksApproximateEdges(t *testing.T) {
+	s := Open(fixtureRepo(t))
+	out, err := s.WhoCalls("app.core.run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "syntactic") {
+		t.Errorf("a syntactic-tier caller is presented as proven:\n%s", out)
 	}
 }
 

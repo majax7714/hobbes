@@ -43,7 +43,20 @@ type edge struct {
 	From     string     `json:"from"`
 	To       string     `json:"to"`
 	Type     string     `json:"type"`
+	Tier     string     `json:"tier"`
 	Evidence []evidence `json:"evidence"`
+}
+
+// qualify marks an edge the reader should trust less. Tier is the graph's
+// trust signal (architecture v2 §3.4): a `syntactic` edge is lane A's own
+// resolution, kept because the semantic provider could not resolve the
+// site and labelled because it can be wrong. An empty tier is a pre-v4
+// artifact, which is not a guess and must not be styled as one.
+func (e edge) qualify() string {
+	if e.Tier == "syntactic" {
+		return "  (syntactic — approximate)"
+	}
+	return ""
 }
 
 func (e edge) cite() string {
@@ -211,7 +224,20 @@ func (s *Store) Neighborhood(nodeID string) (string, error) {
 }
 
 // WhoCalls answers who_calls(symbol): every call edge into the symbol,
-// with provenance.
+// with provenance and tier.
+//
+// Filtered to type "calls" deliberately. Since V2.M2 the symbol layer also
+// carries `uses` edges — a resolution no call site claimed: a type
+// annotation, an `except` clause, a value passed by name (ADR-029). Those
+// are true and useful and they are emphatically not calls, so counting
+// them here would make a tool named who_calls answer who_references, which
+// is the precise failure ADR-029 was written to avoid. It arrived anyway,
+// through the new edge type rather than through a stripped lane, because
+// no consumer filtered on type.
+//
+// They are reported under their own heading rather than dropped: an agent
+// asking who calls this usually also wants to know who else names it, and
+// silently discarding a true edge is its own kind of dishonesty (P8).
 func (s *Store) WhoCalls(symbolID string) (string, error) {
 	var g graphDoc
 	if err := s.loadInto("graph.json", &g); err != nil {
@@ -220,17 +246,32 @@ func (s *Store) WhoCalls(symbolID string) (string, error) {
 	var b strings.Builder
 	b.WriteString(s.header(g.SHA, g.Dirty))
 
-	callers := 0
+	callers, users := 0, 0
+	var uses strings.Builder
 	for _, e := range g.SymbolEdges {
-		if e.To == symbolID {
+		if e.To != symbolID {
+			continue
+		}
+		switch e.Type {
+		case "calls":
 			if callers == 0 {
 				b.WriteString(fmt.Sprintf("callers of %s:\n", symbolID))
 			}
 			callers++
-			b.WriteString(fmt.Sprintf("  %s%s\n", e.From, e.cite()))
+			b.WriteString(fmt.Sprintf("  %s%s%s\n", e.From, e.cite(), e.qualify()))
+		case "uses":
+			users++
+			uses.WriteString(fmt.Sprintf("  %s%s\n", e.From, e.cite()))
 		}
 	}
-	if callers > 0 {
+	if users > 0 {
+		if callers == 0 {
+			b.WriteString(fmt.Sprintf("no callers of %s\n", symbolID))
+		}
+		b.WriteString(fmt.Sprintf("references %s without calling it (type annotations, except clauses, values passed by name):\n", symbolID))
+		b.WriteString(uses.String())
+	}
+	if callers > 0 || users > 0 {
 		return b.String(), nil
 	}
 

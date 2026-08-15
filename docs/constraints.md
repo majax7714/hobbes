@@ -142,7 +142,10 @@ information appears in both, and the entries cross-reference.
   variable named `write` bound to a module-level function.
 - **Bites at:** any consumer that treats all call edges as equally true.
 - **You find out:** **surfaced** — `tier: syntactic` on the edge, drawn
-  thinner, dimmer and dashed in the graph (ADR-023 styling, M2).
+  thinner, dimmer and dashed in the graph (ADR-023 styling, M2), and
+  marked `(syntactic — approximate)` per caller in `who_calls`, so an
+  agent reading the tool output sees it too and not only a human reading
+  the graph (V2.M3).
 - **Source:** ADR-029.
 
 ### C-8 — With no working indexer, the entire symbol layer is approximate

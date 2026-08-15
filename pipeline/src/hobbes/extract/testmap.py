@@ -53,6 +53,15 @@ def collect_tests(
 
     adjacency = defaultdict(set)
     for edge in symbol_edges:
+        # `calls` only. Since V2.M2 the symbol layer also carries `uses`
+        # edges — a resolution no call site claimed: a type annotation, an
+        # `except` clause, a value passed by name (ADR-029). Following them
+        # would widen reach to code a test merely *names*, and reach is the
+        # basis of "which tests guard this" — a claim that must not inflate.
+        # ADR-007 defines reaches as the closure over call edges; this
+        # keeps that contract now that it is no longer the only edge type.
+        if edge["type"] != "calls":
+            continue
         adjacency[edge["from"]].add(edge["to"])
     test_symbol_ids = {sid for sid, _ in inventory}
     symbol_module = _symbol_module_map(modules, parsed)
