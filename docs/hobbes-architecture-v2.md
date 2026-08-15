@@ -275,13 +275,20 @@ lane-A guesses; spot-check 20 semantic edges — the bar is now correctness of
 the join, target ≥95%.* Surface `tier` in the UI here, so the first
 human-visible v2 improvement does not wait for M6.
 
-### V2.M3 — Lane A refactor + self-test (2–3)
-Strip symbol resolution from the v1 extractors; lane A keeps structure, routes,
-tests. **Test reach moves to lane B in this milestone** — `collect_tests`
-consumes lane A's symbol edges today, so stripping them regresses `tests.json`
-otherwise. Implement the lane-agreement report as a CI check *and* a command.
-*Exit: disagreement report runs clean on the dogfood repos or every
-disagreement is an explained, filed bug.*
+### V2.M3 — Lane A refactor + self-test, and M2's TS half (4–5)
+Strip symbol *resolution* from the v1 extractors — lane A keeps structure,
+routes, tests, and call-site **detection** (ADR-029). **Test reach moves to
+lane B in this milestone** — `collect_tests` consumes lane A's symbol edges
+today, so stripping them regresses `tests.json` otherwise. Implement the
+lane-agreement report as a CI check *and* a command.
+
+**Carries M2's asterisk:** `scip-typescript` was in M2's scope and was not
+wired, so it lands here, where `tssource.py` is already being opened to strip
+its symbol layer. The gap is the TS syntax provider — `tsextract` must emit
+call sites with line, column and terminal name into the evidence IR, as
+`pysource` now does. *Exit: disagreement report runs clean on the dogfood
+repos or every disagreement is an explained, filed bug — **and kbet produces
+hand-verified semantic edges, which discharges the M2 asterisk.***
 
 ### V2.M4 — Enrichment packs (3–4)
 Pack interface + registry in `hobbes.yaml` (**own ADR first** — a repo-level

@@ -4,9 +4,16 @@
 against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
-**Progress: V2.M0 (ADR-027), V2.M1 (ADR-028) done. V2.M2 done for Python
-(ADR-029); TypeScript lane B is the one piece of M2 not built.** Next is
-either M2's TS half or V2.M3.
+**Progress: V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done.**
+Next is **V2.M3**.
+
+**\* The M2 asterisk, and how it closes.** `scip-typescript` was in M2's
+scope and is not wired, so M2 exits marked rather than clean. Max's call
+(2026-08-15): fold the TS lane into **M3**, which already touches
+`tssource.py` to strip its symbol layer — doing both in one pass beats
+opening the same file twice. The asterisk is discharged when M3's exit is
+met; until then M2 is **M2\***, and a TS repo ingests entirely at
+syntactic tier.
 
 This elaborates §7 into file-level work with exit criteria. Where it
 **deviates** from §7 it says so and gives the reason; those deviations are
@@ -133,7 +140,7 @@ per consumer proving the refusal.
 
 ---
 
-## V2.M2 — Lane B: SCIP integration (4–5) — **DONE for Python**
+## V2.M2\* — Lane B: SCIP integration (4–5) — **DONE for Python**
 
 **Outcome: ADR-029.** Wired end to end for Python: staging, the helper, the
 evidence IR, the range join, projection, resolution coverage, and tier in
@@ -141,13 +148,16 @@ the UI. Exit bar met — **20/20 sampled semantic call edges verified by hand
 against their cited source lines (100%, bar was ≥95%)**, and SELENEX and
 kbet both ingest without regression.
 
-**Not built: `scip-typescript`.** §7 lists both indexers for M2 and only
-Python is wired, so this milestone is honestly two-thirds done. The helper
-already drives `scip-typescript`; what is missing is the TS *syntax*
-provider — `tsextract` would have to emit call sites with line, column and
-name into the evidence IR, the way `pysource` now does. kbet therefore
-ingests entirely at syntactic tier, correctly and without error, but with
-no semantic edges at all.
+**Not built: `scip-typescript` — the asterisk.** §7 lists both indexers for
+M2 and only Python is wired. The helper already drives `scip-typescript`;
+what is missing is the TS *syntax* provider — `tsextract` would have to
+emit call sites with line, column and name into the evidence IR, the way
+`pysource` now does. kbet therefore ingests entirely at syntactic tier,
+correctly and without error, but with no semantic edges at all.
+
+**Carried into M3** (Max, 2026-08-15) because M3 already opens
+`tssource.py` to strip its symbol layer; wiring the TS lane in the same
+pass avoids editing that file twice for opposite reasons.
 
 
 **Hard requirement before anything else in this milestone:** the staging
@@ -180,9 +190,22 @@ human-visible v2 improvement at M2 instead of M6. See §"Visible value".
 
 ---
 
-## V2.M3 — Lane A refactor + self-test (2–3)
+## V2.M3 — Lane A refactor + self-test, and M2's TS half (4–5)
+
+**Carries M2's asterisk.** Estimate raised from 2–3 to 4–5: the TS lane
+came with it. M3's exit is what discharges the asterisk, so this milestone
+does not pass until a TS repo produces semantic edges.
 
 Work:
+
+- **Wire `scip-typescript` (from M2\*).** The helper already drives it and
+  the staging contract already covers it; the gap is the TS *syntax*
+  provider. `tsextract/extract.mjs` must emit call sites with line, column
+  and terminal name — `pysource` gained exactly this in ADR-029, and the
+  ts-morph walk records no columns today. Then `tssource` feeds the
+  evidence IR the way `scipsource` does. **Exit for this piece: kbet
+  produces semantic call edges, hand-verified at the same ≥95% bar Python
+  met at 20/20.**
 
 - **Delete call resolution from `extract/graph.py`** — `_resolve_call`,
   `_SymbolTable`, and the symbol-edge production, i.e. ADR-007 rules 1–4:
@@ -203,7 +226,8 @@ Work:
   the same module-level edge they must agree.
 
 **Exit:** the disagreement report runs clean on the dogfood repos, or every
-disagreement is an explained, filed bug.
+disagreement is an explained, filed bug — **and kbet produces semantic
+edges, which discharges the M2 asterisk.**
 
 ---
 

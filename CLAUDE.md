@@ -164,8 +164,8 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 **Active: the v2 extraction architecture.** Source of truth is
 `docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028) done. V2.M2 done for Python (ADR-029);
-its TypeScript half is not built.**
+deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done. V2.M3 is
+next.**
 
 Artifacts are at **schema v4** (ADR-028): every edge carries a `tier`
 (`semantic`|`syntactic`|`dynamic`) and every evidence entry a `lane`.
@@ -188,9 +188,13 @@ Lane B never writes to the target repo: it stages a copy under
 `HOBBES_SCIP=0` disables it, and the pytest suite sets that by default —
 tests marked `lane_b` opt in.
 
-**Remaining in M2: `scip-typescript`.** The helper already drives it; the
-gap is that `tsextract` does not yet emit call sites into the evidence IR,
-so a TS repo ingests entirely at syntactic tier.
+**M2 exits with an asterisk (Max, 2026-08-15).** `scip-typescript` was in
+M2's scope and is not wired, so a TS repo ingests entirely at syntactic
+tier. The work folded into **M3**, which already opens `tssource.py` to
+strip its symbol layer — the gap is the TS syntax provider: `tsextract`
+must emit call sites with line, column and terminal name into the evidence
+IR, as `pysource` now does. **M3's exit discharges the asterisk**, so M3
+does not pass until kbet produces hand-verified semantic edges.
 
 Three things ADR-027 settled that any v2 session needs to know:
 `--project-version` is always pinned (its default is the git revision,

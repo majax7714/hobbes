@@ -1421,3 +1421,35 @@ and CLAUDE.md rather than quietly dropped.
 
 405 pytest / 52 vitest / 18 node (tsextract) / 10 node (scip) / 12 Go
 packages. gofmt and go vet clean.
+
+## 2026-08-15 — V2.M2* closed; the TS lane folds into M3
+
+Max's call on yesterday's asterisk: **fold `scip-typescript` into M3 and
+exit M2 marked rather than clean.**
+
+The reasoning holds up — M3 already opens `tssource.py` to strip its
+symbol layer, so wiring the TS lane in the same pass avoids editing that
+file twice for opposite reasons. Doing it as a trailing M2 chunk would
+have meant deleting the ts-morph call resolution in M3 immediately after
+teaching it to emit call sites.
+
+**M2 is now M2\*, and the asterisk is tracked rather than forgiven:**
+
+- it is written into the plan, §7, and CLAUDE.md as a marked exit, not a
+  clean one;
+- **M3's exit criteria now include discharging it** — the disagreement
+  report running clean is no longer sufficient on its own, kbet must also
+  produce hand-verified semantic edges at the same ≥95% bar Python met at
+  20/20;
+- M3's estimate rises 2–3 → **4–5 evenings** to carry the work, so the
+  cost moved with the scope rather than disappearing.
+
+**What M3 now is:** strip lane A's symbol *resolution* while keeping its
+call-site *detection* (ADR-029); move test reach onto lane B's edges; wire
+`scip-typescript` behind a TS syntax provider — `tsextract/extract.mjs`
+records no columns today and will need them, exactly as `pysource` did;
+and ship the lane-agreement report as both a CI check and a command.
+
+Nothing built this session. Tree clean, all suites green as of `a665363`:
+405 pytest / 52 vitest / 18 node (tsextract) / 10 node (scip) / 12 Go
+packages.
