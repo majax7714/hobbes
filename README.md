@@ -179,4 +179,4 @@ fast, which also means the degraded path is exercised on every run.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Keep a reference to the tiger.
+MIT — see [`LICENSE`](LICENSE). Keep a reference to the beloved goat HOBBES!!.
