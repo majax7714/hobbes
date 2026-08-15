@@ -78,7 +78,7 @@ resolved it. That edge has no lane; it has two providers.
 |---|---|---|---|
 | a call | yes | `calls` edge to the resolved target | `semantic` |
 | a call | no | `calls` edge, lane A's own resolution or dropped | `syntactic` |
-| — | a reference | `references` edge | `semantic` |
+| — | a reference | `uses` edge | `semantic` |
 | an import statement | yes | `imports` edge | `semantic` |
 | an import statement | no | `imports` edge, lane A's resolution | `syntactic` |
 
@@ -88,9 +88,13 @@ descriptor of its moniker must match the callee's last segment. Line alone
 is ambiguous when a line holds several references, which is why the
 evidence IR carries columns that the first cut discarded.
 
-`references` survives as its own edge type rather than being folded into
-`calls`. It is a true and useful statement — it is what an
-architectural-dependency question wants — and it is not a call.
+A resolution no call site claimed becomes a **`uses`** edge rather than
+being folded into `calls`. It is a true and useful statement — it is what
+an architectural-dependency question wants — and it is not a call. The name
+is `uses` and not `references` because ADR-010's Terraform layer already
+spends `references` on traversal chains between `tf:` nodes; the collision
+was caught by a tier histogram showing two `references/syntactic` edges
+that lane B could not have produced.
 
 ### What this costs
 

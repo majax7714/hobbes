@@ -111,11 +111,11 @@ class TestProjection:
 
     def test_references_stay_a_distinct_edge_type(self):
         out = scipsource.project(
-            [resolved("references", "src/app/api.py", 7, "src/app/core.py", 15,
+            [resolved("uses", "src/app/api.py", 7, "src/app/core.py", 15,
                       lanes=(ev.SCIP,))],
             NODES, SYMBOLS,
         )
-        assert out["symbol_edges"][0]["type"] == "references"
+        assert out["symbol_edges"][0]["type"] == "uses"
 
     def test_facts_of_different_tiers_do_not_collapse(self):
         # One proven, one guessed, same endpoints: two claims, not one.
@@ -150,3 +150,41 @@ class TestLaneBCanBeTurnedOff:
 
     def test_no_files_returns_none(self, tmp_path):
         assert scipsource.extract_scip(tmp_path, [], ["."], "x", "sha") is None
+
+
+class TestDeclaredDependencies:
+    """Decision 4's degradation check needs something to compare against.
+
+    Without these, an index that resolved nothing looks exactly like one
+    with nothing to resolve — the conflation that let SELENEX report 72.7%
+    coverage with no warning at all.
+    """
+
+    def _write(self, tmp_path, body):
+        (tmp_path / "pyproject.toml").write_text(body)
+        return tmp_path
+
+    def test_reads_project_dependencies(self, tmp_path):
+        repo = self._write(tmp_path, '[project]\ndependencies = ["pyyaml>=6", "httpx"]\n')
+        assert scipsource.declared_dependencies(repo) == ["httpx", "pyyaml"]
+
+    def test_includes_optional_groups(self, tmp_path):
+        repo = self._write(
+            tmp_path,
+            '[project]\ndependencies = ["a"]\n'
+            '[project.optional-dependencies]\ndev = ["pytest>=8"]\n',
+        )
+        assert scipsource.declared_dependencies(repo) == ["a", "pytest"]
+
+    def test_strips_extras_and_version_specifiers(self, tmp_path):
+        repo = self._write(
+            tmp_path, '[project]\ndependencies = ["uvicorn[standard]==0.30.0"]\n'
+        )
+        assert scipsource.declared_dependencies(repo) == ["uvicorn"]
+
+    def test_no_pyproject_is_not_an_error(self, tmp_path):
+        assert scipsource.declared_dependencies(tmp_path) == []
+
+    def test_malformed_pyproject_is_not_an_error(self, tmp_path):
+        repo = self._write(tmp_path, "this is not toml {{{")
+        assert scipsource.declared_dependencies(repo) == []

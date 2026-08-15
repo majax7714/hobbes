@@ -13,6 +13,20 @@ import subprocess
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _lane_a_only(monkeypatch, request):
+    """Run the extractor lane-A-only unless a test opts in.
+
+    Lane B shells out to a SCIP indexer, which makes the suite slow (48s
+    against 3.5s) and non-hermetic — it would need Node, `npm install` in
+    scip/, and a resolvable environment for the fixture repos. Tests that
+    want lane B mark themselves `@pytest.mark.lane_b`; the real thing is
+    covered by the M2 exit check on real repos.
+    """
+    if "lane_b" not in request.keywords:
+        monkeypatch.setenv("HOBBES_SCIP", "0")
+
 #: Contents of the `git_repo` fixture's single module (6 lines).
 GIT_REPO_APP = '''"""A tiny app module."""
 

@@ -164,13 +164,18 @@ def join(
     # Every resolution no syntax site claimed is a real use — a type
     # annotation, an `except` clause, a value passed by name. True, useful
     # for dependency questions, and emphatically not a call.
+    #
+    # Typed ``uses`` rather than ``references``: ADR-010's Terraform layer
+    # already spends that name on traversal chains between ``tf:`` nodes.
+    # Two meanings under one type is the kind of ambiguity that only hurts
+    # once a consumer filters on it.
     for (file, line), sites in sorted(buckets.items()):
         for hit in sites:
             if (hit.file, hit.line, hit.name) in claimed:
                 continue
             out.append(
                 Resolved(
-                    kind="references",
+                    kind="uses",
                     source_file=file,
                     line=line,
                     scope="",

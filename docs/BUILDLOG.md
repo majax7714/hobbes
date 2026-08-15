@@ -1363,3 +1363,61 @@ whose type Pyright cannot know at the call site. ADR-029 amended with all
 of it.
 
 400 pytest / 10 node.
+
+## 2026-08-14 (seventh) — V2.M2: lane B wired, exit met for Python
+
+Lane B now runs inside `hobbes ingest`. On the dogfood repo: **1192
+semantic calls, 130 syntactic**, 116 semantic imports, 392 `uses`, 86.9%
+resolution coverage, ingest 5.6s.
+
+The 130 syntactic calls are the design working — SCIP could not resolve
+them, lane A could, and they appear *labelled as guesses* rather than
+vanishing. That is the `fallback` arm of ADR-029's table.
+
+**A type-name collision, caught by a histogram.** The tier breakdown showed
+two `references/syntactic` edges, which lane B cannot produce — every
+`uses` fact it emits is semantic. They were Terraform's: ADR-010 already
+spends `references` on traversal chains between `tf:` nodes. Two meanings
+under one type name is exactly the ambiguity that bites once a consumer
+filters on it, so lane B's edge type became **`uses`** — the newcomer
+moves, since ADR-010's name is in shipped artifacts. Verified after: all
+`references` are Terraform, all `uses` are semantic.
+
+**A second gap, caught by SELENEX.** Its 72.7% coverage came with no
+warning, because Decision 4's degradation check was inert — the helper
+implements it, but nothing was ever passing the declared dependencies in.
+Now `declared_dependencies()` reads them from `pyproject.toml`, and a
+scratch repo declaring `httpx`/`pydantic` with no environment installed
+warns exactly as promised. Known limit: it reads the repo root's
+pyproject, so this repo's own deps (in `pipeline/`) are not seen.
+
+**Tests run lane-A-only by default.** An autouse fixture sets
+`HOBBES_SCIP=0`; the suite went 3.5s → 48s the moment lane B started
+shelling out to an indexer inside fixtures. Tests marked `lane_b` opt in.
+Hermetic, and the real path is covered by the exit check on real repos.
+
+**Tier in the UI:** syntactic edges draw thinner, dimmer and dashed;
+semantic thicker. An edge with *no* tier keeps the default weight rather
+than being demoted — a pre-v4 artifact is not a guess.
+
+### Exit check
+
+- **20/20 sampled semantic call edges verified by hand** against their
+  cited source lines — 100%, bar was ≥95%. Sample is reproducible
+  (`random.seed(20260814)`).
+- **SELENEX** ingests: 207 nodes, 1060 semantic calls, 408 semantic
+  imports, no degradation.
+- **kbet** ingests: 104 nodes, entirely syntactic, no errors — correct,
+  because it has no Python and TS lane B is not built.
+
+### What is not done
+
+**`scip-typescript` is not wired.** §7 lists both indexers for M2, so this
+milestone is two-thirds done and saying otherwise would be scope narrowing.
+The helper already drives scip-typescript; the gap is the TS *syntax*
+provider — `tsextract` would need to emit call sites with line, column and
+name into the evidence IR the way `pysource` now does. Recorded in the plan
+and CLAUDE.md rather than quietly dropped.
+
+405 pytest / 52 vitest / 18 node (tsextract) / 10 node (scip) / 12 Go
+packages. gofmt and go vet clean.

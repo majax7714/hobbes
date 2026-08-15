@@ -58,7 +58,7 @@ class TestTheTable:
         # annotations resolve, and are not calls.
         out = ev.join([], [resolution("a.py", 3, "StampError", "e.py", 9)])
         assert len(out) == 1
-        assert out[0].kind == "references"
+        assert out[0].kind == "uses"
         assert out[0].tier == SEMANTIC
         assert out[0].lanes == (ev.SCIP,)
 
@@ -79,7 +79,7 @@ class TestDisambiguation:
             [call("a.py", 10, "run")],
             [resolution("a.py", 10, "other", "b.py", 5)],
         )
-        assert [r.kind for r in out] == ["references"]
+        assert [r.kind for r in out] == ["uses"]
 
     def test_columns_break_ties_between_same_named_resolutions(self):
         # `run(run(x))` — two `run` occurrences on one line.
@@ -110,7 +110,7 @@ class TestDisambiguation:
             ],
         )
         kinds = sorted(r.kind for r in out)
-        assert kinds == ["calls", "references"]
+        assert kinds == ["calls", "uses"]
 
 
 class TestProviderSeparation:
@@ -129,7 +129,7 @@ class TestProviderSeparation:
         assert all(r.lanes for r in out)
         by_kind = {r.kind: r.lanes for r in out}
         assert by_kind["calls"] == (ev.TREE_SITTER, ev.SCIP)
-        assert by_kind["references"] == (ev.SCIP,)
+        assert by_kind["uses"] == (ev.SCIP,)
 
 
 class TestCoverage:

@@ -164,7 +164,8 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 **Active: the v2 extraction architecture.** Source of truth is
 `docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0 (ADR-027) and V2.M1 (ADR-028) are done; V2.M2 is next.**
+deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028) done. V2.M2 done for Python (ADR-029);
+its TypeScript half is not built.**
 
 Artifacts are at **schema v4** (ADR-028): every edge carries a `tier`
 (`semantic`|`syntactic`|`dynamic`) and every evidence entry a `lane`.
@@ -173,9 +174,23 @@ v4 is *additive* over v3, so consumers declare a version **range** —
 gates, and they refuse rather than half-read. Lane A emits everything as
 `syntactic`/`tree-sitter`; nothing claims `semantic` until lane B lands.
 
-V2.M2 = lane B (SCIP integration). **Its first requirement is ADR-027's
-seven-clause staging contract** — Hobbes never writes to the target repo.
-Do not start it until M1's exit is reviewed by Max.
+Lane B (ADR-029) runs for **Python only**. Two providers, never one:
+**tree-sitter knows a call site is a call**, **SCIP knows what it resolves
+to**, and they meet in the evidence IR (`extract/evidence.py`) before any
+graph exists. SCIP alone cannot answer "is this a call" — it populates
+`syntax_kind` for none of its occurrences — so lane A keeps call-site
+*detection* and loses only call *resolution*. A resolution no call site
+claimed becomes a `uses` edge (not `references`, which ADR-010's Terraform
+layer already owns).
+
+Lane B never writes to the target repo: it stages a copy under
+`~/.hobbes/cache` (`extract/staging.py`, ADR-027's seven-clause contract).
+`HOBBES_SCIP=0` disables it, and the pytest suite sets that by default —
+tests marked `lane_b` opt in.
+
+**Remaining in M2: `scip-typescript`.** The helper already drives it; the
+gap is that `tsextract` does not yet emit call sites into the evidence IR,
+so a TS repo ingests entirely at syntactic tier.
 
 Three things ADR-027 settled that any v2 session needs to know:
 `--project-version` is always pinned (its default is the git revision,

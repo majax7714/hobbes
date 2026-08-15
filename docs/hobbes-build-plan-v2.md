@@ -4,7 +4,9 @@
 against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
-**Progress: V2.M0 done (ADR-027), V2.M1 done (ADR-028).** Next is V2.M2.
+**Progress: V2.M0 (ADR-027), V2.M1 (ADR-028) done. V2.M2 done for Python
+(ADR-029); TypeScript lane B is the one piece of M2 not built.** Next is
+either M2's TS half or V2.M3.
 
 This elaborates §7 into file-level work with exit criteria. Where it
 **deviates** from §7 it says so and gives the reason; those deviations are
@@ -131,7 +133,22 @@ per consumer proving the refusal.
 
 ---
 
-## V2.M2 — Lane B: SCIP integration (4–5)
+## V2.M2 — Lane B: SCIP integration (4–5) — **DONE for Python**
+
+**Outcome: ADR-029.** Wired end to end for Python: staging, the helper, the
+evidence IR, the range join, projection, resolution coverage, and tier in
+the UI. Exit bar met — **20/20 sampled semantic call edges verified by hand
+against their cited source lines (100%, bar was ≥95%)**, and SELENEX and
+kbet both ingest without regression.
+
+**Not built: `scip-typescript`.** §7 lists both indexers for M2 and only
+Python is wired, so this milestone is honestly two-thirds done. The helper
+already drives `scip-typescript`; what is missing is the TS *syntax*
+provider — `tsextract` would have to emit call sites with line, column and
+name into the evidence IR, the way `pysource` now does. kbet therefore
+ingests entirely at syntactic tier, correctly and without error, but with
+no semantic edges at all.
+
 
 **Hard requirement before anything else in this milestone:** the staging
 and safety contract in ADR-027 ("Lane B never writes to the target repo").

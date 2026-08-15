@@ -294,6 +294,16 @@ function Canvas({
           selector: 'edge[type = "references"], edge[type = "packages"]',
           style: { 'line-style': 'dotted', 'line-color': '#6b5a8a', 'target-arrow-color': '#6b5a8a' },
         },
+        // Tier before type: a guessed dependency and a proven one must not
+        // look identical (§3.4). Syntactic edges are drawn thinner and
+        // dimmer — present and readable, visibly less certain. Edges with
+        // no tier are pre-v4 artifacts and keep the default weight rather
+        // than being demoted for a field they could not have carried.
+        {
+          selector: 'edge[tier = "syntactic"]',
+          style: { width: 0.6, opacity: 0.55, 'line-style': 'dashed' },
+        },
+        { selector: 'edge[tier = "semantic"]', style: { width: 1.4 } },
         { selector: 'edge[?faded]', style: { opacity: 0.06, 'text-opacity': 0 } },
       ],
     })

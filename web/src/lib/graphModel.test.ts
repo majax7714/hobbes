@@ -248,3 +248,42 @@ describe('nodeDetail', () => {
     expect(nodeDetail(graph, 'nope')).toBeNull()
   })
 })
+
+describe('edge tiers reach the renderer (ADR-028)', () => {
+  const filters: GraphFilters = {
+    kinds: new Set<NodeKind>(['module', 'package', 'external', 'env', 'resource']),
+    packages: null,
+    focus: null,
+    depth: 1,
+  }
+  const tiered = (tier?: string) =>
+    ({
+      ...graph,
+      module_edges: [
+        {
+          from: 'hobbes.cli',
+          to: 'hobbes.extract',
+          type: 'imports',
+          ...(tier ? { tier } : {}),
+        },
+      ],
+      symbol_edges: [],
+    }) as unknown as Graph
+
+  const edgeOf = (tier?: string) =>
+    buildElements(tiered(tier), filters).find((e) => 'source' in e.data)!
+
+  it('carries a semantic tier onto the element', () => {
+    expect((edgeOf('semantic').data as { tier?: string }).tier).toBe('semantic')
+  })
+
+  it('carries a syntactic tier onto the element', () => {
+    expect((edgeOf('syntactic').data as { tier?: string }).tier).toBe('syntactic')
+  })
+
+  it('leaves tier undefined on a pre-v4 artifact rather than guessing one', () => {
+    // A missing tier must not be styled as "guessed" — the artifact simply
+    // predates the field, and demoting it would misreport confidence.
+    expect((edgeOf(undefined).data as { tier?: string }).tier).toBeUndefined()
+  })
+})

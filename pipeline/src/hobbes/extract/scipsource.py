@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 from bisect import bisect_right
@@ -46,6 +47,39 @@ HELPER_VERSION = 1
 
 class ScipError(RuntimeError):
     """The indexer helper could not run, or answered something unusable."""
+
+
+def declared_dependencies(repo_root: Path) -> list[str]:
+    """Third-party packages the repo says it needs (pyproject.toml).
+
+    Fed to the helper so Decision 4's degradation check has something to
+    compare against: an index that resolved *none* of a repo's declared
+    dependencies is one whose environment is not installed, and its missing
+    third-party edges are absent rather than nonexistent. Without this the
+    check is inert — which it silently was until the SELENEX ingest.
+    """
+    pyproject = Path(repo_root) / "pyproject.toml"
+    if not pyproject.is_file():
+        return []
+    try:
+        import tomllib
+
+        data = tomllib.loads(pyproject.read_text())
+    except (OSError, ValueError):
+        return []
+    project = data.get("project") or {}
+    specs = list(project.get("dependencies") or [])
+    for extra in (project.get("optional-dependencies") or {}).values():
+        specs.extend(extra)
+    names = set()
+    for spec in specs:
+        if not isinstance(spec, str):
+            continue
+        # "pkg[extra]>=1.2,<2" -> "pkg"; the index reports bare names.
+        name = re.split(r"[<>=!~;\[ ]", spec.strip(), maxsplit=1)[0]
+        if name:
+            names.add(name)
+    return sorted(names)
 
 
 def enabled() -> bool:

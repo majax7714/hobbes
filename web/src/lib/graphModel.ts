@@ -7,7 +7,7 @@
  * component owns layout and interaction, this owns what is in the view.
  */
 
-import type { Graph, GraphEdge, GraphNode, NodeKind, Symbol } from '../types'
+import type { Graph, GraphEdge, GraphNode, NodeKind, Symbol, Tier } from '../types'
 
 /** The filter axes ADR-023 fixes: node kind, package, and focus. */
 export interface GraphFilters {
@@ -30,6 +30,8 @@ export interface CyEdge {
     target: string
     type: string
     label: string
+    /** v4 confidence (ADR-028). Absent on pre-lane-B artifacts. */
+    tier?: Tier
     faded?: boolean
   }
 }
@@ -210,6 +212,10 @@ export function buildElements(graph: Graph, filters: GraphFilters): CyElement[] 
         source: edge.from,
         target: edge.to,
         type: edge.type,
+        // Tier is what the reviewer needs to know before trusting a line:
+        // a proven dependency and a guessed one must not look identical
+        // (§3.4). Carried onto the element so styling is a selector.
+        tier: edge.tier,
         // `imports` is the overwhelming default; labelling it would
         // bury the edge types that actually carry information.
         label: edge.type === 'imports' ? '' : edge.type,

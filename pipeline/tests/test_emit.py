@@ -218,6 +218,9 @@ class TestLayerOwnership:
 class TestV4EdgeVocabularyIsUniform:
     """Every edge from every layer carries tier and lane (ADR-028).
 
+    Lane-A-only by the autouse fixture: this is about the *vocabulary*
+    every extractor must speak, not about what lane B upgrades.
+
     Asserted across a whole extraction rather than per-extractor: the
     failure this guards is one layer forgetting the vocabulary, which is
     invisible until a consumer treats a missing tier as a missing edge.

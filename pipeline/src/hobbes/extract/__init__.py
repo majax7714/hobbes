@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from hobbes.extract import evidence as ev
+from hobbes.extract import scipsource
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
 from hobbes.extract.graph import build_graph
@@ -62,6 +64,9 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
         m.id: parse_source((repo_root / m.path).read_bytes()) for m in modules
     }
     graph = build_graph(modules, parsed)
+    # Lane B before the test map, so test reach is computed over the edges
+    # SCIP proved rather than the ones lane A guessed (ADR-029).
+    lane_b = _run_lane_b(repo_root, modules, parsed, graph)
     tests = collect_tests(modules, parsed, graph["symbol_edges"])
     routes = extract_routes(modules, parsed)
 
@@ -98,6 +103,132 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
             "cli_entry_points": extract_cli_entry_points(repo_root),
         },
     )
+
+
+def _syntax_sites(modules, parsed) -> list:
+    """Lane A's call sites, in evidence-IR shape (ADR-029)."""
+    return [
+        ev.Site(
+            provider=ev.TREE_SITTER,
+            kind=ev.CALL_SITE,
+            file=module.path,
+            line=call.line,
+            name=call.callee.split(".")[-1],
+            col=call.col,
+            scope=f"{module.id}.{call.scope}" if call.scope else module.id,
+        )
+        for module in modules
+        for call in parsed[module.id].calls
+    ]
+
+
+def _lane_a_fallback(graph: dict) -> dict:
+    """Lane A's own resolutions, keyed by call site.
+
+    Used only where SCIP resolved nothing, and marked ``syntactic`` when it
+    is — so a call lane A could resolve and lane B could not still appears,
+    honestly labelled, instead of vanishing.
+    """
+    path_of = {n["id"]: n.get("path") for n in graph["nodes"]}
+    where = {
+        symbol["id"]: (path_of.get(symbol["module"]), symbol["line"])
+        for symbol in graph["symbols"]
+    }
+    fallback: dict[tuple, tuple] = {}
+    for edge in graph["symbol_edges"]:
+        target = where.get(edge["to"])
+        if not target or not target[0]:
+            continue
+        name = edge["to"].rsplit(".", 1)[-1]
+        for sighting in edge["evidence"]:
+            fallback[(sighting["path"], sighting["line"], name)] = target
+    return fallback
+
+
+def _run_lane_b(repo_root: Path, modules, parsed, graph: dict) -> dict | None:
+    """Run lane B and fold its facts into *graph*, or degrade visibly.
+
+    A missing indexer, a crashed one, or a repo whose environment is not
+    installed must never fail the ingest: the graph still exists at
+    syntactic tier and says what it lost (P6).
+    """
+    if not modules or not scipsource.enabled():
+        return None
+    files = sorted({m.path for m in modules})
+    roots = sorted({m.root for m in modules})
+    try:
+        facts = scipsource.extract_scip(
+            repo_root,
+            files,
+            roots,
+            project_name=repo_root.name,
+            sha="",
+            declared_deps=scipsource.declared_dependencies(repo_root),
+        )
+    except (scipsource.ScipError, OSError) as exc:
+        graph.setdefault("extraction_errors", []).append(
+            {
+                "path": ".",
+                "stage": "scip",
+                "message": f"lane B did not run: {exc}",
+            }
+        )
+        return None
+    if facts is None:
+        return None
+
+    syntax = _syntax_sites(modules, parsed)
+    resolutions = scipsource.resolution_sites(facts)
+    resolved = ev.join(syntax, resolutions, fallback=_lane_a_fallback(graph))
+    projected = scipsource.project(resolved, graph["nodes"], graph["symbols"])
+
+    # The join is authoritative for the symbol layer: every call it kept is
+    # either SCIP-proven or lane-A-resolved-and-labelled, so lane A's own
+    # edge list has nothing left to add.
+    graph["symbol_edges"] = projected["symbol_edges"]
+    graph["module_edges"] = _merge_module_edges(
+        graph["module_edges"], projected["module_edges"]
+    )
+    graph["resolution_coverage"] = [
+        {
+            "file": row.file,
+            "sites": row.sites,
+            "resolved": row.resolved,
+            "external": row.external,
+            "unresolved": row.unresolved,
+        }
+        for row in ev.coverage(syntax, resolutions, facts.get("external_refs"))
+    ]
+    for degraded in facts.get("degraded", []):
+        graph.setdefault("extraction_errors", []).append(
+            {"path": ".", "stage": degraded["stage"], "message": degraded["message"]}
+        )
+    return projected
+
+
+def _merge_module_edges(lane_a: list[dict], lane_b: list[dict]) -> list[dict]:
+    """Keep lane A's module edges, upgrading the ones lane B also proved.
+
+    Lane A's import statements are syntactic facts about the source — an
+    ``import x`` really is an import — and they reach ``ext:``/``env:``
+    nodes lane B cannot see. So lane A stays the spine here and lane B
+    raises the tier where it agrees.
+    """
+    by_key = {(e["from"], e["to"], e["type"]): e for e in lane_a}
+    for edge in lane_b:
+        key = (edge["from"], edge["to"], edge["type"])
+        prior = by_key.get(key)
+        if prior is None:
+            by_key[key] = edge
+            continue
+        seen = {(s["path"], s["line"], s["lane"]) for s in edge["evidence"]}
+        merged = dict(edge)
+        merged["evidence"] = edge["evidence"] + [
+            s for s in prior["evidence"]
+            if (s["path"], s["line"], s["lane"]) not in seen
+        ]
+        by_key[key] = merged
+    return sorted(by_key.values(), key=lambda e: (e["from"], e["to"], e["type"]))
 
 
 def _merge_layer(
