@@ -98,6 +98,35 @@ M3's deletion shrinks. Lane A keeps call-site *detection* and loses call
 *resolution*, which is the honest reading of §3.1 rather than its literal
 one. §3.1 is amended accordingly in the same commit.
 
+### Coverage, not confidence scores
+
+Max asked whether the hard cases could carry a confidence score — if we
+cannot say *what* a call on a returned object hits, could we say a function
+*likely* calls one? **No, and the reason is worth stating.** An edge with no
+named target cannot be drawn, cannot be checked against an invariant, and
+cannot be cited at a `file:line`. It is the false edge ADR-007 rules out,
+wearing a probability. Tiers already carry confidence for edges that
+*exist*; nothing is gained by inventing edges to attach a tier to.
+
+What the question did expose is a real gap. Of this repo's 3,070 call
+sites, **1,411 resolve in-repo, 1,256 resolve to an external package, and
+403 (13%) resolve to nothing** — and that last number was invisible. The
+graph said "here are the calls" without ever saying "and there were 403
+sites I could not account for," which is P6 unmet for lane B.
+
+So the honest form of the idea is a **denominator, not a score**:
+per-file resolution coverage — sites, resolved, external, unaccounted.
+Counts, no guesses. It gives the reviewer flow a legitimate signal
+(`review.py`'s call graph is 56% accounted; trust it less than
+`policy.py`'s at 100%) without a single invented edge, and it is what
+makes the gap fixable rather than merely absent.
+
+The remaining unaccounted are dominated by builtins (`len`, `isinstance`,
+`any`) and by dynamically-typed test fixtures (`capsys.readouterr`,
+`monkeypatch.setenv`) — objects whose type Pyright cannot know at the call
+site. That is a genuine limit of static semantics, recorded here rather
+than papered over.
+
 ## Alternatives considered
 
 - **Lane A keeps resolving calls, lane B is additive.** Simple, and leaves

@@ -1312,3 +1312,54 @@ had discarded both.
 
 394 pytest / 10 node. Remaining for M2: wire the join into `ingest`, tier
 in the UI, and the exit check (20 semantic edges ≥95%, kbet, SELENEX).
+
+## 2026-08-14 (sixth) — coverage, not confidence scores
+
+Max asked whether the hard resolution cases could carry confidence
+scores: if we cannot say *what* a call on a returned object hits, could
+we say a function *likely* calls one?
+
+**First, a correction to the previous entry's framing** — it invited the
+question. The 64 calls lane A could not resolve are not uncertain; they
+are the most certain edges in the graph. Lane A failed on them, SCIP's
+type inference succeeded, and they sit at `semantic` tier. There is no
+confidence to score there.
+
+**The answer to the idea as posed is no**, and the reason is worth
+keeping: an edge with no named target cannot be drawn, cannot be checked
+against an invariant, and cannot be cited at a `file:line`. It is the
+false edge ADR-007 rules out, wearing a probability. Tiers already carry
+confidence for edges that exist.
+
+**But the instinct found something real, so it got built.** Measured what
+the join actually drops on this repo — 3,070 call sites:
+
+| | count | |
+|---|---|---|
+| resolve in-repo | 1,411 | semantic edges |
+| resolve to an external package | 1,256 | correctly out of scope |
+| resolve to nothing | 403 (13%) | **was invisible** |
+
+The graph said "here are the calls" and never said "and there were 403
+sites I could not account for." That is P6 unmet for lane B, and it was
+only visible because someone asked.
+
+So the honest form of the idea is a **denominator, not a score**:
+`evidence.Coverage`, per file — sites, resolved, external, unaccounted.
+Counts, no guesses, no invented edges. Repo-wide 86.9% accounted, and it
+ranks: `review.py` is 56% accounted, `policy.py` 100%. That is a
+legitimate signal for the reviewer flow — trust this module's call graph
+less than that one — without a single hypothetical edge.
+
+Required one helper change: it now reports `external_refs`, occurrences
+resolving outside the index. Without them, "correctly out of scope" and
+"nobody could resolve it" look identical, which is exactly the conflation
+that hid the 403.
+
+**Documented as a limit, not papered over:** the remaining unaccounted are
+dominated by builtins (`len`, `isinstance`, `any`) and by dynamically
+typed test fixtures (`capsys.readouterr`, `monkeypatch.setenv`) — objects
+whose type Pyright cannot know at the call site. ADR-029 amended with all
+of it.
+
+400 pytest / 10 node.

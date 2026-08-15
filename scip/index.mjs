@@ -117,6 +117,11 @@ export function decode(index) {
   const definitions = new Map() // moniker -> {file, line, endLine, kind}
   const packages = new Map() // manager:package -> reference count
   const references = []
+  // Occurrences that resolve *outside* this index — stdlib and third-party.
+  // Not repo edges, but not failures either: recording them is what lets
+  // the join tell "correctly out of scope" from "nobody could resolve it",
+  // which is the difference between coverage and a silent hole (P6).
+  const external = []
 
   for (const doc of index.documents) {
     for (const occ of doc.occurrences) {
@@ -143,7 +148,16 @@ export function decode(index) {
       if (pkgKey) packages.set(pkgKey, (packages.get(pkgKey) ?? 0) + 1)
       if (isDefinition(occ)) continue
       const target = definitions.get(occ.symbol)
-      if (!target) continue // resolves outside this index: not a repo edge
+      if (!target) {
+        external.push({
+          file: doc.relative_path,
+          line: occ.range[0] + 1,
+          col: occ.range[1],
+          name: terminalName(occ.symbol),
+          package: pkgKey,
+        })
+        continue // resolves outside this index: not a repo edge
+      }
       references.push({
         file: doc.relative_path,
         line: occ.range[0] + 1,
@@ -157,7 +171,7 @@ export function decode(index) {
     }
   }
 
-  return { definitions: [...definitions.values()], references, packages }
+  return { definitions: [...definitions.values()], references, external, packages }
 }
 
 /**
@@ -239,6 +253,7 @@ export function indexStage(config) {
     language: config.language,
     definitions: decoded.definitions,
     references: decoded.references,
+    external_refs: decoded.external,
     packages: Object.fromEntries(decoded.packages),
     degraded: degradations(index, decoded, config),
     stderr: String(proc.stderr || '').trim().slice(-2000),

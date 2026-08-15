@@ -130,3 +130,43 @@ class TestProviderSeparation:
         by_kind = {r.kind: r.lanes for r in out}
         assert by_kind["calls"] == (ev.TREE_SITTER, ev.SCIP)
         assert by_kind["references"] == (ev.SCIP,)
+
+
+class TestCoverage:
+    """The denominator: what the semantic provider could not account for."""
+
+    def test_a_resolved_site_counts_as_resolved(self):
+        [row] = ev.coverage(
+            [call("a.py", 10, "run")], [resolution("a.py", 10, "run", "b.py", 5)]
+        )
+        assert (row.sites, row.resolved, row.external, row.unresolved) == (1, 1, 0, 0)
+        assert row.accounted == 1.0
+
+    def test_a_site_resolving_outside_the_repo_is_accounted_not_missing(self):
+        # `json.dumps(...)` is not a repo edge and not a failure either.
+        [row] = ev.coverage(
+            [call("a.py", 10, "dumps")],
+            [],
+            external=[{"file": "a.py", "line": 10, "name": "dumps", "package": "python:python-stdlib"}],
+        )
+        assert (row.resolved, row.external, row.unresolved) == (0, 1, 0)
+        assert row.accounted == 1.0
+
+    def test_a_site_nobody_resolved_is_counted_as_unknown(self):
+        [row] = ev.coverage([call("a.py", 10, "mystery")], [])
+        assert (row.resolved, row.external, row.unresolved) == (0, 0, 1)
+        assert row.accounted == 0.0
+
+    def test_coverage_is_per_file(self):
+        rows = ev.coverage(
+            [call("a.py", 1, "x"), call("b.py", 1, "y")],
+            [resolution("a.py", 1, "x", "c.py", 2)],
+        )
+        assert [r.file for r in rows] == ["a.py", "b.py"]
+        assert rows[0].accounted == 1.0 and rows[1].accounted == 0.0
+
+    def test_definitions_are_not_call_sites(self):
+        assert ev.coverage([ev.Site(ev.TREE_SITTER, ev.DEFINITION, "a.py", 1, "f")], []) == []
+
+    def test_a_file_with_no_calls_reports_nothing_rather_than_zero_percent(self):
+        assert ev.coverage([], []) == []

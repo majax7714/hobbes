@@ -182,3 +182,59 @@ def join(
                 )
             )
     return out
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much of a file's syntax the semantic provider could account for.
+
+    Tiers say how far to trust an edge that *exists*. Nothing said how much
+    was missing — and on this repo 13.9% of call sites produce no edge at
+    all, which was invisible. This is the denominator: it makes P6 true for
+    lane B, and it is counts rather than guesses.
+
+    Deliberately **not** a confidence score on a hypothetical edge. "This
+    function probably calls something it got back" names no target, so it
+    cannot be drawn, checked against an invariant, or cited — it is the
+    false edge ADR-007 rules out, wearing a probability.
+    """
+
+    file: str
+    sites: int
+    resolved: int
+    external: int
+    unresolved: int
+
+    @property
+    def accounted(self) -> float:
+        """Share of call sites with a known destination, in or out of repo."""
+        if not self.sites:
+            return 1.0
+        return round((self.resolved + self.external) / self.sites, 3)
+
+
+def coverage(
+    syntax: list[Site],
+    semantic: list[Site],
+    external: list[dict] | None = None,
+) -> list[Coverage]:
+    """Per-file resolution coverage over the call sites in *syntax*."""
+    buckets = index_resolutions(semantic)
+    outside = {
+        (e["file"], e["line"], e.get("name", "")) for e in (external or [])
+    }
+    counts: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
+    for site in syntax:
+        if site.kind != CALL_SITE:
+            continue
+        row = counts[site.file]
+        if match_resolution(site, buckets) is not None:
+            row[0] += 1
+        elif (site.file, site.line, site.name) in outside:
+            row[1] += 1
+        else:
+            row[2] += 1
+    return [
+        Coverage(file, resolved + ext + un, resolved, ext, un)
+        for file, (resolved, ext, un) in sorted(counts.items())
+    ]
