@@ -407,11 +407,12 @@ code do the gating.
 
 ## Where the design is written down
 
-`docs/hobbes-architecture-v2.md` is the source of truth — it supersedes
-v1's extraction layer and restates every other subsystem, so it stands
-alone. `docs/hobbes-architecture.md` and `docs/hobbes-build-plan.md` are
-the v1 record: still accurate for the carried subsystems, historical for
-extraction.
+`docs/hobbes-architecture.md` is the source of truth, and it is a
+**running** document — it describes Hobbes as it is now rather than as of a
+version, and it is amended in the same commit as any change that moves it
+(ADR-033). `docs/hobbes-architecture-v1.md` and `docs/hobbes-build-plan.md`
+are the frozen v1 record: history, kept for the reasoning behind the
+carried subsystems.
 
 Every decision those don't make has a numbered ADR in `docs/adr/`.
 `docs/BUILDLOG.md` is what actually happened, session by session,

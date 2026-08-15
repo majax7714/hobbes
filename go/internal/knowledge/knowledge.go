@@ -48,7 +48,7 @@ type edge struct {
 }
 
 // qualify marks an edge the reader should trust less. Tier is the graph's
-// trust signal (architecture v2 §3.4): a `syntactic` edge is lane A's own
+// trust signal (architecture §3.4): a `syntactic` edge is lane A's own
 // resolution, kept because the semantic provider could not resolve the
 // site and labelled because it can be wrong. An empty tier is a pre-v4
 // artifact, which is not a guess and must not be styled as one.

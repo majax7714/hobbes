@@ -1,7 +1,8 @@
 # Hobbes — v2 build plan (extraction architecture)
 
 **Status: approved by Max 2026-08-14, including all six deviations.** Written
-against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
+against the architecture's §7 (then `hobbes-architecture-v2.md`, now the
+running `docs/hobbes-architecture.md` — ADR-033) and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
 **Progress: V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done.

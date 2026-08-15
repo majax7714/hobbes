@@ -1652,3 +1652,125 @@ addition. Recorded in the M3 entry above and left for Max to scope.
 Nothing else was found stale. `docs/m9-application-mode.md` remains a
 proposal with three open questions and is untouched; ADR-026 still awaits
 review, and neither blocks V2.M4.
+
+---
+
+## 2026-08-15 (fourth) — one running architecture, and two things Hobbes never said out loud
+
+Max's direction before V2.M4, four parts: keep Hobbes local; say plainly
+what Hobbes *is*; own the language providers' limits as ours; and keep one
+**running** architecture document instead of a versioned one. No code
+changed — this is the doc layer catching up to the system, plus two ADRs.
+
+**ADR-033 — the architecture is one running document.** `git mv`:
+`hobbes-architecture.md` → `hobbes-architecture-v1.md` (frozen record),
+`hobbes-architecture-v2.md` → `hobbes-architecture.md` (running, no version
+number, wins over everything else). His reason was that the architecture had
+already moved past v2 with the evidence IR, and he was right in a way worth
+measuring: **the v2 document was written 2026-08-14 and was wrong about its
+own subject within three milestones.**
+
+Three drifts, all found by reading the tree against the file:
+
+- **§3.3 claimed SCIP monikers are the graph's node IDs. They are not.**
+  The range join (ADR-029) meant lane B never had to invent an id for
+  anything lane A already named, so ids stayed path-based — the dogfood
+  graph's are `driver.Proxy`, `env:HOME`, `ext:react`. §4 repeated the
+  claim. Corrected, *and* the knock-on stated: §9's "monikers prepare
+  multi-repo merge" is weaker than it reads, because two repos can both
+  hold `src/util` and path-based ids have no repo-scoping pass.
+- **§3.1 said lane A's resolver moves entirely to lane B.** ADR-031 demoted
+  it to the join's fallback instead.
+- **§3.7 said "add the indexer to `hobbes.yaml`".** That file does not
+  exist. The registry is `INDEXERS` in `scip/index.mjs`; the per-repo config
+  is *derived* by `scipsource.py`, not authored. Section now says so, and
+  says a pack registry is still owed an ADR (the ADR-012 tension is
+  unchanged).
+
+Each drift had been recorded in an ADR at the time. **None reached the file
+a session is told to read first** — which is P8's failure mode with the
+architecture itself as the artifact. All three were fixed in the same commit
+as the ADR; writing the rule without paying its first bill would have been
+the fake-honest version of it. §7's milestone prose became a status table
+pointing at the build plan, because detail restated in two places disagrees
+with itself, which is this ADR's whole subject.
+
+**ADR-034 — P9: a provider's limits are Hobbes's limits.** Max: "were using
+language specific providers for semantic pulling, any issues with that
+against us we have to directly write and document." The sentence this
+forecloses is *"that's scip-python's limitation, not ours"* — true, and
+worthless: the user ran `hobbes ingest`, and a missing edge reads as an
+absent call either way (C-1). The sharper risk is that an inherited limit is
+*easier* to leave unregistered than one of our own, because no decision of
+ours created it and P8 keys on the moment of decision. There is no such
+moment when an upstream tool simply doesn't implement a field — which is
+exactly how C-6 and C-23 both went unregistered until V2.M3 went looking.
+
+Mechanically an inherited limit is a P8 entry plus a `Provider` line naming
+the provider and **pinned version**, because these are the only entries in
+the register that can end without us doing anything. Retrofitted in the same
+commit: **C-6** (inherited, `scip-python` 0.6.6, `syntax_kind` populated for
+0 of 8,575 occurrences — *liftable* if a release fixes it, which would make
+lane A's call-site detection a choice rather than a necessity), **C-23**
+(inherited, `scip-typescript` 0.4.0 — *not* liftable, since whole-program
+inference cannot infer from types absent from disk), and **C-9** (marked
+**ours, not inherited** — the indexers do emit those symbols and Hobbes
+drops them; listed because it is easily mistaken for a provider limit).
+V2.M5 and V2.M7 now each owe a provider-limit review at their exit, not just
+a working ingest. Noted the tension with P7 rather than hiding it: the code
+stays configuration, the honesty does not come for free.
+
+**What Hobbes is, written down.** A *multilingual deterministic code graphing
+environment* — with **honest** added to deterministic, at his correction,
+and **accurate** named as the job that outranks both. Now the opening of the
+running architecture, the top of CLAUDE.md, and the first thing the README
+says. Also written down for the first time: **where it is going** — single-use
+agents under derived, systematic context, because a model's accuracy falls
+as context grows and tasks accumulate, so the answer is a smaller job rather
+than a bigger window. That reframes the sandbox and policy engine as the
+mechanism rather than a safety feature: a forbidden command is not refused,
+it is *absent*. In his words, "if we can not allow an agent to execute a
+command in a space where it literally cannot, then it literally cannot."
+Three of the four pieces exist (graph, invariants, enforcement); the
+derivation itself is not a milestone yet, and §9 says so rather than
+implying it is planned.
+
+**Two open items closed.**
+
+- **ADR-026 is verified.** Max ran `hobbes up` against this repo — "seems to
+  be working perfectly. everything displays and runs correctly on the ui."
+  Confirmed here: `.hobbes/derived` is now stamped at HEAD (`83f0b49`),
+  schema v4, 126 nodes / 258 module edges / 2012 symbol edges. The review
+  debt that had carried since 2026-08-11 is discharged.
+- **M9 is parked, not pending.** "the application was a thought i had
+  wanting it less and less but maybe one day." `m9-application-mode.md` is
+  kept as the record of the thought with its three questions unanswered, and
+  §9 now states that Hobbes stays local as a design position rather than a
+  stage on the way to hosting.
+
+Suites re-run green before the commit, unchanged by any of this: **429
+pytest / 12 Go packages / 52 vitest / 20 tsextract / 12 scip**, and
+`hobbes lanes` exits 0 (1789 call sites compared, 0 disagree).
+
+**V2.M4 (enrichment packs) is still next, and is now unblocked on
+everything except its own opening question:** the pack registry needs an ADR
+before the file exists, because a registry is a property of the repo while
+ADR-012 makes all of `.hobbes/` personal.
+
+**Found while committing: an approved invariant states something false.**
+Max's `hobbes up` session wrote real decisions (five approvals I-7..I-11,
+one denial, intent confirmed) — ADR-026 exercised end to end, which is a
+stronger verification than a UI walkthrough. But **I-9 ends "all other
+pushes escalate", and the repo policy denies `git push*` outright.** It is
+false in exactly the way the M5 inferred wording of I-3 was false — caught
+and rewritten at M8, with the note still in I-3's file explaining why.
+Narration re-proposed the uncorrected text; the queue had no way to show a
+corrected record already covered it; the approval versioned the false claim.
+
+This is C-21, and the register had it filed as a signal-to-noise cost.
+Updated with the instance: the real cost is that a duplicate can carry a
+claim its original was corrected to remove, and the fix belongs in the
+decision surface — an inferred statement should arrive next to the confirmed
+records overlapping its scope. The record itself is Max's to correct; the
+untracked `.hobbes/` decisions and records were left uncommitted for him,
+not swept into this commit.

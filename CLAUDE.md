@@ -2,16 +2,30 @@
 
 ## What this project is
 
-Hobbes: an agentic development environment that ingests a repo and produces a
-policy-governed environment where agents do line-level work and humans review
-at the concept level.
+Hobbes: **a multilingual, deterministic code graphing environment.** It
+ingests a repo and derives a policy-governed environment where agents do
+line-level work and humans review at the concept level.
 
-**Source of truth:** `docs/hobbes-architecture-v2.md` — read it fully before
-writing code. It supersedes the v1 extraction layer and restates every other
-subsystem, so it is self-contained. `docs/hobbes-architecture.md` and
-`docs/hobbes-build-plan.md` remain as the v1 record: still accurate for the
-carried subsystems, historical for extraction. Deviations from v2 need an ADR
-*and* a patch to that document in the same commit.
+Three properties, in order of precedence — **accurate** (the job; a wrong
+graph is worse than no graph, because it is believed), **deterministic**
+(parsers and indexers build the skeleton, never a model; generative work
+sits on top and is pinned to it), and **honest** (determinism promises the
+same answer twice, not a true one — so every edge carries a tier, every
+concession is registered, and a provider's limits are owned as ours).
+Abstraction is the product; accuracy is the precondition. The long-run goal
+is **single-use agents under derived, systematic context** — the graph makes
+that derivation possible, and the sandbox makes a forbidden command *absent*
+rather than merely refused. See the architecture's "What Hobbes is".
+
+**Source of truth:** `docs/hobbes-architecture.md` — the **running**
+architecture (ADR-033). Read it fully before writing code. It describes
+Hobbes as it is now, carries no version number, and is amended **in the same
+commit** as any change that moves it; an ADR that amends it names the
+section. If you find it describing something the tree does not do, that is a
+bug in the file — fix it and note it in the BUILDLOG.
+`docs/hobbes-architecture-v1.md` and `docs/hobbes-build-plan.md` are the
+frozen v1 record: history, kept for the reasoning behind the carried
+subsystems.
 
 Locked decisions (not open for relitigation): **D1** Python + Go + TS split by
 focus, **D2** Podman rootless for session isolation, **D3** Cytoscape.js for
@@ -77,12 +91,13 @@ the interactive graph.
   is one component per tab. `npm run build` typechecks, then bundles
   into the Go embed dir — **rebuild `hobbes-web` after**, or it serves
   the previous bundle. `npm run dev` proxies `/api` to a running server.
-- `docs/` — the two source docs, `docs/adr/` (numbered ADRs),
-  `docs/constraints.md` (the P8 register of what Hobbes cannot tell you,
-  ADR-030), `docs/BUILDLOG.md` (append-only session log), `docs/first-run.md`
-  (bringing Hobbes up on a new app, in the order the system is meant to
-  be used), and `docs/m9-application-mode.md` (a *proposal*, not a
-  decision — see Current status).
+- `docs/` — `hobbes-architecture.md` (the running architecture — the one to
+  read), `hobbes-build-plan-v2.md` (the active programme), the two frozen v1
+  docs, `docs/adr/` (numbered ADRs), `docs/constraints.md` (the P8/P9
+  register of what Hobbes cannot tell you, ADR-030/034), `docs/BUILDLOG.md`
+  (append-only session log), `docs/first-run.md` (bringing Hobbes up on a
+  new app, in the order the system is meant to be used), and
+  `docs/m9-application-mode.md` (**parked** — see Current status).
 - `.hobbes/` — dogfooding: `policies/` + `invariants/` versioned, `derived/`
   gitignored. `invariants/` holds six confirmed records (ADR-024);
   `derived/compiled/` is where `hobbes invariants compile` writes CI
@@ -172,22 +187,41 @@ uv run hobbes lanes --json
 
 **v1 is complete — M0–M8 all built and reviewed. v2 is underway.**
 
-**Active: the v2 extraction architecture.** Source of truth is
-`docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
+**Active: the v2 extraction architecture.** Source of truth is the running
+`docs/hobbes-architecture.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
 deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
 (ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
 Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4
 (enrichment packs) is next.**
 
-**P8 — every concession is a registered constraint (ADR-030).** New
-principle, and it governs the whole project, not one milestone: when
-Hobbes cannot recover information, the gap gets a `C-n` entry in
-`docs/constraints.md` **plus the place a user meets it**. An entry whose
-only surfacing is a document is recorded `unsurfaced` and is debt. P6
-covers the run that failed; P8 covers what was never knowable. Max:
-"hobbes is unusable if its a known liar, even less usable if its fake
-honest."
+**The architecture is one running document (ADR-033, 2026-08-15).**
+`hobbes-architecture-v2.md` is gone: it became `hobbes-architecture.md`,
+and the old v1 file is now `hobbes-architecture-v1.md`. A versioned
+architecture doc was wrong about its own subject within three milestones —
+it claimed moniker-keyed node ids (the range join made them unnecessary;
+real ids are path-based), claimed lane A's resolver was deleted (ADR-031
+demoted it), and pointed at a `hobbes.yaml` that does not exist. All three
+were corrected in the same commit as the ADR. **The rule: a change that
+moves the architecture patches that file in the same commit as the code.**
+
+**P8 — every concession is a registered constraint (ADR-030).** It governs
+the whole project, not one milestone: when Hobbes cannot recover
+information, the gap gets a `C-n` entry in `docs/constraints.md` **plus the
+place a user meets it**. An entry whose only surfacing is a document is
+recorded `unsurfaced` and is debt. P6 covers the run that failed; P8 covers
+what was never knowable. Max: "hobbes is unusable if its a known liar, even
+less usable if its fake honest."
+
+**P9 — a provider's limits are Hobbes's limits (ADR-034).** Semantics come
+from third-party indexers Hobbes runs and does not wrap, and their blind
+spots land in our graph. Never disown one as "scip-python's problem" — the
+user ran `hobbes ingest`, and a missing edge reads as an absent call either
+way. An inherited limit registers under P8 **plus** a `Provider` line naming
+the provider and pinned version, because unlike our own concessions it can
+end on an upstream release. C-6 and C-23 are inherited; C-9 is ours and says
+so. V2.M5 (`scip-go`) and V2.M7 (rust-analyzer) each owe a provider-limit
+review at their exit, not just a working ingest.
 
 Artifacts are at **schema v4** (ADR-028): every edge carries a `tier`
 (`semantic`|`syntactic`|`dynamic`) and every evidence entry a `lane`.
@@ -249,20 +283,19 @@ anything else.
 
 *(Paused 2026-08-13 for Max's move; resumed 2026-08-14 on v2.)*
 
-**Two things still wait on Max, neither blocking v2:**
+**Both of the things that were waiting on Max are now settled
+(2026-08-15):**
 
-1. **ADR-026** (two decision surfaces + `hobbes up`) — built, verified
-   end to end, **still pending his review**. v2 does not touch the
-   decision surfaces, so the debt carries rather than conflicts.
-2. **M9, "Hobbes as an application"** — his design ask of 2026-08-13,
-   assessed and written up in `docs/m9-application-mode.md`. It is a
-   **proposal with three open questions**, not an ADR and not started.
-   Do not begin implementing it; it needs his answers on the workspace
-   model, how a folder gets opened, and scope. Note it would cross
-   ADR-022's "the surface never runs the pipeline" line and would want
-   a launch token *before* the feature, not after. M9 sits *above* the
-   extraction layer, so it and v2 do not conflict — but only one is
-   active at a time, and v2 is.
+1. **ADR-026** (two decision surfaces + `hobbes up`) — **verified by Max**:
+   he ran `hobbes up` against this repo, and reported everything displaying
+   and running correctly in the UI. Re-ingest confirmed — `.hobbes/derived`
+   is stamped at HEAD, schema v4, 126 nodes / 258 module edges / 2012 symbol
+   edges. The review debt is discharged.
+2. **M9, "Hobbes as an application" — parked.** His call: "the application
+   was a thought i had wanting it less and less but maybe one day."
+   `docs/m9-application-mode.md` is kept as the record of the thought, not
+   as a roadmap item. **Hobbes stays local**: on the box, against a repo on
+   disk (architecture §9). Do not start it, and do not design toward it.
 
 **Box note (2026-08-13):** `go.mod` needs Go ≥ 1.26 and Fedora ships
 1.25, so `~/.local/go/bin` must precede `/usr/bin` on `PATH` — fixed in

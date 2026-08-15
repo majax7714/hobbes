@@ -14,7 +14,7 @@ export interface Pin {
   lane?: Lane
 }
 
-/** How far an edge is to be trusted (v4, architecture v2 §3.4). */
+/** How far an edge is to be trusted (v4, architecture §3.4). */
 export type Tier = 'semantic' | 'syntactic' | 'dynamic'
 
 /** Which lane produced a sighting. */

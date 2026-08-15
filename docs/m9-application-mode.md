@@ -1,9 +1,21 @@
 # M9 (proposed): Hobbes as an application
 
-**Status: proposed, not decided. No code written.** Paused 2026-08-13
-while Max moved for college. Three questions at the bottom need his
-answer before this becomes an ADR — it is not one yet, because nothing
-has been decided.
+**Status: PARKED (2026-08-15). Not on the roadmap. No code written, and
+none to be written.**
+
+Max's call, in his words: *"the application was a thought i had wanting it
+less and less but maybe one day."* **Hobbes stays local** — on the box,
+against a repo on disk (architecture §9). This document is kept as the
+record of the thought and the assessment it got, not as a plan. Do not
+begin implementing it, and do not design other work toward it.
+
+The three open questions below were never answered and are left as they
+were. If this is ever revived it starts there, and it still has to answer
+for crossing ADR-022's "the surface never runs the pipeline" line — which
+would want a launch token *before* the feature, not after.
+
+*(Original status: proposed, not decided; paused 2026-08-13 while Max moved
+for college.)*
 
 ---
 

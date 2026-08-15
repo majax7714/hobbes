@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Lane B's helper (architecture v2 §3.2, ADR-027).
+ * Lane B's helper (architecture §3.2, ADR-027).
  *
  * Runs a SCIP indexer over a staging tree, decodes the index, filters it
  * down to what a graph can use, and emits facts JSON for the Python join.

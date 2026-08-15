@@ -34,7 +34,7 @@ from hobbes.extract.tssource import collect_ts_tests, extract_ts
 #: (a repo now mixes pytest with JS frameworks) and the global
 #: tests.json "framework" field is gone; "languages" may include
 #: typescript/javascript. v4 (V2.M1, ADR-028): every edge carries a
-#: ``tier`` and every evidence entry a ``lane`` (architecture v2 §3.4) —
+#: ``tier`` and every evidence entry a ``lane`` (architecture §3.4) —
 #: additive over v3, so a reader that ignores unknown fields still reads
 #: v4 correctly. Consumers reject versions they don't know (ADR-006), and
 #: as of v4 they actually do: see :mod:`hobbes.artifacts`.

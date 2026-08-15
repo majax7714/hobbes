@@ -7,7 +7,7 @@
 > milestones in particular describe a design v2 has replaced. The
 > sequencing rules carry forward unchanged.
 
-Companion to `hobbes-architecture.md` v1.0. Sequenced so every milestone ships
+Companion to `hobbes-architecture-v1.md`. Sequenced so every milestone ships
 something usable on its own, deterministic value lands before any quota is
 spent, and enforcement exists before any agent writes code. Estimates are in
 evenings (2–3 focused hours), not corporate weeks.

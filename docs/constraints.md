@@ -1,8 +1,11 @@
 # Hobbes constraints — the register of what Hobbes cannot tell you
 
 **Status: load-bearing.** This is not a caveats page. Principle **P8**
-(architecture v2 §1) makes an entry here part of the definition of done
-for any decision that concedes information.
+(`hobbes-architecture.md` §1) makes an entry here part of the definition of
+done for any decision that concedes information, and **P9** extends that to
+information conceded *for* us by a language provider we run — those entries
+carry a `Provider` line naming the provider and pinned version, because
+unlike our own concessions they can end on an upstream release (ADR-034).
 
 ## Why this file exists
 
@@ -30,6 +33,7 @@ question that exposed the hole.
 | **Because** | the mechanism that makes it so |
 | **Bites at** | the artifact, tool, or question that goes quiet |
 | **You find out** | the surfacing mechanism — how a user learns it, in the moment |
+| **Provider** | *(inherited limits only, P9)* the provider and pinned version, and whether an upgrade could lift it |
 | **Source** | the ADR or session that conceded it |
 
 **Surfacing status** is the field that matters:
@@ -132,7 +136,12 @@ information appears in both, and the entries cross-reference.
 - **You find out:** **surfaced** — resolutions that no call site claimed
   are typed `uses`, not `calls`, so the two questions stay separable in
   the artifact.
-- **Source:** ADR-029.
+- **Provider (P9):** inherited from `@sourcegraph/scip-python` **0.6.6**.
+  `syntax_kind` is optional in the SCIP schema, so this is a gap in the
+  indexer rather than in SCIP. **Liftable on upgrade** — if a future
+  release populates it, lane A's call-site detection becomes a choice
+  rather than a necessity. Re-check on any version bump.
+- **Source:** ADR-029; owned as ours under P9 (ADR-034).
 
 ### C-7 — Lane A's fallback edges are guesses, and say so
 - **Cannot tell you:** with proof, where a call goes when the indexer
@@ -159,7 +168,7 @@ information appears in both, and the entries cross-reference.
 - **You find out:** **surfaced** — `extraction_errors` plus an ingest
   WARNING when a lane degrades, and the tier on every edge when it does
   not.
-- **Source:** architecture v2 §3.2/P6, ADR-029. Registered at V2.M3, when
+- **Source:** architecture §3.2/P6, ADR-029. Registered at V2.M3, when
   demoting lane A's resolver made the floor explicit rather than incidental.
 
 ### C-9 — Only four descriptor kinds become graph symbols
@@ -173,6 +182,11 @@ information appears in both, and the entries cross-reference.
 - **You find out:** **partial.** The filter is stated in ADR-027 and the
   omission is uniform, so it does not mislead about *specific* code — but
   nothing in the artifact declares the modelled vocabulary.
+- **Provider (P9):** ours, not inherited — the descriptor filter is
+  Hobbes's choice over what `@sourcegraph/scip-python` **0.6.6** and
+  `@sourcegraph/scip-typescript` **0.4.0** emit. Listed here because it is
+  easily mistaken for a provider limit: the indexers *do* report these
+  symbols and Hobbes drops them. Not liftable by an upgrade.
 - **Source:** ADR-027, Decision 3.
 
 ### C-10 — Node ids carry no version, so cross-version merging is out
@@ -336,11 +350,28 @@ information appears in both, and the entries cross-reference.
   (statement, scope), so a rewording does not match.
 - **Because:** the inference unit is told about the repo but not about
   `.hobbes/invariants/`.
-- **Bites at:** the decision queue's signal-to-noise. All six of this
+- **Bites at:** originally filed as a signal-to-noise cost — all six of this
   repo's inferred records correspond 1:1 to I-1..I-6 and none match by key.
-- **You find out:** **partial** — the queue is noisy in a way an attentive
-  user will recognise, which is not the same as being told.
-- **Source:** ADR-026, `future_additions.md`.
+  **The observed cost is worse than that, and the evidence is now in.**
+- **Observed 2026-08-15 — a duplicate was approved carrying a claim its
+  original had been corrected to remove.** Promoting from the inferred set
+  through the surface produced **I-9**, whose statement ends "all other
+  pushes escalate". That is false: `.hobbes/policies/repo.policy` denies
+  `git push*` outright. It is false in *exactly* the way the M5 inferred
+  wording of I-3 was false, which the M8 promotion caught and rewrote —
+  I-3's file still carries the note explaining why. Narration re-proposed
+  the uncorrected text, the queue could not show that a corrected record
+  already existed, and the approval versioned the false claim on a record
+  Hobbes will now compile and check against.
+- **You find out:** **partial, and now known to be insufficient.** The queue
+  is noisy in a way an attentive user will recognise — but recognising
+  *noise* is not recognising that this particular reword reverses a
+  correction. Nothing shows the reviewer the neighbouring confirmed record,
+  so the decision surface is where this has to be fixed: an inferred
+  statement should arrive next to the confirmed records that overlap its
+  scope.
+- **Source:** ADR-026, `future_additions.md`. Instance recorded
+  2026-08-15.
 
 ### C-22 — Lane B links the repo's `node_modules`, and trusts it not to be written
 - **Cannot tell you:** with structural certainty that indexing a TypeScript
@@ -385,7 +416,13 @@ information appears in both, and the entries cross-reference.
   said nothing.
 - **Honest residue:** a *partially* installed environment still degrades in
   proportion, and the ratio is a threshold rather than a proof.
-- **Source:** ADR-032, found by the control variant in the V2.M3 spike.
+- **Provider (P9):** inherited from `@sourcegraph/scip-typescript`
+  **0.4.0**. **Not liftable by an upgrade** — whole-program type inference
+  cannot infer from types that are not on disk, so this is a property of
+  the approach rather than of the release. The surfacing is the permanent
+  answer here, not a placeholder for a fix.
+- **Source:** ADR-032, found by the control variant in the V2.M3 spike;
+  owned as ours under P9 (ADR-034).
 
 ---
 

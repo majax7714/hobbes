@@ -1,9 +1,27 @@
 # Hobbes
 
-**Hobbes** (based on hobbes the hilarious tiger) is an agentic development environment: it
-ingests a repo and produces a policy-governed environment where agents do the
-line-level work and humans review at the concept level — docs, test behavior,
-and architecture, not diffs.
+**Hobbes** (based on hobbes the hilarious tiger) is a **multilingual,
+deterministic code graphing environment**: it ingests a repo and derives a
+policy-governed environment where agents do the line-level work and humans
+review at the concept level — docs, test behavior, and architecture, not
+diffs.
+
+Three properties, in order of precedence. **Accurate** — the job; a graph
+that is wrong is worse than no graph, because it gets believed. **Deterministic**
+— parsers and indexers build the skeleton, never a model; same commit in,
+same artifacts out. **Honest** — determinism only promises the same answer
+twice, not a true one, so every edge carries a tier, every concession is
+registered, and the limits of the third-party indexers Hobbes runs are
+owned as Hobbes's own. Abstraction is the product; accuracy is the
+precondition.
+
+Where it's going: **single-use agents under derived, systematic context.** A
+model's accuracy falls as context grows and tasks accumulate, so the fix is
+a smaller job rather than a bigger window — per-task context and per-task
+policy derived from the architecture itself. That is what the sandboxes are
+for. A command outside the policy isn't refused, it's *absent*: if an agent
+cannot run something in a space where it literally cannot, then it literally
+cannot.
 
 Joern(github.com/joernio/joern) is a code property graph software that accomplishes a lot of the things Hobbes looks to solve
 though not directly related as joerns focus is on vulnerability discovery and research for static program analysis.
@@ -27,7 +45,7 @@ and an MCP tool server for agents. Agents work inside rootless Podman
 sandboxes where a Go policy engine sits below the model, so what an agent
 may run is enforced by the OS and a proxy rather than by a prompt.
 
-Five ideas do most of the work:
+Six ideas do most of the work:
 
 - **The repo stays canonical.** Everything in `.hobbes/derived/` is
   regenerable from a commit SHA. Nothing derived is hand-maintained.
@@ -43,6 +61,11 @@ Five ideas do most of the work:
   is *structural* gets an entry in [`docs/constraints.md`](docs/constraints.md)
   naming where a user meets it. Hobbes is unusable as a known liar and
   worse as a fake-honest one.
+- **A provider's limits are Hobbes's limits.** Semantics come from
+  third-party indexers Hobbes runs and doesn't wrap. Their blind spots land
+  in the graph, so they're written down as *ours* — never disowned as the
+  indexer's problem. You ran `hobbes ingest`, not `scip-python`, and a
+  missing edge reads as an absent call either way.
 
 ### Extraction is two lanes
 
@@ -84,11 +107,11 @@ Current detail lives in the "Current status" section of
 
 | Document | What |
 |---|---|
-| [`docs/hobbes-architecture-v2.md`](docs/hobbes-architecture-v2.md) | **Source of truth.** Supersedes v1's extraction layer and restates every other subsystem, so it stands alone |
+| [`docs/hobbes-architecture.md`](docs/hobbes-architecture.md) | **Source of truth — the running architecture.** Describes Hobbes as it is now; amended in place, in the same commit as the code that moves it |
 | [`docs/hobbes-build-plan-v2.md`](docs/hobbes-build-plan-v2.md) | The active programme, V2.M0–V2.M7, with exit criteria |
-| [`docs/hobbes-architecture.md`](docs/hobbes-architecture.md) | v1 design — accurate for the carried subsystems, historical for extraction |
+| [`docs/hobbes-architecture-v1.md`](docs/hobbes-architecture-v1.md) | The frozen v1 design — history, kept for the reasoning behind the carried subsystems |
 | [`docs/hobbes-build-plan.md`](docs/hobbes-build-plan.md) | v1 milestones M0–M8 and the locked decisions |
-| [`docs/adr/`](docs/adr/) | 32 numbered ADRs — one per decision the source docs don't make |
+| [`docs/adr/`](docs/adr/) | 34 numbered ADRs — one per decision the running architecture doesn't make |
 | [`docs/constraints.md`](docs/constraints.md) | **What Hobbes cannot tell you**, and where you find that out |
 | [`docs/first-run.md`](docs/first-run.md) | Bringing Hobbes up on a new app, in the order the system is meant to be used |
 | [`docs/future_additions.md`](docs/future_additions.md) | Deliberately deferred work, with the reasoning kept |
