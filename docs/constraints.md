@@ -189,19 +189,46 @@ information appears in both, and the entries cross-reference.
 
 ## Extraction — TypeScript and JavaScript
 
-### C-11 — JS/TS test reach is per *file*, not per test case
-- **Cannot tell you:** which specific `it()` case guards which code. Every
-  case in a test file shares the file's whole imports-plus-calls closure.
-- **Because:** JS test bodies are anonymous closures, not symbols, so
-  there is nothing to attribute a call to.
-- **Bites at:** `tests_guarding` and behavioral coverage **over-report**
-  for JS — the one place in the system where a limit inflates a number
-  rather than shrinking it, which makes it the most dangerous kind.
-- **You find out:** **unsurfaced.** A JS test row looks exactly like a
-  pytest row, whose reach is per-case and precise.
-- **Source:** ADR-021, deferred at M6. `future_additions.md` → per-test JS
-  reach. V2.M3 is the milestone that can afford it, since SCIP occurrences
-  carry ranges.
+### C-11 — JS/TS test reach is per *file*, not per test case — **LIFTED at V2.M3**
+- **Was:** every case in a test file shared the file's whole
+  imports-plus-calls closure, so `tests_guarding` and behavioural coverage
+  **over-reported** for JS — the one place in the system where a limit
+  inflated a number rather than shrinking it, and unsurfaced, because a JS
+  row looked exactly like a precise pytest row.
+- **Lifted by:** the helper now records each case's extent and the join
+  carries ranges, so a call is attributed to the `it()` that encloses it;
+  calls outside every case (a `beforeEach`, a `describe` body) are shared
+  by all cases in the file, because that code really does run for each.
+  Measured on kbet: reach went from a flat 7.3 symbols for every case in a
+  file to per-case, with cases in the same file now differing.
+- **Source:** ADR-021 (the limit), V2.M3 (the lift). Superseded by C-24,
+  which is the honest residue.
+
+### C-24 — A test that only *renders* a component does not reach it
+- **Cannot tell you:** that a React component test guards the component it
+  renders. Reach is the closure over **call** edges, and `<BetCard />` is a
+  JSX element, not a call site — it lands in the graph as a `uses` edge
+  (182 of them on kbet), which reach deliberately does not follow.
+- **Because:** distinguishing "renders this component" from "names this
+  type in an annotation" needs the `syntax_kind` SCIP does not populate
+  (C-6). Both are `uses`.
+- **Bites at:** `tests_guarding` on component-heavy repos, and `hobbes
+  review`'s unguarded-new-code verdict.
+- **Direction is deliberate.** This *under*-reports, where C-11
+  over-reported, and that asymmetry is the point: under-reporting makes
+  `review` flag code as unguarded and a human looks; over-reporting lets
+  code claim guarding it does not have. Given a choice between two
+  inaccuracies, reach takes the one that fails toward attention. It also
+  keeps JS reach computed exactly as pytest reach is (ADR-007's closure
+  over calls), which is what C-11 was really about.
+- **You find out:** **unsurfaced.** A render-only test row shows an empty
+  `reaches` and gives no reason.
+- **Candidate fix:** record JSX elements as call sites in the syntax
+  provider — a JSX instantiation *is* a call in every meaningful sense —
+  or seed a case's reach from the `uses` edges inside its own range.
+  Deferred to V2.M6, where the reviewer flow is the consumer that would
+  feel it.
+- **Source:** V2.M3.
 
 ### C-12 — Imports across tsconfig zones do not resolve
 - **Cannot tell you:** that package A imports package B in a monorepo,
@@ -364,25 +391,33 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Nine of twenty-three entries are **unsurfaced** (C-3, C-4, C-5, C-11, C-12,
-C-14, C-16, C-19, C-20). That number is the point of keeping the register:
-it was not knowable before this file existed, and it is the backlog P8
-generates.
+Nine of twenty-four entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
+C-16, C-19, C-20, C-24). One entry — C-11 — has been **lifted**. That
+churn is the point of keeping the register: none of it was knowable before
+this file existed, and what remains is the backlog P8 generates.
 
 Ranked by how badly each misleads, worst first:
 
-1. **C-11** — inflates JS test coverage; a file-level reach row is
-   indistinguishable from a precise pytest one.
-2. **C-16** — a degradation check that appears to run and reports nothing,
+1. **C-16** — a degradation check that appears to run and reports nothing,
    on the repo Hobbes dogfoods against.
-3. **C-3** — "imports no stdlib" and "stdlib not modelled" look identical,
+2. **C-3** — "imports no stdlib" and "stdlib not modelled" look identical,
    and the question is usually a security one.
+3. **C-24** — an empty `reaches` on a component test reads as "nothing
+   guards this", though it fails in the safe direction by design.
 
 The rest stay quiet rather than lying, which is a real difference.
 
-**Track record so far:** two of the three entries added at V2.M3 were
+**Nothing left in the register inflates a number.** C-11 was the only
+entry that made a claim larger than the truth, and V2.M3 lifted it; C-24,
+its residue, was deliberately chosen to fail toward attention instead.
+Every remaining limit under-reports or stays silent — so a Hobbes number
+can now be read as a floor, which is a property worth defending in later
+milestones.
+
+**Track record so far:** three of the four entries touched at V2.M3 were
 *already true and already invisible* before the register existed — C-23 in
 particular had a check written specifically to catch it that could not fire
-under any circumstances. That is the argument for P8 restated as evidence:
-both were documented honestly in an ADR at the moment of decision, and both
-went on to mislead anyway.
+under any circumstances, and C-11 had been honestly documented at M6 and
+went on misleading for two milestones. That is the argument for P8 restated
+as evidence: being written down in an ADR at the moment of decision did not
+stop either of them.

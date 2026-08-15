@@ -263,10 +263,14 @@ class TestJoinFacts:
                                 "line": 2,
                             }
                         ],
+                        calls=[
+                            {"callee": "helper", "callee_path": "src/util.js", "scope": None, "line": 5},
+                            {"callee": "helper", "callee_path": "src/util.js", "scope": None, "line": 9},
+                        ],
                         test_framework="node:test",
                         tests=[
-                            {"qualname": "helper works", "line": 4},
-                            {"qualname": "suite > helper again", "line": 8},
+                            {"qualname": "helper works", "line": 4, "end_line": 6},
+                            {"qualname": "suite > helper again", "line": 8, "end_line": 10},
                         ],
                     ),
                 ]
@@ -277,10 +281,14 @@ class TestJoinFacts:
         )
         assert first["id"] == "tests/util.test.mjs::helper works"
         assert first["framework"] == "node:test"
-        # Reach seeds on the import and closes over helper -> inner.
+        # Each case calls helper inside its own range, and reach closes
+        # over helper -> inner. Reach is call-based, exactly as pytest's
+        # is (ADR-007) — importing a name is not exercising it (C-11).
         assert first["reaches"] == ["src/util.helper", "src/util.inner"]
-        assert first["reaches_modules"] == ["src/util"]
         assert second["reaches"] == first["reaches"]
+        # Module-level guarding stays file-level: importing a module
+        # guards it even when nothing named is in the symbol layer.
+        assert first["reaches_modules"] == ["src/util"]
 
     def test_test_file_own_symbols_excluded_from_reach(self):
         joined = join_facts(
@@ -336,6 +344,77 @@ class TestJoinFacts:
         )
         assert record["reaches"] == []
         assert record["reaches_modules"] == ["src/store"]
+
+
+class TestPerCaseReach:
+    """C-11: a JS case reaches what *it* calls, not what its file calls.
+
+    File-level reach made `tests_guarding` over-report on TS repos — the
+    only number in the system larger than the truth — and a JS row was
+    indistinguishable from a precise pytest one.
+    """
+
+    @staticmethod
+    def _facts():
+        return facts(
+            [
+                file_facts(
+                    "src/a.ts",
+                    symbols=[
+                        {"name": n, "qualname": n, "kind": "function", "line": ln, "end_line": ln + 1}
+                        for n, ln in (("alpha", 1), ("beta", 5), ("setup", 9))
+                    ],
+                ),
+                file_facts(
+                    "tests/x.test.ts",
+                    imports=[
+                        {
+                            "specifier": "../src/a.js",
+                            "resolved": "src/a.ts",
+                            "external": None,
+                            "names": [],
+                            "line": 1,
+                        }
+                    ],
+                    calls=[
+                        # shared setup, outside every case
+                        {"callee": "setup", "callee_path": "src/a.ts", "scope": None, "line": 3},
+                        # inside case one (lines 5-7)
+                        {"callee": "alpha", "callee_path": "src/a.ts", "scope": None, "line": 6},
+                        # inside case two (lines 9-11)
+                        {"callee": "beta", "callee_path": "src/a.ts", "scope": None, "line": 10},
+                    ],
+                    test_framework="vitest",
+                    tests=[
+                        {"qualname": "one", "line": 5, "end_line": 7},
+                        {"qualname": "two", "line": 9, "end_line": 11},
+                    ],
+                ),
+            ]
+        )
+
+    def test_each_case_reaches_only_its_own_calls(self):
+        joined = join_facts(self._facts())
+        one, two = collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        )
+        assert one["id"].endswith("::one") and two["id"].endswith("::two")
+        assert "src/a.alpha" in one["reaches"]
+        assert "src/a.beta" not in one["reaches"], "case one must not claim case two's call"
+        assert "src/a.beta" in two["reaches"]
+        assert "src/a.alpha" not in two["reaches"]
+
+    def test_shared_setup_reaches_every_case(self):
+        """beforeEach and describe-level calls really do run for each case.
+
+        Attributing only in-range calls would trade the old over-report
+        for an under-report, which is not an improvement.
+        """
+        joined = join_facts(self._facts())
+        rows = collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        )
+        assert all("src/a.setup" in r["reaches"] for r in rows)
 
 
 class TestHasTsFiles:

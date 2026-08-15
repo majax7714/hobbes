@@ -5,7 +5,11 @@ ingests a repo and produces a policy-governed environment where agents do the
 line-level work and humans review at the concept level — docs, test behavior,
 and architecture, not diffs.
 
-The comic is a wonderful masterpiece i recommend everyone take a read once, anyone is allowed to use hobbes
+Joern(github.com/joernio/joern) is a code property graph software that accomplishes a lot of the things Hobbes looks to solve
+though not directly related as joerns focus is on vulnerability discovery and research for static program analysis.
+While hobbes looks to provide a usable environment for devs and agents. I will be releasing a comparison doc between their graphing functionalities soon
+
+The comic (calvin and hobbes) is a wonderful masterpiece by bill waterson i recommend everyone take a read once, anyone is allowed to use hobbes
 though my only request is please keep some reference to the funny tiger in your uses of hobbes.
 
 

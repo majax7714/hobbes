@@ -283,18 +283,29 @@ def _edge_list(edges: dict[tuple, list]) -> list[dict]:
 def collect_ts_tests(
     files: list[dict], symbols: list[dict], symbol_edges: list[dict]
 ) -> list[dict]:
-    """tests.json rows for JS/TS tests, with file-level static reach.
+    """tests.json rows for JS/TS tests, with **per-case** static reach.
 
-    JS test cases are anonymous closures, not symbols, so reach is
-    computed once per test *file* — every symbol its imports name plus
-    every call the join resolved out of it, closed over the call graph —
-    and shared by the file's cases. Coarser than pytest's per-test reach,
-    and the one constraint in the system that makes a number *larger*
-    than the truth rather than smaller (C-11, ADR-021).
+    A JS test case is an anonymous closure with no symbol to hang an edge
+    on, so until V2.M3 reach was computed once per test *file* and shared
+    by every case in it. That made `tests_guarding` and behavioural
+    coverage *over*-report on TS repos — the only number in the system
+    that was larger than the truth rather than smaller, and worse,
+    indistinguishable from a precise pytest row (C-11).
 
-    Since V2.M3 this consumes the **joined** symbol edges rather than
-    ts-morph's own, so reach is measured over what the semantic provider
-    proved wherever it could (ADR-031).
+    SCIP occurrences carry ranges and the helper now records each case's
+    extent, so a call can be attributed to the `it()` that encloses it.
+    Two kinds of call, and both are needed to stay honest:
+
+    - inside a case's range → that case reaches it;
+    - outside **every** case → shared setup (`beforeEach`, module-level
+      fixtures, `describe` bodies), so every case in the file reaches it.
+
+    Dropping the second kind would trade the old over-report for an
+    under-report, which is not an improvement — setup really does run for
+    each case.
+
+    Reach is measured over the **joined** symbol edges, so it counts what
+    the semantic provider proved wherever it could (ADR-031).
     """
     test_files = {f["path"] for f in files if f["test_framework"]}
     test_module_ids = {module_id(p) for p in test_files}
@@ -306,44 +317,44 @@ def collect_ts_tests(
     # `calls` only: a `uses` edge would let a test claim it guards code it
     # merely names (ADR-029), and reach is the basis of that claim.
     adjacency = defaultdict(set)
-    calls_from_file = defaultdict(set)
+    calls_at = defaultdict(list)  # file -> [(line, target)]
     for edge in symbol_edges:
         if edge["type"] != "calls":
             continue
         adjacency[edge["from"]].add(edge["to"])
         for sighting in edge["evidence"]:
-            calls_from_file[sighting["path"]].add(edge["to"])
+            calls_at[sighting["path"]].append((sighting["line"], edge["to"]))
 
     records = []
     for f in files:
         if not f["test_framework"]:
             continue
         mid = module_id(f["path"])
-        seeds: set[str] = set()
-        for imp in f["imports"]:
-            if not imp["resolved"]:
-                continue
-            target_mid = module_id(imp["resolved"])
-            for name in imp["names"]:
-                bare = name.removeprefix("* as ")
-                if bare in symbols_by_module[target_mid]:
-                    seeds.add(f"{target_mid}.{bare}")
-        seeds |= calls_from_file.get(f["path"], set())
+        cases = f["tests"]
+        ranges = [(c["line"], c.get("end_line", c["line"])) for c in cases]
 
-        reached = set(seeds)
-        frontier = list(seeds)
-        while frontier:
-            current = frontier.pop()
-            for target in adjacency.get(current, ()):
-                if target not in reached:
-                    reached.add(target)
-                    frontier.append(target)
-        # Anything living in a test file is scaffolding, not guarded code —
-        # filter by id prefix, not the symbol table, so call targets the
-        # symbol layer doesn't model are excluded too.
+        # Seeded from calls only, and deliberately *not* from the file's
+        # imports. Import seeding was the file-level approximation of the
+        # attribution now done properly: `api.test.ts` imports fourteen
+        # functions, so seeding on imports hands all fourteen to every
+        # case and per-case ranges buy nothing. It also makes JS reach
+        # mean what pytest reach means — the closure over calls (ADR-007)
+        # — which is the whole point of C-11: a JS row must not look like
+        # a precise pytest row while being computed differently.
+        shared: set[str] = set()
+        per_case: dict[int, set[str]] = {i: set() for i in range(len(cases))}
+        for line, target in calls_at.get(f["path"], ()):
+            owners = [
+                i for i, (start, end) in enumerate(ranges) if start <= line <= end
+            ]
+            if owners:
+                # Nested `it()` cannot happen, but a defensive innermost
+                # pick costs nothing and keeps one call in one case.
+                per_case[owners[-1]].add(target)
+            else:
+                shared.add(target)  # beforeEach, describe body, module level
+
         test_prefixes = tuple(f"{tm}." for tm in test_module_ids)
-        reached = {s for s in reached if not s.startswith(test_prefixes)}
-        reaches = sorted(reached)
         # Module-level guarding must not depend on symbol modeling: a
         # test that imports a module guards it even when nothing it
         # names is in the symbol layer (data consts, mocked modules).
@@ -352,11 +363,21 @@ def collect_ts_tests(
             for imp in f["imports"]
             if imp["resolved"]
         } - test_module_ids
-        reaches_modules = sorted(
-            {symbol_module[s] for s in reached if s in symbol_module}
-            | imported_modules
-        )
-        for case in f["tests"]:
+
+        for i, case in enumerate(cases):
+            seeds = shared | per_case[i]
+            reached = set(seeds)
+            frontier = list(seeds)
+            while frontier:
+                current = frontier.pop()
+                for target in adjacency.get(current, ()):
+                    if target not in reached:
+                        reached.add(target)
+                        frontier.append(target)
+            # Anything living in a test file is scaffolding, not guarded
+            # code — filter by id prefix, not the symbol table, so call
+            # targets the symbol layer doesn't model are excluded too.
+            reached = {s for s in reached if not s.startswith(test_prefixes)}
             records.append(
                 {
                     "id": f"{f['path']}::{case['qualname']}",
@@ -364,8 +385,11 @@ def collect_ts_tests(
                     "framework": f["test_framework"],
                     "line": case["line"],
                     "symbol": f"{mid}.{case['qualname']}",
-                    "reaches": reaches,
-                    "reaches_modules": reaches_modules,
+                    "reaches": sorted(reached),
+                    "reaches_modules": sorted(
+                        {symbol_module[s] for s in reached if s in symbol_module}
+                        | imported_modules
+                    ),
                 }
             )
     return sorted(records, key=lambda r: r["id"])
