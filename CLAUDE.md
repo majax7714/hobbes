@@ -65,10 +65,11 @@ the interactive graph.
   `node_modules/` gitignored, lockfile committed. Only external dep:
   ts-morph.
 - `scip/` — **v2 lane B** (ADR-027): the SCIP indexers, pinned
-  (`scip-python`, `scip-typescript`), plus `analyze.mjs` / `compare.mjs`
-  — V2.M0 spike tooling kept because they are the reproducible evidence
-  for ADR-027's numbers, and `compare.mjs` prototypes §3.4's
-  lane-agreement report. No tests until the real helper lands at V2.M2.
+  (`scip-python`, `scip-typescript`), `index.mjs` (the real helper:
+  runs an indexer, decodes, filters, reports `dependency_coverage`), and
+  the spike tooling kept as reproducible evidence — `analyze.mjs` /
+  `compare.mjs` for ADR-027's numbers, `spike-ts.mjs` for ADR-032's
+  staging table. Own `node --test` suite (`npm test`).
   One-time: `cd scip && npm install`.
 - `web/` — the M7 surface (Vite + React + TS, Cytoscape.js per D3).
   `src/lib/` holds the pure layer and all the vitest cases (graph model
@@ -131,6 +132,10 @@ uv run hobbes invariants check                # validate .hobbes/invariants/
 uv run hobbes invariants compile              # → .hobbes/derived/compiled/
 uv run hobbes review main..my-branch          # exits 1 if it needs attention
 uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
+
+# Lane agreement (V2.M3, §3.4) — a command and a CI check
+uv run hobbes lanes                           # exits 1 if the lanes disagree
+uv run hobbes lanes --json
 ```
 
 ## Conventions
@@ -170,8 +175,18 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 **Active: the v2 extraction architecture.** Source of truth is
 `docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done. V2.M3 is
-next.**
+deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
+(ADR-029) done. V2.M3 (ADR-030/031/032) built 2026-08-15, both exit
+criteria met, awaiting Max's review. V2.M4 is next once he passes it.**
+
+**P8 — every concession is a registered constraint (ADR-030).** New
+principle, and it governs the whole project, not one milestone: when
+Hobbes cannot recover information, the gap gets a `C-n` entry in
+`docs/constraints.md` **plus the place a user meets it**. An entry whose
+only surfacing is a document is recorded `unsurfaced` and is debt. P6
+covers the run that failed; P8 covers what was never knowable. Max:
+"hobbes is unusable if its a known liar, even less usable if its fake
+honest."
 
 Artifacts are at **schema v4** (ADR-028): every edge carries a `tier`
 (`semantic`|`syntactic`|`dynamic`) and every evidence entry a `lane`.
@@ -192,15 +207,36 @@ layer already owns).
 Lane B never writes to the target repo: it stages a copy under
 `~/.hobbes/cache` (`extract/staging.py`, ADR-027's seven-clause contract).
 `HOBBES_SCIP=0` disables it, and the pytest suite sets that by default —
-tests marked `lane_b` opt in.
+tests marked `lane_b` opt in. **Clause 2 is refined by ADR-032:** authored
+source is always copied, but a regenerable dependency tree
+(`node_modules`, 222 MB on kbet) is **symlinked**, because the
+copy-preserving alternative measured a 6.4% loss of semantic references.
+Two properties are asserted in `test_staging.py` rather than assumed —
+indexing writes nothing through the link, and `remove_stage` unlinks it
+instead of recursing into the target (C-22). That second one is the
+mistake that would delete a user's dependency tree.
 
-**M2 exits with an asterisk (Max, 2026-08-15).** `scip-typescript` was in
-M2's scope and is not wired, so a TS repo ingests entirely at syntactic
-tier. The work folded into **M3**, which already opens `tssource.py` to
-strip its symbol layer — the gap is the TS syntax provider: `tsextract`
-must emit call sites with line, column and terminal name into the evidence
-IR, as `pysource` now does. **M3's exit discharges the asterisk**, so M3
-does not pass until kbet produces hand-verified semantic edges.
+**M2's asterisk is discharged (V2.M3, 2026-08-15).** kbet produces 231
+semantic TS call edges, 20/20 hand-verified against their cited lines.
+The lane-agreement report (`hobbes lanes`, exit 1 on disagreement) runs
+clean on all three sanctioned repos — hobbes 1789 sites compared / 0
+disagree, SELENEX 976 / 0, kbet 359 / 0.
+
+Three things M3 settled that later milestones depend on:
+
+- **The join is the only producer of symbol edges**, for every language,
+  and it runs *whether or not lane B does* — with no semantic input every
+  site falls to the fallback arm. P6 holds by construction, not via a
+  second code path, so the degraded path is exercised on every test run
+  (the suite is `HOBBES_SCIP=0` by default).
+- **Lane A's resolver is demoted, not deleted (ADR-031).** It stops
+  producing edges and becomes the join's fallback. Deleting it — which
+  the plan said to do — would leave any repo without a working indexer
+  holding no call graph at all.
+- **A TS zone is indexed at its own `--cwd`, so its paths are
+  zone-relative** and must be re-rooted before the join (`_rebase`).
+  Getting this wrong is silent: no error, just very few semantic edges.
+  Python never hits it because its `--cwd` is the stage root.
 
 Three things ADR-027 settled that any v2 session needs to know:
 `--project-version` is always pinned (its default is the git revision,

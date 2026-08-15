@@ -1453,3 +1453,150 @@ and ship the lane-agreement report as both a CI check and a command.
 Nothing built this session. Tree clean, all suites green as of `a665363`:
 405 pytest / 52 vitest / 18 node (tsextract) / 10 node (scip) / 12 Go
 packages.
+
+## 2026-08-15 (second) — V2.M3 built: the TS lane, the demotion, and P8
+
+M3's two exit criteria are met. Reporting them first, then what it cost.
+
+**kbet produces semantic TS edges — 20/20 hand-verified, bar was ≥95%.**
+231 semantic call edges and 267 semantic module imports. The sample
+(`random.seed(20260815)`) included the cases that actually test the join:
+zustand store hooks (`useInstallStore((s) => s.installPrompt)`), a call
+inside a nested arrow passed as a prop (`onClick={() => handleAction(() =>
+cancelBet(bet.id))}`), a call inside a `.filter()` callback, and
+`posts: [samplePost('a'), samplePost('b')]` — two calls on one line, which
+is precisely why the evidence IR carries a column. Every cited line and
+every cited definition checked out.
+
+**The lane-agreement report runs clean on every sanctioned repo:**
+
+| repo | sites both lanes resolved | disagree |
+|---|---|---|
+| hobbes | 1789 | **0** |
+| SELENEX | 976 | **0** |
+| kbet | 359 | **0** |
+
+Its module-edge rows reproduced ADR-027's M0 finding without being asked:
+lane A says `hobbes.cli -> hobbes.invariants`, lane B says
+`hobbes.cli -> hobbes.invariants.schema`, because SCIP follows the
+re-export to the real definition. kbet's eight are type-only imports lane A
+does not record. All favour lane B, exactly as the spike predicted.
+
+SELENEX was checked **read-only** — `extract_repo`, never `ingest`, so
+nothing was written to it at all; its `git status` hash is byte-identical
+before and after. 207 nodes, 1093 semantic calls, no degradation.
+
+### The measurement that mattered most
+
+Old code vs new code on an **identical tree** (a worktree, each side
+running its own helper), because the repo was growing under me and absolute
+counts were not comparable — I nearly filed a phantom regression before
+setting this up:
+
+```
+python  calls/semantic  1211 -> 1211   identical
+python  uses/semantic    392 ->  392   identical
+ts/js   calls/syntactic  136 ->    0
+ts/js   calls/semantic     0 ->  136
+```
+
+Every TS call edge ts-morph had guessed is now SCIP-proven, one for one,
+none lost, Python untouched. The "86 missing Python edges" I chased for
+half an hour did not exist: I had compared a whole-graph count against a
+Python-filtered one, and the 136 "syntactic" edges were the TS ones.
+
+Repo-wide coverage reads 86.9% -> 77.1%, which is **not** a regression. TS
+call sites were never in the denominator before, because ts-morph reported
+only the calls it had resolved. Split by language: python 86.9%, ts/js
+60.4%. The TS number existing at all is the point.
+
+### Two silent failures the work surfaced
+
+**A path-base mismatch nearly hid the whole TS lane.** A zone is indexed
+with `--cwd` at its own directory, so SCIP reports `src/App.tsx` where lane
+A says `web/src/App.tsx`. The join matched nothing outside the root zone —
+no error, just 64 semantic edges instead of 139 and a coverage denominator
+full of holes. Found by asking why a healthy-looking index (1777
+references) produced so few edges. Python never hit it because its `--cwd`
+is the stage root.
+
+**Decision 4's degradation check could never fire for TypeScript.** The
+V2.M3 spike included a deliberate control — a staged copy with no
+`node_modules` — which had to look bad or the measurement would be
+worthless. It looked bad in ADR-027's exact signature (top package
+`npm:typescript` at 2,643 references, the same number that ADR recorded)
+and **reported no degradation**: the test fired only when *every* declared
+dependency was missing, and scip-typescript bundles `typescript`, so that
+one always-resolving package held the condition false forever. 1 of 23
+resolved, silence. Replaced by a coverage ratio on the ADR-029 denominator
+pattern. Then I broke it the other way — excluding the bundled package from
+*resolved* but not from *declared* made every TS repo report `typescript`
+permanently missing — and fixed that too.
+
+### P8: a conceded fact is a registered constraint
+
+Max, at kickoff: *"if we ever have to concede needed information we need to
+document heavily as a constraint. hobbes is unusable if its a known liar,
+even less usable if its fake honest."*
+
+P6 covered the run that broke. Nothing covered what was never knowable, so
+`docs/constraints.md` now does, seeded complete (**24 entries**) rather than
+from this milestone alone — a half-seeded honesty register is itself fake
+honest, because absence reads as evidence. Every entry names *where a user
+meets the limit*; an entry whose only surfacing is a document is recorded
+**unsurfaced**, which is debt, not a decision.
+
+The seeding paid for itself immediately: **nine were unsurfaced**, and two
+misled actively rather than staying quiet. Both had been honestly written
+down in an ADR at the moment of decision, and both went on misleading for
+two milestones anyway. That is the argument for P8 as evidence rather than
+assertion.
+
+**C-11 is lifted.** JS test reach was per *file*, so every case claimed the
+file's whole closure — the only number in the system larger than the truth,
+and indistinguishable from a precise pytest row. It is now per case. The
+residue is **C-24** (a test that only renders `<BetCard />` reaches
+nothing, because JSX is a `uses` edge and reach follows calls), and its
+direction was chosen deliberately: under-reporting makes `review` flag code
+as unguarded and a human looks; over-reporting lets code claim guarding it
+does not have. With C-11 gone, **nothing left in the register inflates a
+number** — a Hobbes figure can be read as a floor.
+
+### Decisions
+
+- **ADR-030** — P8 and the register.
+- **ADR-031** — lane A's resolver is **demoted, not deleted**. The build
+  plan said delete; reading the code first showed that would leave any repo
+  without a working indexer holding *no call graph at all*, and the pytest
+  suite runs `HOBBES_SCIP=0` by default, so every lane-A case would have
+  asserted against an empty list. One resolver of record (lane B), a
+  labelled floor beneath it. Registered as C-8.
+- **ADR-032** — the TS lane stages a copy and **symlinks `node_modules`**
+  (222 MB on kbet; the copy-preserving alternative measured a 6.4% loss of
+  semantic references). ADR-027 clause 2 is refined, not withdrawn:
+  authored source is still always copied. Two properties verified rather
+  than assumed — a full index modified 0 files under the real
+  `node_modules`, and `shutil.rmtree` unlinks a symlinked directory instead
+  of recursing into it, which is the mistake that would have deleted a
+  user's dependency tree. Both carry regression tests.
+
+### Shape of the code now
+
+The join is the **only** producer of symbol edges, for every language, and
+it runs whether or not lane B does — with no semantic input every site
+falls to the fallback arm. P6 is satisfied by construction rather than by a
+second code path, so the degraded case is exercised on every test run
+instead of only when something breaks. `extract_repo` reordered: all of
+lane A first across every language, then the join, then the test map.
+
+Also closed a gap the version bump exposed: nothing asserted the Node
+helpers and their Python joins agree on a facts version. The constant is
+declared twice in two languages and the suite is hermetic, so a one-sided
+bump stayed green and would have broken only on a real repo.
+
+429 pytest / 52 vitest / 20 node tsextract / 12 node scip / 12 Go packages.
+gofmt and go vet clean.
+
+**Not done, and deliberately:** `hobbes lanes` is not wired into the web
+surface (§6 lists a lane-disagreement view as a v2 UI addition; the command
+and artifact exist, the tab does not). M3's exit does not require it.
