@@ -117,6 +117,30 @@ class TestCalls:
         p = parse('@app.get("/x")\ndef h():\n    pass\n')
         assert p.calls == []
 
+    def test_wrapped_chain_is_positioned_on_the_callee(self):
+        """A site's line must be the callee's, not the expression's.
+
+        SCIP puts its occurrence on the terminal identifier. When a chain
+        wraps, the call expression starts lines earlier, and reporting that
+        line leaves the site permanently unjoinable (ADR-029) — a missing
+        edge and a hole in coverage, neither of which raises anything.
+        """
+        p = parse(
+            "result = (client\n"
+            "          .session\n"
+            "          .get(url))\n"
+        )
+        (call,) = p.calls
+        assert call.callee == "client.session.get"
+        assert call.line == 3  # `.get`, not `client` on line 1
+
+    def test_same_line_calls_are_separated_by_column(self):
+        p = parse("out = first(second())\n")
+        assert sorted((c.callee, c.col) for c in p.calls) == [
+            ("first", 6),
+            ("second", 12),
+        ]
+
 
 class TestEnvReads:
     def test_all_four_patterns(self):

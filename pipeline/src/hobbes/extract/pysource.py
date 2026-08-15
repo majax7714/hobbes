@@ -321,6 +321,20 @@ def _walk(
                     parsed.env_reads.append(EnvRead(var, line))
             terminal = _terminal(function)
             column = terminal.start_point.column if terminal is not None else -1
+            # Position the site on the *callee identifier*, not on the call
+            # expression, because that is where the semantic provider puts
+            # its occurrence. They differ whenever a chain wraps —
+            #
+            #     result = (client
+            #               .session
+            #               .get(url))
+            #
+            # — where the call starts at `client` and SCIP resolves `get`
+            # two lines down. Reporting the call's line leaves the site
+            # permanently unjoinable: not an error, just an edge that never
+            # appears and a hole in coverage's numerator (ADR-029).
+            if terminal is not None:
+                line = terminal.start_point.row + 1
             parsed.calls.append(
                 Call(_scope_qualname(stack), dotted, line, column)
             )
