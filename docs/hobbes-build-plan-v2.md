@@ -5,11 +5,11 @@ against `docs/hobbes-architecture-v2.md` §7 and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
 **Progress: V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done.
-V2.M3 (ADR-030/031/032) built 2026-08-15 — both exit criteria met,
-awaiting Max's review.** The M2 asterisk is discharged: kbet produces
-20/20 hand-verified semantic TS edges, and the lane-agreement report runs
-clean on all three sanctioned repos (hobbes 1789 sites / 0 disagree,
-SELENEX 976 / 0, kbet 359 / 0). Next is **V2.M4**.
+V2.M3 (ADR-030/031/032) built and **reviewed — passed by Max
+2026-08-15**.** The M2 asterisk is discharged: kbet produces 20/20
+hand-verified semantic TS edges, and the lane-agreement report runs clean
+on all three sanctioned repos (hobbes 1789 sites / 0 disagree, SELENEX
+976 / 0, kbet 359 / 0). Next is **V2.M4**.
 
 **\* The M2 asterisk, and how it closes.** `scip-typescript` was in M2's
 scope and is not wired, so M2 exits marked rather than clean. Max's call
@@ -194,7 +194,7 @@ human-visible v2 improvement at M2 instead of M6. See §"Visible value".
 
 ---
 
-## V2.M3 — Lane A refactor + self-test, and M2's TS half (4–5) — **BUILT, awaiting review**
+## V2.M3 — Lane A refactor + self-test, and M2's TS half (4–5) — **DONE (reviewed, passed)**
 
 **Outcome: ADR-030 (P8 and the constraint register), ADR-031 (the resolver
 is demoted, not deleted), ADR-032 (the TS lane stages and symlinks

@@ -16,10 +16,15 @@ invariants C-21.
 **Subsumed by the v2 extraction architecture (2026-08-14) — do not build
 these:** *cross-language module-id namespacing* (moniker-keyed node ids
 make the `widget.py` / `widget.ts` collision a non-question),
-*per-test JS reach* (SCIP occurrences carry ranges, so reach stops being
-file-level at V2.M3), and *graph-diff rename detection* (any path-matching
-heuristic would be built against ids that V2.M1 replaces). Their entries
-stay below for the reasoning; the work does not.
+*per-test JS reach* (**done at V2.M3** — see below), and *graph-diff
+rename detection* (any path-matching heuristic would be built against ids
+that V2.M1 replaces). Their entries stay below for the reasoning; the work
+does not.
+
+**Also changed by v2:** *per-package tsconfigs / cross-zone imports* now
+applies to **both** lanes — `scip-typescript` is run once per zone for the
+same reason `ts-morph` is (V2.M3, ADR-032), so an import across two zones
+resolves in neither. Registered as **C-12**.
 
 - **Graph-diff rename detection** (from M2, deferred 2026-08-10).
   Node identity is by id (ADR-009), so a package rename — or an id
@@ -64,7 +69,16 @@ stay below for the reasoning; the work does not.
   *across* zones don't resolve (separate programs) — revisit if a real
   monorepo has package-to-package imports.
 
-- **Per-test JS reach** (from M6, deferred 2026-08-11). JS test reach
+- ~~**Per-test JS reach**~~ — **built 2026-08-15 at V2.M3** (`797c29e`).
+  The helper records each case's extent and the join carries ranges, so a
+  call is attributed to the `it()` enclosing it; calls outside every case
+  (a `beforeEach`, a `describe` body) are shared by the file's cases,
+  because that code really does run for each. Constraint **C-11** is
+  lifted; its residue is **C-24** (a test that only renders a component
+  reaches nothing, since JSX is a `uses` edge and reach follows calls).
+  Original note follows.
+
+  (from M6, deferred 2026-08-11). JS test reach
   is file-level: every case in a test file shares the file's
   imports+calls closure, because test bodies are anonymous closures,
   not symbols. Per-case reach would need walking each `it()` callback's

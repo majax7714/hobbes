@@ -1600,3 +1600,55 @@ gofmt and go vet clean.
 **Not done, and deliberately:** `hobbes lanes` is not wired into the web
 surface (§6 lists a lane-disagreement view as a v2 UI addition; the command
 and artifact exist, the tab does not). M3's exit does not require it.
+
+## 2026-08-15 (third) — M3 reviewed and passed; doc sweep before M4
+
+Max reviewed V2.M3 and passed it ("my review looks clean"). The M2
+asterisk is formally discharged. Status updated in CLAUDE.md and the v2
+build plan; **V2.M4 (enrichment packs) is next**, not started.
+
+No code this session. A documentation sweep, on his ask, to get the
+project current before the next milestone.
+
+**The README was two milestones stale** — it described M0, listed the v1
+docs as "the source of truth", said `web/` had nothing to run, and did not
+mention `tsextract/`, `scip/`, `sandbox/`, tiers, the constraint register,
+or eight of the eleven CLI commands. Rewritten against the tree as it
+actually is, with counts verified rather than recalled (188 Go cases / 429
+pytest / 52 vitest / 20 tsextract / 12 scip / 32 ADRs). **Max's notes at
+the top are his and are kept verbatim** — the tiger, the Joern comparison,
+and the Bill Watterson note. Added `hobbesncalvin.jpg` with attribution,
+at his request.
+
+*(That image was swept into `3553002` by a `git add -A` of mine before he
+mentioned it. Harmless — he wants it tracked — but it was not mine to
+commit and is worth recording.)*
+
+**Four other docs had drifted:**
+
+- **`first-run.md`** — the "bring Hobbes up on a new app" guide, and it
+  did not mention lane B at all. Step 0 was missing `cd scip && npm
+  install`, so a reader following it exactly would have got a
+  fully-syntactic graph and no hint why. Added that, a note that lane B
+  needs the *target repo's* dependencies installed, a new step 2a for
+  `hobbes lanes`, and what `tier` and `resolution_coverage` mean. Two
+  entries added to "things that will bite you": ingesting a repo whose
+  dependencies are not installed (C-23), and reading an absent edge as
+  "this does not happen" (C-1).
+- **`hobbes-architecture.md` / `hobbes-build-plan.md`** — no banner. Read
+  cold, both presented as current, and `first-run.md` still called them
+  the source of truth. Each now opens with what it still governs, what v2
+  replaced, and that **v2 wins** where they disagree.
+- **`future_additions.md`** — still parked *per-test JS reach* as deferred
+  work after V2.M3 built it. Struck through with the commit, on the
+  convention the two fixed papercuts already use. Also noted that
+  cross-zone TS imports (C-12) now applies to **both** lanes, since
+  `scip-typescript` is run per zone for the same reason `ts-morph` is.
+
+**A doc that is deliberately current-but-unfinished:** `hobbes lanes` has
+no web-surface tab, though §6 lists a lane-disagreement view as a v2 UI
+addition. Recorded in the M3 entry above and left for Max to scope.
+
+Nothing else was found stale. `docs/m9-application-mode.md` remains a
+proposal with three open questions and is untouched; ADR-026 still awaits
+review, and neither blocks V2.M4.

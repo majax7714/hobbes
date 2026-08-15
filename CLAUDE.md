@@ -176,8 +176,9 @@ uv run hobbes lanes --json
 `docs/hobbes-architecture-v2.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
 deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
-(ADR-029) done. V2.M3 (ADR-030/031/032) built 2026-08-15, both exit
-criteria met, awaiting Max's review. V2.M4 is next once he passes it.**
+(ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
+Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4
+(enrichment packs) is next.**
 
 **P8 — every concession is a registered constraint (ADR-030).** New
 principle, and it governs the whole project, not one milestone: when

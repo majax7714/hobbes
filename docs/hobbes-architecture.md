@@ -1,5 +1,13 @@
 # Hobbes — Agentic Environment Architecture, v1.0
 
+> **Superseded in part.** The **extraction layer** (§3) is replaced by
+> [`hobbes-architecture-v2.md`](hobbes-architecture-v2.md), which is the
+> source of truth for build sessions and restates every other subsystem so
+> it stands alone. This document remains accurate for the carried
+> subsystems — policy, sandbox, escalation, flight recorder, quota, the
+> human surface — and is the historical record for extraction. Where the
+> two disagree, **v2 wins**.
+
 **Hobbes** (after Calvin and Hobbes). First complete draft: every previously
 open question is resolved with a recommended default, marked so they're easy to
 overturn on review. Next step after sign-off: code decisions and a build plan.

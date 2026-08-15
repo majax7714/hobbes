@@ -1,5 +1,12 @@
 # Hobbes — v1 Build Plan
 
+> **Complete, and historical for extraction.** M0–M8 are all built and
+> reviewed. The active programme is
+> [`hobbes-build-plan-v2.md`](hobbes-build-plan-v2.md) (V2.M0–V2.M7). The
+> milestones below are the record of how v1 was built; the extraction
+> milestones in particular describe a design v2 has replaced. The
+> sequencing rules carry forward unchanged.
+
 Companion to `hobbes-architecture.md` v1.0. Sequenced so every milestone ships
 something usable on its own, deterministic value lands before any quota is
 spent, and enforcement exists before any agent writes code. Estimates are in

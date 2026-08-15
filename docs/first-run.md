@@ -32,8 +32,21 @@ CGO_ENABLED=0 go build -o bin/hobbes-proxy ./cmd/hobbes-proxy
 
 cd ../web      && npm install && npm run build   # then rebuild hobbes-web
 cd ../tsextract && npm install                   # only if the repo has TS/JS
+cd ../scip     && npm install                    # lane B: the SCIP indexers
 cd ../pipeline && uv sync
 ```
+
+> **`scip/` is what makes edges *proven* rather than guessed.** Without
+> it, ingest still works and the whole graph sits at `syntactic` tier —
+> lane A's static resolution, honestly labelled (ADR-031). With it, the
+> two lanes join and most edges become `semantic`. `HOBBES_SCIP=0` turns
+> it off deliberately.
+>
+> Lane B needs the target repo's **dependencies installed** to resolve
+> third-party types — `npm install` for TS/JS, the virtualenv for Python.
+> Without them the index still succeeds and quietly loses edges, so
+> ingest reports `dependency_coverage` and warns when too little
+> resolved (ADR-032, C-23).
 
 > **The proxy must be static.** `hobbes-session` mounts the
 > `hobbes-proxy` sitting next to it into the sandbox. A dynamically
@@ -134,8 +147,37 @@ ingested /path/to/app @ 9611f8865548 [javascript, typescript]
 ```
 
 Anything on stderr starting `WARNING:` is a degradation — a file whose
-extraction partly failed, or a module id two languages both wanted. It
-is never silent, and it is worth reading before you trust the graph.
+extraction partly failed, a module id two languages both wanted, or an
+indexer that resolved too few of the repo's declared dependencies. It is
+never silent, and it is worth reading before you trust the graph.
+
+### 2a. `hobbes lanes` — make the two lanes check each other
+
+```sh
+hobbes lanes          # exits 1 if they disagree
+```
+
+Extraction runs two providers: tree-sitter knows a call site *is* a call,
+SCIP knows what it *resolves to*, and they meet before the graph exists
+(ADR-029). Wherever both resolved the same site, they must point at the
+same definition — a disagreement is an extractor bug in one of them, and
+this is the only check in the system that catches a resolver being
+confidently **wrong** rather than merely silent.
+
+It costs nothing to run and belongs in CI next to `hobbes review`.
+Module-edge differences are reported but do not fail it: lane B following
+a re-export past the package is not a bug, it is lane B being more precise.
+
+Two numbers in `graph.json` are worth knowing about here, because they are
+how the graph admits what it missed rather than presenting a confident
+surface (P8):
+
+- **`resolution_coverage`**, per file — call sites, how many resolved in
+  repo, how many resolved to an external package, and how many resolved to
+  nothing. A module at 56% accounted deserves less trust than one at 100%.
+- **`tier`** on every edge — `semantic` is SCIP-proven, `syntactic` is
+  lane A's own resolution kept as a labelled floor. The graph draws
+  syntactic edges thinner and dashed.
 
 ---
 
@@ -352,13 +394,28 @@ code do the gating.
   gitignored in your repos (ADR-012), so approvals, denials, and the
   intent confirmation live in *this* clone on *this* machine. A known
   limitation, with the opt-in fix in `future_additions.md`.
+- **Ingesting a repo whose dependencies are not installed.** The indexer
+  exits 0 and produces a plausible index with the third-party edges
+  simply missing. Ingest now warns, but check `dependency_coverage` if
+  the graph looks thin (C-23).
+- **Reading an absent edge as "this does not happen".** It means "not
+  statically visible" and never more than that (C-1). The call graph
+  under-approximates on purpose — a false edge is worse than a missing
+  one — so every number Hobbes reports is a floor.
 
 ---
 
 ## Where the design is written down
 
-`docs/hobbes-architecture.md` and `docs/hobbes-build-plan.md` are the
-source of truth. Every decision they don't make has a numbered ADR in
-`docs/adr/`. `docs/BUILDLOG.md` is what actually happened, session by
-session, and `docs/future_additions.md` is what was deliberately left
-undone and why.
+`docs/hobbes-architecture-v2.md` is the source of truth — it supersedes
+v1's extraction layer and restates every other subsystem, so it stands
+alone. `docs/hobbes-architecture.md` and `docs/hobbes-build-plan.md` are
+the v1 record: still accurate for the carried subsystems, historical for
+extraction.
+
+Every decision those don't make has a numbered ADR in `docs/adr/`.
+`docs/BUILDLOG.md` is what actually happened, session by session,
+`docs/future_additions.md` is what was deliberately left undone and why,
+and **`docs/constraints.md` is what Hobbes cannot tell you** — every
+place it concedes information, and where you meet that limit (P8).
+Read that one before you trust a number.
