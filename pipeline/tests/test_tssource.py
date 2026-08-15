@@ -18,6 +18,7 @@ from hobbes.extract import SCHEMA_VERSION
 
 from hobbes.extract.tssource import (
     HELPER_VERSION,
+    collect_ts_tests,
     TsExtractError,
     extract_ts,
     has_ts_files,
@@ -46,7 +47,31 @@ def file_facts(path, **overrides):
         "tests": [],
     }
     base.update(overrides)
+    # helper v2 positions a site on its terminal identifier and names it;
+    # filled in here so the cases stay about the join, not the shape.
+    base["calls"] = [
+        {"name": (call.get("callee") or "").rsplit(".", 1)[-1], "col": 0, **call}
+        for call in base["calls"]
+    ]
+    base["tests"] = [
+        {"end_line": case["line"], **case} for case in base["tests"]
+    ]
     return base
+
+
+def symbol_layer(joined):
+    """The symbol edges these facts produce, lane A only.
+
+    Since ADR-031 `join_facts` emits no edges: ts-morph's resolutions are
+    the join's fallback, and the join is the only edge producer. With no
+    semantic input every site falls to the fallback arm, which is the
+    degraded path P6 promises and the one the suite runs by default.
+    """
+    from hobbes.extract import evidence as ev
+    from hobbes.extract.scipsource import project
+
+    resolved = ev.join(joined["call_sites"], [], fallback=joined["call_fallback"])
+    return project(resolved, joined["nodes"], joined["symbols"])["symbol_edges"]
 
 
 class TestModuleId:
@@ -169,7 +194,7 @@ class TestJoinFacts:
             "src/main.run",
             "src/util.helper",
         ]
-        assert {(e["from"], e["to"]) for e in joined["symbol_edges"]} == {
+        assert {(e["from"], e["to"]) for e in symbol_layer(joined)} == {
             ("src/main.run", "src/util.helper"),
             ("src/main", "src/main.run"),
         }
@@ -247,7 +272,9 @@ class TestJoinFacts:
                 ]
             )
         )
-        first, second = joined["tests"]
+        first, second = collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        )
         assert first["id"] == "tests/util.test.mjs::helper works"
         assert first["framework"] == "node:test"
         # Reach seeds on the import and closes over helper -> inner.
@@ -273,7 +300,9 @@ class TestJoinFacts:
                 ]
             )
         )
-        (record,) = joined["tests"]
+        (record,) = collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        )
         assert record["reaches"] == []
         assert record["reaches_modules"] == []
 
@@ -302,7 +331,9 @@ class TestJoinFacts:
                 ]
             )
         )
-        (record,) = joined["tests"]
+        (record,) = collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        )
         assert record["reaches"] == []
         assert record["reaches_modules"] == ["src/store"]
 
@@ -390,7 +421,7 @@ class TestIntegrationMinits:
 
     def test_call_edge_into_util(self, joined):
         assert {
-            (e["from"], e["to"]) for e in joined["symbol_edges"]
+            (e["from"], e["to"]) for e in symbol_layer(joined)
         } >= {("src/server.listItems", "src/util.normalize")}
 
     def test_routes_express_and_nest(self, joined):
@@ -403,7 +434,9 @@ class TestIntegrationMinits:
 
     def test_test_inventory_both_frameworks(self, joined):
         by_framework = {}
-        for t in joined["tests"]:
+        for t in collect_ts_tests(
+            joined["files"], joined["symbols"], symbol_layer(joined)
+        ):
             by_framework.setdefault(t["framework"], []).append(t)
         assert len(by_framework["node:test"]) == 2
         assert by_framework["node:test"][0]["reaches_modules"] == ["src/util"]

@@ -33,8 +33,11 @@ import pkg from '@sourcegraph/scip-typescript/dist/src/scip.js'
 const { scip } = pkg
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-/** Facts schema version; the Python join refuses anything else. */
-export const HELPER_VERSION = 1
+/** Facts schema version; the Python join refuses anything else.
+ *
+ * v2 (V2.M3, ADR-032): facts carry `dependency_coverage` on every run,
+ * replacing Decision 4's all-or-nothing degradation test. */
+export const HELPER_VERSION = 2
 
 /** Indexers we know how to drive, keyed by the language they own. */
 export const INDEXERS = {
@@ -175,6 +178,57 @@ export function decode(index) {
 }
 
 /**
+ * Packages an indexer resolves from its own bundle, whatever the repo's
+ * environment looks like. They must not count as evidence that the
+ * environment is installed — see `dependencyCoverage`.
+ */
+const SELF_PACKAGES = new Set(['typescript', 'python-stdlib'])
+
+/**
+ * Decision 4's signal, as counts rather than a boolean (ADR-032).
+ *
+ * The original test fired only when *every* declared dependency was
+ * missing. For TypeScript that can never happen: the indexer bundles
+ * `typescript` and therefore always resolves it, so one always-present
+ * package held the condition false forever. Measured on kbet staged
+ * without `node_modules`: **1 of 23 declared dependencies resolved, and
+ * nothing was reported**. A boolean that can only be true in an
+ * impossible case is worse than no check, because it reads as coverage.
+ *
+ * So the counts are emitted on every run, degraded or not — the ADR-029
+ * denominator pattern — and the threshold is secondary to them.
+ */
+export function dependencyCoverage(decoded, config) {
+  // Excluded from *both* sides. A bundled package resolving is not
+  // evidence the environment exists, and a repo declaring it (nearly
+  // every TS repo declares `typescript`) must not be marked as missing a
+  // dependency it will never be credited for either.
+  const declared = (config.declaredDeps ?? []).filter((d) => !SELF_PACKAGES.has(d))
+  const seen = new Set()
+  for (const key of decoded.packages.keys()) {
+    const name = key.split(':')[1]
+    if (!name || SELF_PACKAGES.has(name)) continue
+    seen.add(name)
+    // `import React from "react"` resolves to @types/react, so the
+    // package SCIP attributes is the types package. Crediting only the
+    // literal name would report every typed dependency as missing.
+    if (name.startsWith('@types/')) seen.add(name.slice('@types/'.length))
+  }
+  const missing = declared.filter((d) => !seen.has(d))
+  return {
+    declared: declared.length,
+    resolved: declared.length - missing.length,
+    missing,
+  }
+}
+
+/** Below this share of declared dependencies resolved, the index is not
+ * describing the repo the user has — it is describing a subset nobody
+ * asked for. Not a proof, and a *partial* environment still degrades in
+ * proportion (C-23); the counts above are what stay honest. */
+const RESOLVE_FLOOR = 0.5
+
+/**
  * Decision 4: a zero exit is not a successful index.
  *
  * scip-typescript on a repo with no node_modules exits 0 in 1.5s and
@@ -190,19 +244,16 @@ export function degradations(index, decoded, config) {
       message: 'the indexer emitted no documents; nothing was analysed',
     })
   }
-  const declared = config.declaredDeps ?? []
-  if (declared.length) {
-    const seen = new Set([...decoded.packages.keys()].map((k) => k.split(':')[1]))
-    const missing = declared.filter((d) => !seen.has(d))
-    if (missing.length === declared.length) {
-      out.push({
-        stage: 'scip-resolve',
-        message:
-          `none of the ${declared.length} declared dependencies were resolved ` +
-          `(${missing.slice(0, 3).join(', ')}…) — the environment is probably ` +
-          'not installed, so third-party edges are absent rather than nonexistent',
-      })
-    }
+  const coverage = dependencyCoverage(decoded, config)
+  if (coverage.declared && coverage.resolved / coverage.declared < RESOLVE_FLOOR) {
+    out.push({
+      stage: 'scip-resolve',
+      message:
+        `only ${coverage.resolved} of ${coverage.declared} declared dependencies ` +
+        `resolved (missing ${coverage.missing.slice(0, 3).join(', ')}…) — the ` +
+        'environment is probably not installed, so third-party edges are absent ' +
+        'rather than nonexistent',
+    })
   }
   if (decoded.definitions.length === 0 && index.documents.length > 0) {
     out.push({
@@ -255,6 +306,9 @@ export function indexStage(config) {
     references: decoded.references,
     external_refs: decoded.external,
     packages: Object.fromEntries(decoded.packages),
+    // Reported every run, not only when something is wrong: the counts
+    // are the honest form of the signal and the threshold is secondary.
+    dependency_coverage: dependencyCoverage(decoded, config),
     degraded: degradations(index, decoded, config),
     stderr: String(proc.stderr || '').trim().slice(-2000),
   }

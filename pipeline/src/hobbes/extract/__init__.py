@@ -19,15 +19,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hobbes.extract import evidence as ev
-from hobbes.extract import scipsource
+from hobbes.extract import scipsource, staging
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
-from hobbes.extract.graph import build_graph
+from hobbes.extract.graph import build_graph, resolve_call_sites
 from hobbes.extract.interfaces import extract_cli_entry_points, extract_routes
 from hobbes.extract.pysource import parse_source
 from hobbes.extract.terraform import extract_terraform
 from hobbes.extract.testmap import collect_tests
-from hobbes.extract.tssource import extract_ts
+from hobbes.extract.tssource import collect_ts_tests, extract_ts
 
 #: v2 (M3): "language" became "languages" when the infra layer joined
 #: (ADR-010). v3 (M6, ADR-021): tests carry a per-test "framework" field
@@ -57,6 +57,14 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     stamp and the emission live in :func:`ingest` so tests can exercise
     extraction on unversioned fixtures. *tf_plan* optionally names a
     ``terraform show -json`` file for plan enrichment (ADR-010).
+
+    The order is load-bearing since V2.M3. **All of lane A first**, across
+    every language, so the node and symbol space is complete; **then the
+    range join**, which is the only producer of symbol edges and needs
+    that space to project onto; **then the test map**, whose reach is
+    measured over the edges the join produced. Running lane B per language
+    as each was parsed — the M2 shape — could not work for TypeScript,
+    because its nodes did not exist yet when the join ran.
     """
     repo_root = Path(repo_root).resolve()
     modules = discover_modules(repo_root)
@@ -64,11 +72,8 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
         m.id: parse_source((repo_root / m.path).read_bytes()) for m in modules
     }
     graph = build_graph(modules, parsed)
-    # Lane B before the test map, so test reach is computed over the edges
-    # SCIP proved rather than the ones lane A guessed (ADR-029).
-    lane_b = _run_lane_b(repo_root, modules, parsed, graph)
-    tests = collect_tests(modules, parsed, graph["symbol_edges"])
     routes = extract_routes(modules, parsed)
+    degraded: list[dict] = []
 
     infra = extract_terraform(repo_root, modules, tf_plan=tf_plan)
     # Languages reflect what the repo actually contains — a TS-only repo
@@ -76,24 +81,30 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
     languages = ["python"] if modules else []
     if infra["tf_file_count"]:
         languages.append("hcl")
-        _merge_layer(graph, infra["nodes"], infra["module_edges"])
+        degraded += _merge_layer(graph, infra["nodes"], infra["module_edges"])
 
     ts = extract_ts(repo_root)
     if ts:
         languages += ts["languages"]
-        degraded = list(ts["errors"])
+        degraded += list(ts["errors"])
         degraded += _merge_layer(graph, ts["nodes"], ts["module_edges"])
-        if degraded:
-            graph["extraction_errors"] = degraded
         graph["symbols"] = _merge_symbols(graph["symbols"], ts["symbols"])
-        graph["symbol_edges"] = sorted(
-            graph["symbol_edges"] + ts["symbol_edges"],
-            key=lambda e: (e["from"], e["to"], e["type"]),
-        )
-        tests = sorted(tests + ts["tests"], key=lambda t: t["id"])
         routes = sorted(
             routes + ts["routes"], key=lambda r: (r["file"], r.get("line", 0))
         )
+
+    # Lane A is complete; everything below joins onto it.
+    degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts)
+
+    tests = collect_tests(modules, parsed, graph["symbol_edges"])
+    if ts:
+        tests = sorted(
+            tests
+            + collect_ts_tests(ts["files"], ts["symbols"], graph["symbol_edges"]),
+            key=lambda t: t["id"],
+        )
+    if degraded:
+        graph["extraction_errors"] = degraded
 
     return Extraction(
         graph={"languages": sorted(languages), **graph},
@@ -122,69 +133,50 @@ def _syntax_sites(modules, parsed) -> list:
     ]
 
 
-def _lane_a_fallback(graph: dict) -> dict:
-    """Lane A's own resolutions, keyed by call site.
+def _build_symbol_layer(
+    repo_root: Path, graph: dict, modules, parsed, ts: dict | None
+) -> list[dict]:
+    """Join every lane's evidence and project it onto the graph's ids.
 
-    Used only where SCIP resolved nothing, and marked ``syntactic`` when it
-    is — so a call lane A could resolve and lane B could not still appears,
-    honestly labelled, instead of vanishing.
+    **The only producer of symbol edges** (ADR-031), and it runs whether or
+    not lane B does: with no semantic resolutions every call site falls to
+    the fallback arm and the graph is lane A's, at ``syntactic`` tier. That
+    is P6 satisfied by construction rather than by a second code path — the
+    degraded case is the normal case with an empty input.
+
+    Both languages' evidence is pooled before joining. They cannot collide:
+    the join buckets by ``(file, line)`` and no file belongs to two
+    languages.
+
+    Returns degradation records; never raises. A missing indexer, a crashed
+    one, or an uninstalled environment must not fail an ingest.
     """
-    path_of = {n["id"]: n.get("path") for n in graph["nodes"]}
-    where = {
-        symbol["id"]: (path_of.get(symbol["module"]), symbol["line"])
-        for symbol in graph["symbols"]
-    }
+    degraded: list[dict] = []
+    syntax: list[ev.Site] = []
+    resolutions: list[ev.Site] = []
     fallback: dict[tuple, tuple] = {}
-    for edge in graph["symbol_edges"]:
-        target = where.get(edge["to"])
-        if not target or not target[0]:
-            continue
-        name = edge["to"].rsplit(".", 1)[-1]
-        for sighting in edge["evidence"]:
-            fallback[(sighting["path"], sighting["line"], name)] = target
-    return fallback
+    external: list[dict] = []
 
+    if modules:
+        syntax += _syntax_sites(modules, parsed)
+        fallback.update(resolve_call_sites(modules, parsed))
+    if ts:
+        syntax += ts["call_sites"]
+        fallback.update(ts["call_fallback"])
 
-def _run_lane_b(repo_root: Path, modules, parsed, graph: dict) -> dict | None:
-    """Run lane B and fold its facts into *graph*, or degrade visibly.
+    for facts in _lane_b_facts(repo_root, modules, ts, degraded):
+        resolutions += scipsource.resolution_sites(facts)
+        external += facts.get("external_refs") or []
+        for record in facts.get("degraded", []):
+            degraded.append(
+                {"path": ".", "stage": record["stage"], "message": record["message"]}
+            )
+        coverage = facts.get("dependency_coverage") or {}
+        if coverage.get("declared"):
+            graph.setdefault("dependency_coverage", []).append(coverage)
 
-    A missing indexer, a crashed one, or a repo whose environment is not
-    installed must never fail the ingest: the graph still exists at
-    syntactic tier and says what it lost (P6).
-    """
-    if not modules or not scipsource.enabled():
-        return None
-    files = sorted({m.path for m in modules})
-    roots = sorted({m.root for m in modules})
-    try:
-        facts = scipsource.extract_scip(
-            repo_root,
-            files,
-            roots,
-            project_name=repo_root.name,
-            sha="",
-            declared_deps=scipsource.declared_dependencies(repo_root),
-        )
-    except (scipsource.ScipError, OSError) as exc:
-        graph.setdefault("extraction_errors", []).append(
-            {
-                "path": ".",
-                "stage": "scip",
-                "message": f"lane B did not run: {exc}",
-            }
-        )
-        return None
-    if facts is None:
-        return None
-
-    syntax = _syntax_sites(modules, parsed)
-    resolutions = scipsource.resolution_sites(facts)
-    resolved = ev.join(syntax, resolutions, fallback=_lane_a_fallback(graph))
+    resolved = ev.join(syntax, resolutions, fallback=fallback)
     projected = scipsource.project(resolved, graph["nodes"], graph["symbols"])
-
-    # The join is authoritative for the symbol layer: every call it kept is
-    # either SCIP-proven or lane-A-resolved-and-labelled, so lane A's own
-    # edge list has nothing left to add.
     graph["symbol_edges"] = projected["symbol_edges"]
     graph["module_edges"] = _merge_module_edges(
         graph["module_edges"], projected["module_edges"]
@@ -197,13 +189,52 @@ def _run_lane_b(repo_root: Path, modules, parsed, graph: dict) -> dict | None:
             "external": row.external,
             "unresolved": row.unresolved,
         }
-        for row in ev.coverage(syntax, resolutions, facts.get("external_refs"))
+        for row in ev.coverage(syntax, resolutions, external)
     ]
-    for degraded in facts.get("degraded", []):
-        graph.setdefault("extraction_errors", []).append(
-            {"path": ".", "stage": degraded["stage"], "message": degraded["message"]}
+    return degraded
+
+
+def _lane_b_facts(repo_root: Path, modules, ts: dict | None, degraded: list[dict]):
+    """Every semantic provider's facts, skipping the ones that cannot run."""
+    if not scipsource.enabled():
+        return
+    runs = []
+    if modules:
+        files = sorted({m.path for m in modules})
+        roots = sorted({m.root for m in modules})
+        runs.append(
+            (
+                "python",
+                lambda: scipsource.extract_scip(
+                    repo_root,
+                    files,
+                    roots,
+                    project_name=repo_root.name,
+                    sha="",
+                    declared_deps=scipsource.declared_dependencies(repo_root),
+                ),
+            )
         )
-    return projected
+    if ts:
+        ts_files = sorted({f["path"] for f in ts["files"]})
+        runs.append(
+            ("typescript", lambda: scipsource.extract_scip_typescript(repo_root, ts_files))
+        )
+
+    for language, run in runs:
+        try:
+            facts = run()
+        except (scipsource.ScipError, staging.StagingError, OSError) as exc:
+            degraded.append(
+                {
+                    "path": ".",
+                    "stage": f"scip-{language}",
+                    "message": f"lane B did not run for {language}: {exc}",
+                }
+            )
+            continue
+        if facts is not None:
+            yield facts
 
 
 def _merge_module_edges(lane_a: list[dict], lane_b: list[dict]) -> list[dict]:

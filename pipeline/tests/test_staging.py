@@ -179,3 +179,71 @@ class TestCrashSafety:
         assert keep.exists()
         assert staging.sweep_stale() == 1
         assert not keep.exists()
+
+
+class TestLinkedDependencyTrees:
+    """ADR-032: `node_modules` is symlinked, because copying 222 MB per
+    zone is not viable and the alternative loses 6.4% of the semantics.
+
+    Clause 2 still forbids linking *authored source*. What these cases
+    pin is the pair of properties that make the exception safe, both of
+    which fail silently and one of which fails destructively (C-22).
+    """
+
+    @pytest.fixture
+    def deps(self, tmp_path):
+        tree = tmp_path / "repo" / "node_modules"
+        (tree / "left-pad").mkdir(parents=True)
+        (tree / "left-pad" / "index.js").write_text("module.exports = 1;\n")
+        return tree
+
+    def test_dependency_tree_is_linked_not_copied(self, repo, cache, deps):
+        stage = staging.build_stage(
+            repo, FILES, sha="abc", links={"node_modules": str(deps)}
+        )
+        linked = stage / "node_modules"
+        assert linked.is_symlink()
+        assert linked.resolve() == deps.resolve()
+        # and it is usable: the indexer resolves through it
+        assert (linked / "left-pad" / "index.js").read_text().startswith("module")
+
+    def test_removing_a_stage_never_follows_the_link(self, repo, cache, deps):
+        """The expensive mistake: rmtree recursing into the user's tree.
+
+        Guarded today only by a stdlib implementation detail — rmtree
+        unlinks a symlinked directory rather than descending — so it gets
+        an assertion rather than a comment. Getting this wrong deletes
+        hundreds of megabytes the user has to reinstall.
+        """
+        stage = staging.build_stage(
+            repo, FILES, sha="abc", links={"node_modules": str(deps)}
+        )
+        staging.remove_stage(stage)
+        assert not stage.exists()
+        assert deps.is_dir()
+        assert (deps / "left-pad" / "index.js").is_file()
+
+    def test_sweep_never_follows_the_link_either(self, repo, cache, deps):
+        staging.build_stage(repo, FILES, sha="abc", links={"node_modules": str(deps)})
+        assert staging.sweep_stale() == 1
+        assert (deps / "left-pad" / "index.js").is_file()
+
+    def test_rebuilding_over_a_link_leaves_the_target_intact(
+        self, repo, cache, deps
+    ):
+        """Rebuild removes the previous stage — including its link."""
+        staging.build_stage(repo, FILES, sha="abc", links={"node_modules": str(deps)})
+        staging.build_stage(repo, FILES, sha="abc", links={"node_modules": str(deps)})
+        assert (deps / "left-pad" / "index.js").is_file()
+
+    def test_per_zone_configs_land_where_the_indexer_looks(self, repo, cache):
+        stage = staging.build_stage(
+            repo,
+            FILES,
+            sha="abc",
+            configs={"src/pkg/tsconfig.json": {"compilerOptions": {"allowJs": True}}},
+        )
+        import json as _json
+
+        written = _json.loads((stage / "src" / "pkg" / "tsconfig.json").read_text())
+        assert written["compilerOptions"]["allowJs"] is True

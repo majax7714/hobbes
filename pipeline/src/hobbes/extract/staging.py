@@ -15,8 +15,16 @@ The contract this module exists to keep, clause by clause:
 
 1. **Nothing is ever written to the target repo.** Every write lands under
    :func:`cache_root`.
-2. **Copies, never hardlinks.** A hardlink is a live handle into the user's
-   tree — ``chmod`` through one changes the *original* file's mode.
+2. **Authored source is copied, never linked.** A hardlink is a live handle
+   into the user's tree — ``chmod`` through one changes the *original*
+   file's mode. Refined by ADR-032: a *regenerable dependency tree*
+   (``node_modules``) may be **symlinked**, because it is not authored, is
+   reproducible from a lockfile, and is only ever read. TypeScript has no
+   equivalent of Pyright's absolute ``venvPath``, and the measured
+   alternative lost 6.4% of the semantic references the lane exists to
+   produce. Two properties are asserted in the tests rather than assumed:
+   indexing writes nothing through the link, and removing a stage unlinks
+   it instead of recursing into the target (C-22).
 3. **The staging path is derived**, not random, so removal is idempotent
    and a later run can find what an earlier one left.
 4. **Removal refuses any path outside the cache root**, and takes no path
@@ -91,13 +99,21 @@ def build_stage(
     config: dict | None = None,
     config_name: str = "pyrightconfig.json",
     sha: str = "",
+    configs: dict[str, dict] | None = None,
+    links: dict[str, str] | None = None,
 ) -> Path:
     """Copy *files* out of *repo_root* into a staging tree and return it.
 
     *files* are repo-relative POSIX paths — lane A's discovered set
     (clause 5). *config* is written into the staging root as JSON, which
     is the whole reason the tree exists: the indexer needs it beside the
-    sources, and the repo is not ours to put it in.
+    sources, and the repo is not ours to put it in. *configs* writes
+    additional JSON at arbitrary repo-relative paths, for languages whose
+    config is per zone rather than per repo (TypeScript).
+
+    *links* maps a repo-relative path in the stage to an **absolute**
+    directory to symlink there — only ever a regenerable dependency tree
+    (ADR-032, clause 2 as refined). Sources are still copied.
 
     Builds into a sibling ``.partial`` directory and renames on success,
     so an interrupted run never leaves a half-built tree that a later run
@@ -126,6 +142,21 @@ def build_stage(
 
     if config is not None:
         (partial / config_name).write_text(json.dumps(config, indent=1) + "\n")
+    for rel, document in (configs or {}).items():
+        target = partial / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(document, indent=1) + "\n")
+
+    for rel, absolute in (links or {}).items():
+        target = partial / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # symlink_to, never copytree: node_modules runs to hundreds of
+        # megabytes, and the indexer only reads it (ADR-032).
+        try:
+            target.symlink_to(absolute, target_is_directory=True)
+        except OSError as exc:
+            _remove_within_cache(partial)
+            raise StagingError(f"cannot link {rel}: {exc}") from exc
 
     partial.rename(final)
     return final

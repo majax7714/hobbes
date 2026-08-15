@@ -112,11 +112,18 @@ def module_id(path: str) -> str:
 
 
 def join_facts(facts: dict) -> dict:
-    """Join helper facts into graph/tests/routes pieces (pure).
+    """Join helper facts into graph/routes pieces (pure).
 
-    Returns ``{"nodes", "module_edges", "symbols", "symbol_edges",
-    "tests", "routes", "languages"}`` — empty lists when the repo has no
-    TS/JS files.
+    Returns ``{"nodes", "module_edges", "symbols", "call_sites",
+    "call_fallback", "files", "routes", "languages", "errors"}`` — empty
+    when the repo has no TS/JS files.
+
+    **No symbol edges (ADR-031).** ts-morph's checker resolutions are now
+    the join's fallback rather than edges, symmetrically with Python's:
+    lane B is the resolver of record, and what lives here is the labelled
+    floor beneath it. Tests are collected after the join, by
+    :func:`collect_ts_tests`, because their reach must be computed over
+    the edges the join produced rather than over lane A's guesses.
     """
     files = facts.get("files", [])
     languages = set()
@@ -130,7 +137,6 @@ def join_facts(facts: dict) -> dict:
     nodes: dict[str, dict] = {}
     module_edges: dict[tuple, list] = defaultdict(list)
     symbols: list[dict] = []
-    symbol_edges: dict[tuple, list] = defaultdict(list)
     routes: list[dict] = []
 
     for f in files:
@@ -167,17 +173,6 @@ def join_facts(facts: dict) -> dict:
                     "end_line": sym["end_line"],
                 }
             )
-        for call in f["calls"]:
-            # A site the checker could not resolve is real evidence (it
-            # feeds the join and coverage's denominator) and is not an
-            # edge: the symbol it would point at does not exist here.
-            if not call["callee_path"]:
-                continue
-            source = f"{mid}.{call['scope']}" if call["scope"] else mid
-            target = f"{module_id(call['callee_path'])}.{call['callee']}"
-            symbol_edges[(source, target, "calls")].append(
-                {"path": f["path"], "line": call["line"]}
-            )
         for route in f["routes"]:
             handler = route["handler"]
             if route.get("handler_path"):
@@ -193,12 +188,16 @@ def join_facts(facts: dict) -> dict:
                 }
             )
 
+    sorted_symbols = sorted(symbols, key=lambda s: s["id"])
     return {
         "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
         "module_edges": _edge_list(module_edges),
-        "symbols": sorted(symbols, key=lambda s: s["id"]),
-        "symbol_edges": _edge_list(symbol_edges),
-        "tests": _collect_tests(files, symbols, symbol_edges),
+        "symbols": sorted_symbols,
+        "call_sites": _call_sites(files),
+        "call_fallback": _call_fallback(files, sorted_symbols),
+        # The raw per-file facts, kept so tests can be collected once the
+        # join has produced the symbol layer they measure reach over.
+        "files": files,
         "routes": sorted(routes, key=lambda r: (r["file"], r["line"], r["path"])),
         "languages": sorted(languages),
         # Per-file/stage degradations the helper survived (a checker
@@ -206,6 +205,60 @@ def join_facts(facts: dict) -> dict:
         # the artifact so the gap is visible, never silent (P1).
         "errors": facts.get("errors", []),
     }
+
+
+def _call_sites(files: list[dict]) -> list:
+    """Lane A's TS/JS call sites, in evidence-IR shape (ADR-029).
+
+    Every site, resolved or not: the join needs them as the left-hand
+    side (SCIP cannot tell a call from a reference) and coverage needs
+    them as its denominator.
+    """
+    from hobbes.extract import evidence as ev
+
+    return [
+        ev.Site(
+            provider=ev.TREE_SITTER,
+            kind=ev.CALL_SITE,
+            file=f["path"],
+            line=call["line"],
+            name=call["name"],
+            col=call.get("col", -1),
+            scope=(
+                f"{module_id(f['path'])}.{call['scope']}"
+                if call["scope"]
+                else module_id(f["path"])
+            ),
+        )
+        for f in files
+        for call in f["calls"]
+    ]
+
+
+def _call_fallback(
+    files: list[dict], symbols: list[dict]
+) -> dict[tuple[str, int, str], tuple[str, int]]:
+    """ts-morph's own resolutions, keyed by call site (ADR-031).
+
+    The projection resolves a target by the line its definition *starts*
+    on, so the checker's qualname has to be turned back into a line here —
+    the symbol table is the only place that mapping exists.
+    """
+    line_of = {(s["module"], s["qualname"]): s["line"] for s in symbols}
+    fallback: dict[tuple[str, int, str], tuple[str, int]] = {}
+    for f in files:
+        for call in f["calls"]:
+            if not call["callee_path"]:
+                continue
+            target_module = module_id(call["callee_path"])
+            line = line_of.get((target_module, call["callee"]))
+            if line is None:
+                continue  # resolves to something the symbol layer omits
+            fallback[(f["path"], call["line"], call["name"])] = (
+                call["callee_path"],
+                line,
+            )
+    return fallback
 
 
 def _edge_list(edges: dict[tuple, list]) -> list[dict]:
@@ -227,16 +280,21 @@ def _edge_list(edges: dict[tuple, list]) -> list[dict]:
     ]
 
 
-def _collect_tests(
-    files: list[dict], symbols: list[dict], symbol_edges: dict[tuple, list]
+def collect_ts_tests(
+    files: list[dict], symbols: list[dict], symbol_edges: list[dict]
 ) -> list[dict]:
     """tests.json rows for JS/TS tests, with file-level static reach.
 
     JS test cases are anonymous closures, not symbols, so reach is
     computed once per test *file* — every symbol its imports name plus
-    every call it makes, closed over the call graph — and shared by the
-    file's cases. Coarser than pytest's per-test reach; honest about
-    what static analysis of closures gives us (ADR-021).
+    every call the join resolved out of it, closed over the call graph —
+    and shared by the file's cases. Coarser than pytest's per-test reach,
+    and the one constraint in the system that makes a number *larger*
+    than the truth rather than smaller (C-11, ADR-021).
+
+    Since V2.M3 this consumes the **joined** symbol edges rather than
+    ts-morph's own, so reach is measured over what the semantic provider
+    proved wherever it could (ADR-031).
     """
     test_files = {f["path"] for f in files if f["test_framework"]}
     test_module_ids = {module_id(p) for p in test_files}
@@ -245,9 +303,16 @@ def _collect_tests(
     for s in symbols:
         symbols_by_module[s["module"]].add(s["qualname"])
 
+    # `calls` only: a `uses` edge would let a test claim it guards code it
+    # merely names (ADR-029), and reach is the basis of that claim.
     adjacency = defaultdict(set)
-    for (source, target, _), _evidence in symbol_edges.items():
-        adjacency[source].add(target)
+    calls_from_file = defaultdict(set)
+    for edge in symbol_edges:
+        if edge["type"] != "calls":
+            continue
+        adjacency[edge["from"]].add(edge["to"])
+        for sighting in edge["evidence"]:
+            calls_from_file[sighting["path"]].add(edge["to"])
 
     records = []
     for f in files:
@@ -263,10 +328,7 @@ def _collect_tests(
                 bare = name.removeprefix("* as ")
                 if bare in symbols_by_module[target_mid]:
                     seeds.add(f"{target_mid}.{bare}")
-        for call in f["calls"]:
-            if not call["callee_path"]:
-                continue
-            seeds.add(f"{module_id(call['callee_path'])}.{call['callee']}")
+        seeds |= calls_from_file.get(f["path"], set())
 
         reached = set(seeds)
         frontier = list(seeds)

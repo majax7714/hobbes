@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from hobbes.extract import _build_symbol_layer
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.graph import build_graph
 from hobbes.extract.pysource import parse_source
@@ -12,11 +13,21 @@ from hobbes.extract.testmap import collect_tests, is_test_file
 FIXTURE = Path(__file__).parent / "fixtures" / "miniapp"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tests_doc():
+    """Reach over the real symbol layer, built lane-A-only.
+
+    Goes through `_build_symbol_layer` rather than reconstructing edges,
+    because since ADR-031 the join is the *only* producer of symbol edges
+    — including when lane B is off, where every site falls to the
+    fallback arm. The suite runs `HOBBES_SCIP=0` by default (conftest), so
+    this is exactly the degraded path P6 promises, exercised on every run
+    rather than only when something breaks.
+    """
     modules = discover_modules(FIXTURE)
     parsed = {m.id: parse_source((FIXTURE / m.path).read_bytes()) for m in modules}
     graph = build_graph(modules, parsed)
+    assert _build_symbol_layer(FIXTURE, graph, modules, parsed, None) == []
     return collect_tests(modules, parsed, graph["symbol_edges"])
 
 

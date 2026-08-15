@@ -1,13 +1,23 @@
 """Graph assembly: resolve per-file facts into typed nodes and edges.
 
-Implements ADR-007's resolution rules. Module-level edges (``imports``,
-``env-read``) depend only on import resolution and are near-exact; symbol
-``calls`` edges are deliberately under-approximated — an edge is emitted
-only when the callee resolves statically, because false edges are worse
-than missing ones.
+Module-level edges (``imports``, ``env-read``) depend only on import
+resolution, are near-exact, and stay lane A's on purpose (§3.1) — they
+reach ``ext:`` and ``env:`` nodes lane B cannot see, and they are what the
+lane-agreement report compares.
 
-The output shape is ADR-006's graph.json body: ``nodes``, ``symbols``,
-``module_edges``, ``symbol_edges`` (the stamp is added at emission).
+**This module no longer produces symbol edges (ADR-031).** ADR-007's call
+resolution rules 1–4 survive as :func:`resolve_call_sites`, whose output is
+the *fallback* the range join consults where the semantic provider resolved
+nothing — labelled ``syntactic`` when it is used. There is one resolver of
+record and it is lane B; what lives here is a labelled floor beneath it, so
+that a repo whose language has no indexer, or a box without one installed,
+still has a call graph (P6). It is deliberately under-approximated: a
+resolution is offered only when the callee resolves statically, because
+false edges are worse than missing ones.
+
+The output shape is ADR-006's graph.json body minus the symbol layer:
+``nodes``, ``symbols``, ``module_edges``. The join supplies
+``symbol_edges``, and the stamp is added at emission.
 """
 
 from __future__ import annotations
@@ -23,13 +33,16 @@ _SELF_NAMES = ("self", "cls")
 
 
 def build_graph(modules: list[ModuleInfo], parsed: dict[str, ParsedFile]) -> dict:
-    """Assemble the typed graph from discovered modules and per-file facts."""
+    """Assemble the typed graph from discovered modules and per-file facts.
+
+    Nodes, symbols and module edges only — the symbol layer comes from the
+    range join now (ADR-031). Call *sites* are still detected here, by
+    :mod:`hobbes.extract.pysource`; what moved is resolution.
+    """
     index = _Index(modules)
-    table = _SymbolTable(parsed)
     nodes = {m.id: {"id": m.id, "kind": m.kind, "path": m.path} for m in modules}
     symbols = _symbol_records(modules, parsed)
     module_edges: dict[tuple, list] = defaultdict(list)
-    symbol_edges: dict[tuple, list] = defaultdict(list)
 
     for module in modules:
         facts = parsed[module.id]
@@ -56,22 +69,53 @@ def build_graph(modules: list[ModuleInfo], parsed: dict[str, ParsedFile]) -> dic
                 {"path": module.path, "line": read.line}
             )
 
+    return {
+        "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
+        "symbols": symbols,
+        "module_edges": _edge_list(module_edges),
+    }
+
+
+def resolve_call_sites(
+    modules: list[ModuleInfo], parsed: dict[str, ParsedFile]
+) -> dict[tuple[str, int, str], tuple[str, int]]:
+    """Lane A's own call resolutions, keyed by call site (ADR-031).
+
+    ``(file, line, terminal name) -> (definition file, definition line)``,
+    which is the shape the range join's *fallback* takes. Deliberately not
+    edges: the join decides whether any of this reaches the graph, and
+    stamps what it uses ``syntactic``.
+
+    Implements ADR-007 rules 1–4 exactly as before. Keeping the rules while
+    demoting their output is the whole of ADR-031 — without them a repo
+    with no working indexer has no call graph at all, which P6 forbids and
+    P7 would make permanent for every unwired language.
+    """
+    index = _Index(modules)
+    table = _SymbolTable(parsed)
+    where: dict[str, tuple[str, int]] = {}
+    for module in modules:
+        for symbol in parsed[module.id].symbols:
+            where.setdefault(
+                f"{module.id}.{symbol.qualname}", (module.path, symbol.line)
+            )
+
+    fallback: dict[tuple[str, int, str], tuple[str, int]] = {}
+    for module in modules:
+        facts = parsed[module.id]
+        env = _NameEnv(module, facts, index)
         for call in facts.calls:
             target_id = _resolve_call(module, call, env, index, table)
             if target_id is None:
                 continue
             caller_id = f"{module.id}.{call.scope}" if call.scope else module.id
-            if caller_id != target_id:
-                symbol_edges[(caller_id, target_id, "calls")].append(
-                    {"path": module.path, "line": call.line}
-                )
-
-    return {
-        "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
-        "symbols": symbols,
-        "module_edges": _edge_list(module_edges),
-        "symbol_edges": _edge_list(symbol_edges),
-    }
+            if caller_id == target_id:
+                continue  # self-recursion is not an edge, as before
+            target = where.get(target_id)
+            if target is None:
+                continue
+            fallback[(module.path, call.line, call.callee.split(".")[-1])] = target
+    return fallback
 
 
 def _symbol_records(modules: list[ModuleInfo], parsed: dict[str, ParsedFile]) -> list[dict]:

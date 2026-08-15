@@ -28,7 +28,7 @@ import re
 import shlex
 import subprocess
 from bisect import bisect_right
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from hobbes.extract import staging
 from hobbes.extract.evidence import SCIP as SCIP_LANE
@@ -42,7 +42,8 @@ SCIP_CMD_ENV = "HOBBES_SCIP_CMD"
 SCIP_ENABLE_ENV = "HOBBES_SCIP"
 
 #: Facts schema this join understands (helper HELPER_VERSION).
-HELPER_VERSION = 1
+#: v2 (V2.M3, ADR-032): facts carry ``dependency_coverage`` on every run.
+HELPER_VERSION = 2
 
 
 class ScipError(RuntimeError):
@@ -79,6 +80,25 @@ def declared_dependencies(repo_root: Path) -> list[str]:
         name = re.split(r"[<>=!~;\[ ]", spec.strip(), maxsplit=1)[0]
         if name:
             names.add(name)
+    return sorted(names)
+
+
+def declared_npm_dependencies(package_json: Path) -> list[str]:
+    """Third-party packages a ``package.json`` says it needs.
+
+    The TypeScript half of Decision 4's degradation input. Without it the
+    check has nothing to compare against — and with the old all-or-nothing
+    threshold it had nothing useful to say either (ADR-032).
+    """
+    try:
+        data = json.loads(package_json.read_text())
+    except (OSError, ValueError):
+        return []
+    names = set()
+    for field in ("dependencies", "devDependencies"):
+        section = data.get(field)
+        if isinstance(section, dict):
+            names.update(k for k in section if isinstance(k, str))
     return sorted(names)
 
 
@@ -257,6 +277,213 @@ def _edges(evidence: dict[tuple, list]) -> list[dict]:
             )
         )
     return out
+
+
+#: Config filenames staged verbatim alongside a TypeScript zone's sources.
+#: Copied rather than parsed: a ``tsconfig.json`` may carry comments and
+#: may ``extends`` a sibling, and copying every one of them sidesteps both
+#: without a JSON5 dependency. They are tiny.
+_TS_CONFIG_NAMES = ("tsconfig.json", "jsconfig.json", "package.json")
+
+
+def ts_zones(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
+    """Group TS/JS *files* by the directory of their nearest tsconfig.
+
+    The M6 zoning lesson, now applied to lane B: per-package compiler
+    options — path aliases above all — only resolve the way that package's
+    own build does, so each zone is indexed on its own. This is ADR-027's
+    "the config is derived, not authored" for TypeScript, and §3.7's
+    root-discovery checklist item.
+
+    Files under no tsconfig at all group under ``""`` and get a generated
+    config in the stage, which is exactly what the staging tree is for.
+    """
+    zones: dict[str, list[str]] = {}
+    cache: dict[str, str] = {}
+    for rel in files:
+        directory = str(PurePosixPath(rel).parent)
+        if directory not in cache:
+            cache[directory] = _nearest_config_dir(repo_root, directory)
+        zones.setdefault(cache[directory], []).append(rel)
+    return {zone: sorted(paths) for zone, paths in sorted(zones.items())}
+
+
+def _nearest_config_dir(repo_root: Path, directory: str) -> str:
+    """Directory of the nearest tsconfig at or above *directory*, or ""."""
+    current = PurePosixPath(directory)
+    while True:
+        if (repo_root / current / "tsconfig.json").is_file():
+            return "" if str(current) == "." else str(current)
+        if str(current) == ".":
+            return ""
+        current = current.parent
+
+
+def _nearest_node_modules(repo_root: Path, zone: str) -> Path | None:
+    """The dependency tree a zone resolves against, walking up to the root.
+
+    Node resolution walks up from the importing file, and the staging tree
+    has nothing above it — so the link has to be placed where the *repo*
+    would have found one (ADR-032).
+    """
+    current = repo_root / zone if zone else repo_root
+    repo_root = repo_root.resolve()
+    while True:
+        candidate = current / "node_modules"
+        if candidate.is_dir():
+            return candidate
+        if current.resolve() == repo_root or current.parent == current:
+            return None
+        current = current.parent
+
+
+def _staged_ts_configs(repo_root: Path, files: list[str]) -> list[str]:
+    """Every tsconfig/package.json at or above a staged TS file."""
+    wanted: set[str] = set()
+    for rel in files:
+        current = PurePosixPath(rel).parent
+        while True:
+            for name in _TS_CONFIG_NAMES:
+                candidate = current / name if str(current) != "." else PurePosixPath(name)
+                if (repo_root / candidate).is_file():
+                    wanted.add(str(candidate))
+            if str(current) == ".":
+                break
+            current = current.parent
+    return sorted(wanted)
+
+
+def _generated_tsconfig(files: list[str], zone: str) -> dict:
+    """A config for files the repo never gave one.
+
+    Mirrors `tsextract`'s zone-less default project, so both lanes see the
+    same language dialect. ``files`` is explicit rather than a glob: a
+    root-level config with a default include would swallow every other
+    zone's sources and index them under the wrong compiler options.
+    """
+    prefix = f"{zone}/" if zone else ""
+    return {
+        "compilerOptions": {
+            "allowJs": True,
+            "checkJs": False,
+            "module": "ESNext",
+            "moduleResolution": "Bundler",
+            "target": "ES2022",
+            "jsx": "preserve",
+            "noEmit": True,
+            "skipLibCheck": True,
+        },
+        "files": [
+            rel[len(prefix):] if prefix and rel.startswith(prefix) else rel
+            for rel in files
+        ],
+    }
+
+
+def extract_scip_typescript(
+    repo_root: Path, files: list[str], sha: str = ""
+) -> dict | None:
+    """Index every TypeScript zone and return one merged facts document.
+
+    One indexer run per zone, because a zone is a separate TypeScript
+    program (M6). Zones are merged rather than reconciled: they resolve
+    independently, so a cross-zone import resolves in neither — which is
+    C-12, unchanged by this milestone and now true of both lanes.
+    """
+    if not enabled() or not files:
+        return None
+    repo_root = Path(repo_root).resolve()
+    merged: dict = {
+        "definitions": [],
+        "references": [],
+        "external_refs": [],
+        "packages": {},
+        "degraded": [],
+        "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
+    }
+    for zone, zone_files in ts_zones(repo_root, files).items():
+        facts = _index_ts_zone(repo_root, zone, zone_files, sha)
+        if facts is None:
+            continue
+        for key in ("definitions", "references", "external_refs", "degraded"):
+            merged[key].extend(facts.get(key, []))
+        for name, count in (facts.get("packages") or {}).items():
+            merged["packages"][name] = merged["packages"].get(name, 0) + count
+        zone_coverage = facts.get("dependency_coverage") or {}
+        merged["dependency_coverage"]["declared"] += zone_coverage.get("declared", 0)
+        merged["dependency_coverage"]["resolved"] += zone_coverage.get("resolved", 0)
+        merged["dependency_coverage"]["missing"].extend(
+            zone_coverage.get("missing", [])
+        )
+    merged["dependency_coverage"]["missing"] = sorted(
+        set(merged["dependency_coverage"]["missing"])
+    )
+    return merged
+
+
+def _index_ts_zone(
+    repo_root: Path, zone: str, zone_files: list[str], sha: str
+) -> dict | None:
+    """Stage and index one TypeScript zone."""
+    staged = sorted(set(zone_files) | set(_staged_ts_configs(repo_root, zone_files)))
+    links = {}
+    dependencies = _nearest_node_modules(repo_root, zone)
+    if dependencies is not None:
+        # Placed where the repo would have found one, relative to the zone.
+        anchor = dependencies.parent.relative_to(repo_root).as_posix()
+        rel = "node_modules" if anchor == "." else f"{anchor}/node_modules"
+        links[rel] = str(dependencies.resolve())
+
+    configs = {}
+    zone_config = f"{zone}/tsconfig.json" if zone else "tsconfig.json"
+    if not (repo_root / zone_config).is_file():
+        configs[zone_config] = _generated_tsconfig(zone_files, zone)
+
+    package_json = repo_root / (f"{zone}/package.json" if zone else "package.json")
+    declared = (
+        declared_npm_dependencies(package_json) if package_json.is_file() else []
+    )
+
+    stage = staging.build_stage(repo_root, staged, sha=sha, configs=configs, links=links)
+    try:
+        facts = run_helper(
+            {
+                "stage": str(stage / zone if zone else stage),
+                "language": "typescript",
+                "projectName": repo_root.name,
+                "projectVersion": "0",
+                "output": str(stage.parent / f"{stage.name}.scip"),
+                "declaredDeps": declared,
+            }
+        )
+    finally:
+        staging.remove_stage(stage)
+    return _rebase(facts, zone)
+
+
+def _rebase(facts: dict, zone: str) -> dict:
+    """Re-root a zone's file paths at the repo.
+
+    A zone is indexed with ``--cwd`` at *its own* directory, so SCIP
+    reports ``src/App.tsx`` where lane A says ``web/src/App.tsx``. The two
+    providers must speak the same paths or the range join silently matches
+    nothing — which is not an error, just a graph with no semantic TS
+    edges and a coverage denominator full of holes. Python never hit this
+    because its ``--cwd`` is the stage root, where the two already agree.
+    """
+    if not zone:
+        return facts
+    def at(path: str) -> str:
+        return f"{zone}/{path}" if path else path
+
+    for ref in facts.get("references", []):
+        ref["file"] = at(ref["file"])
+        ref["def_file"] = at(ref["def_file"])
+    for definition in facts.get("definitions", []):
+        definition["file"] = at(definition["file"])
+    for ref in facts.get("external_refs", []):
+        ref["file"] = at(ref["file"])
+    return facts
 
 
 def extract_scip(

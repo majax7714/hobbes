@@ -5,6 +5,7 @@ import {
   classify,
   decode,
   degradations,
+  dependencyCoverage,
   GRAPH_KINDS,
   packageOf,
   terminalName,
@@ -112,6 +113,55 @@ test('resolving the declared dependencies is not degradation', () => {
   ])
   const out = degradations(idx, decode(idx), { declaredDeps: ['axios'] })
   assert.equal(out.filter((d) => d.stage === 'scip-resolve').length, 0)
+})
+
+// ADR-032. The old test fired only when *every* declared dependency was
+// missing, and scip-typescript bundles `typescript`, so that one
+// always-resolving package held the condition false forever. Measured on
+// kbet staged without node_modules: 1 of 23 resolved, nothing reported.
+test("the indexer's own bundled package is not evidence of an environment", () => {
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/a.ts',
+      occurrences: [
+        { symbol: `${TS}/api.`, symbol_roles: DEF, range: [0, 0, 0, 3] },
+        // What an index built with no node_modules is full of.
+        { symbol: 'scip-typescript npm typescript 5.9.3 `lib.d.ts`/Array#', symbol_roles: 0, range: [1, 0, 1, 3] },
+      ],
+    },
+  ])
+  const declared = { declaredDeps: ['typescript', 'axios', 'react', 'zustand'] }
+  const coverage = dependencyCoverage(decode(idx), declared)
+
+  assert.equal(coverage.resolved, 0, 'typescript resolving proves nothing')
+  // Excluded from the denominator too: nearly every TS repo declares
+  // `typescript`, and a package that can never be credited must not be
+  // reported missing either — that would be a permanent false alarm.
+  assert.equal(coverage.declared, 3)
+  assert.ok(!coverage.missing.includes('typescript'), 'never report the bundled package missing')
+  assert.deepEqual(coverage.missing, ['axios', 'react', 'zustand'])
+
+  const out = degradations(idx, decode(idx), declared)
+  assert.ok(
+    out.some((d) => d.stage === 'scip-resolve'),
+    'a near-total resolution failure must be reported',
+  )
+})
+
+test('dependency coverage is reported as counts, not only as a verdict', () => {
+  // The ADR-029 denominator pattern: a repo half-resolved is not a
+  // pass/fail, and the number is what a reviewer can act on.
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/a.ts',
+      occurrences: [
+        { symbol: `${TS}/api.`, symbol_roles: DEF, range: [0, 0, 0, 3] },
+        { symbol: 'scip-typescript npm axios 1.0.0 `index.d.ts`/get().', symbol_roles: 0, range: [1, 0, 1, 3] },
+      ],
+    },
+  ])
+  const coverage = dependencyCoverage(decode(idx), { declaredDeps: ['axios', 'react'] })
+  assert.deepEqual(coverage, { declared: 2, resolved: 1, missing: ['react'] })
 })
 
 test('terminalName reads the bare name a syntax provider would have seen', () => {
