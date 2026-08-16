@@ -21,7 +21,10 @@ dependencies = [
 hobbes = "hobbes.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "import-linter>=2.13",
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]

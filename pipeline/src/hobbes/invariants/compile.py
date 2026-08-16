@@ -161,7 +161,17 @@ def _emit_import_linter(records: list[Invariant], graph: dict) -> str:
             *(f"    {f}" for f in forbidden),
         ]
         if ignored:
-            block += ["ignore_imports =", *(f"    {i}" for i in ignored)]
+            # `except` means "this importer may import any of the forbidden",
+            # so the pairs are a cross-product and most never occur as real
+            # imports. import-linter treats an unmatched ignore as an ERROR
+            # by default, which failed a clean repo the first time the
+            # generated config was actually executed (V2.M6) — the exact
+            # class of bug the shape-only tests could not see.
+            block += [
+                "ignore_imports =",
+                *(f"    {i}" for i in ignored),
+                "unmatched_ignore_imports_alerting = warn",
+            ]
         contracts.append("\n".join(block))
 
     header = [
