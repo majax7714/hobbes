@@ -22,7 +22,6 @@ The output shape is ADR-006's graph.json body minus the symbol layer:
 
 from __future__ import annotations
 
-import sys
 from collections import defaultdict
 
 from hobbes.extract.discover import ModuleInfo
@@ -54,8 +53,9 @@ def build_graph(modules: list[ModuleInfo], parsed: dict[str, ParsedFile]) -> dic
                     {"path": module.path, "line": imp.line}
                 )
         for imp, top_level in env.external_imports:
-            if top_level in sys.stdlib_module_names:
-                continue  # stdlib is noise; third-party is signal (ADR-007)
+            # Stdlib and third-party alike (ADR-038): `subprocess` is exactly
+            # the import a reviewer wants flagged, and Go's layer already
+            # shows its stdlib — a split answer misleads worse than either.
             ext_id = f"ext:{top_level}"
             nodes.setdefault(ext_id, {"id": ext_id, "kind": "external", "name": top_level})
             module_edges[(module.id, ext_id, "imports")].append(

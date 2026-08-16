@@ -45,9 +45,13 @@ test("discoverFiles finds TS/JS extensions and prunes junk dirs", () => {
   assert.deepEqual(discoverFiles(root), ["c.mjs", "src/a.ts", "src/b.jsx"]);
 });
 
-test("externalName: builtins dropped, packages kept, relatives null", () => {
-  assert.equal(externalName("node:test"), null);
-  assert.equal(externalName("fs/promises"), null);
+test("externalName: builtins kept under node:, packages kept, relatives null", () => {
+  // ADR-038: builtins are dependencies too, one node per module however
+  // the import is spelled, and never sharing a node with an npm package.
+  assert.equal(externalName("node:test"), "node:test");
+  assert.equal(externalName("fs/promises"), "node:fs");
+  assert.equal(externalName("fs"), "node:fs");
+  assert.equal(externalName("node:fs"), "node:fs");
   assert.equal(externalName("./local.js"), null);
   assert.equal(externalName("express"), "express");
   assert.equal(externalName("@nestjs/common"), "@nestjs/common");
@@ -100,8 +104,8 @@ test("imports: named/default/namespace, re-exports, require, dynamic", () => {
   assert.deepEqual(resolved[0].names, ["def", "helper"]);
   assert.deepEqual(
     main.imports.filter((i) => i.external).map((i) => i.external),
-    ["express"]
-  ); // node:fs dropped as a builtin
+    ["express", "node:fs"]
+  ); // builtins kept as externals under node: (ADR-038)
   const legacy = byPath(facts, "src/legacy.cjs");
   assert.deepEqual(
     legacy.imports.map((i) => [i.specifier, i.resolved ?? i.external]),

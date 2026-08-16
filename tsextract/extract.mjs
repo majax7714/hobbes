@@ -74,9 +74,13 @@ function relPath(repoRoot, sourceFile) {
   return path.relative(repoRoot, sourceFile.getFilePath()).split(path.sep).join("/");
 }
 
-/** External package name for a specifier, or null when it should be
- * dropped (Node builtins — the stdlib-noise rule — and unresolved
- * relative paths). */
+/** External package name for a specifier, or null for unresolved relative
+ * paths and path aliases. Node builtins are kept, not dropped (ADR-038
+ * lifted C-3's stdlib-noise rule): `node:child_process` is exactly the
+ * import a reviewer wants flagged. They normalise to a `node:`-prefixed
+ * name — `fs`, `node:fs` and `fs/promises` all become `node:fs` — so a
+ * builtin never shares a node with an npm package that reuses its name,
+ * and both import spellings land on one node. */
 export function externalName(specifier) {
   if (specifier.startsWith(".") || specifier.startsWith("/")) return null;
   const bare = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
@@ -84,7 +88,7 @@ export function externalName(specifier) {
   // "@/x" and "~/x" are unresolved path aliases, not packages.
   if (segments[0] === "@" || segments[0] === "~") return null;
   const name = bare.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
-  if (BUILTINS.has(name) || specifier.startsWith("node:")) return null;
+  if (BUILTINS.has(name) || specifier.startsWith("node:")) return `node:${name}`;
   return name;
 }
 
@@ -475,11 +479,6 @@ function testFramework(sourceFile, filePath, imports) {
   for (const spec of specifiers) {
     if (spec === "vitest" || spec.startsWith("vitest/")) return "vitest";
     if (spec === "@jest/globals") return "jest";
-  }
-  // node:test is dropped from imports as a builtin; check the raw
-  // declarations too.
-  for (const imp of sourceFile.getImportDeclarations()) {
-    if (imp.getModuleSpecifierValue() === "node:test") return "node:test";
   }
   if (!isTestFile(filePath)) return null;
   // Test-named file using bare describe/it/test globals (jest- or

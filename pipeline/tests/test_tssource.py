@@ -103,6 +103,16 @@ class TestJoinFacts:
                                 "names": [],
                                 "line": 2,
                             },
+                            # A Node builtin, kept as an external since
+                            # ADR-038 lifted C-3 — normalised to node:fs
+                            # by the helper's externalName.
+                            {
+                                "specifier": "node:fs",
+                                "resolved": None,
+                                "external": "node:fs",
+                                "names": [],
+                                "line": 3,
+                            },
                         ],
                         env_reads=[{"var": "API_URL", "line": 5}],
                     ),
@@ -113,6 +123,7 @@ class TestJoinFacts:
         assert [n["id"] for n in joined["nodes"]] == [
             "env:API_URL",
             "ext:express",
+            "ext:node:fs",
             "src/main",
             "src/util",
         ]
@@ -121,6 +132,7 @@ class TestJoinFacts:
         assert edges == {
             ("src/main", "src/util", "imports"),
             ("src/main", "ext:express", "imports"),
+            ("src/main", "ext:node:fs", "imports"),
             ("src/main", "env:API_URL", "env-read"),
         }
 

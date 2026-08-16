@@ -89,31 +89,25 @@ information appears in both, and the entries cross-reference.
   wearing a probability.
 - **Source:** ADR-029.
 
-### C-3 — Standard-library dependencies are invisible — except in Go
-- **Cannot tell you:** that a Python module depends on `subprocess`, `os`,
-  or `json`, or a TS module on `node:fs` or `node:child_process`.
-- **Because:** stdlib imports are dropped as noise at resolution for
-  Python (`sys.stdlib_module_names`, ADR-007) and for JS/TS (the Node
-  builtins list, M6); only third-party imports become `ext:` nodes. **Go
-  does the opposite** (V2.M5): `gosource` emits an `ext:` node for every
-  import that resolves to no in-repo package, with no stdlib filter — its
-  docstring says "stdlib and third-party" knowingly, but the choice was
-  never reconciled with ADR-007's noise rule or with this entry. The
-  dogfood graph carries `ext:os`, `ext:fmt`, `ext:syscall`, `ext:net`
-  today, ~20 stdlib packages among the 51 external nodes.
-- **Bites at:** any question of the form "what does this module touch" —
-  notably security-shaped ones, where `subprocess` is exactly the import
-  a reviewer wants flagged. **The asymmetry aggravates it (found by the
-  2026-08-15 register audit):** a graph that shows `ext:os` on Go modules
-  teaches the reader that stdlib *is* modelled, so a Python module with no
-  such node now reads as positively clean rather than unexamined.
-- **You find out:** **unsurfaced** for Python and TS — the graph has no
-  such nodes and says nothing, and Go's visible ones make the silence read
-  as an answer. Either direction can be right (drop Go's for consistency,
-  or emit stdlib everywhere and lift this entry); split by language it is
-  wrong in both.
-- **Source:** ADR-007 (the rule); asymmetry entered at V2.M5 (ADR-037,
-  unregistered there), recorded 2026-08-15.
+### C-3 — Standard-library dependencies are invisible — **LIFTED by ADR-038**
+- **Was:** stdlib imports were dropped as noise at resolution for Python
+  (`sys.stdlib_module_names`, ADR-007) and JS/TS (Node builtins, M6), so
+  "imports no stdlib" and "stdlib not modelled" looked identical — and the
+  question is usually a security one, where `subprocess` is exactly the
+  import a reviewer wants flagged. V2.M5 made it worse without touching
+  it: Go's layer never had the filter, so `ext:os` on Go modules taught
+  the reader stdlib *was* modelled and a Python module's silence read as
+  positively clean. The asymmetry was found by the 2026-08-15 register
+  audit, unregistered by ADR-037.
+- **Lifted by:** ADR-038 (same day) — every syntax provider now emits
+  `ext:` nodes for stdlib like any other dependency. Python drops the
+  skip; TS keeps builtins normalised to a `node:`-prefixed name
+  (`ext:node:fs`, one node however the import is spelled, never shared
+  with an npm package of the same name); Go was already right, just alone.
+  Externals stay hidden by default in the surface (ADR-023) — a view
+  choice, where the old rule was an information choice.
+- **Source:** ADR-007 (the rule), ADR-038 (the lift), Max's call:
+  "no need to hide what hobbes does capture."
 
 ### C-4 — Pytest fixtures do not appear in test reach
 - **Cannot tell you:** that a test exercises code reached only through a

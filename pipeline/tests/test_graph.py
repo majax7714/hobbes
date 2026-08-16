@@ -66,8 +66,13 @@ class TestModuleEdges:
         kinds = {n["id"]: n["kind"] for n in graph["nodes"]}
         assert kinds["ext:fastapi"] == "external"
 
-    def test_stdlib_is_dropped(self, graph):
-        assert not any(n["id"] == "ext:os" for n in graph["nodes"])
+    def test_stdlib_becomes_external_nodes(self, graph):
+        # ADR-038 lifted C-3: stdlib is a dependency like any other —
+        # `subprocess` is exactly the import a reviewer wants flagged, and
+        # Go's layer already showed its stdlib, so silence here misled.
+        assert any(n["id"] == "ext:os" for n in graph["nodes"])
+        imports = module_edges(graph, "imports")
+        assert ("miniapp.util", "ext:os") in imports
 
     def test_env_reads(self, graph):
         env = module_edges(graph, "env-read")
