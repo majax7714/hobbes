@@ -388,8 +388,9 @@ export function degradations(index, decoded, config) {
       stage: 'scip-decode',
       message:
         `${decoded.ambiguous.length} symbol(s) are defined in more than one ` +
-        `file (e.g. ${sample}) — typically cargo targets sharing a name; ` +
-        'references to them are left unattributed rather than guessed',
+        `file (e.g. ${sample}) — cargo targets sharing a name, or a package ` +
+        'namespace declared per file; references to them are left ' +
+        'unattributed rather than guessed',
     })
   }
   return out
