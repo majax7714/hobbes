@@ -412,23 +412,31 @@ information appears in both, and the entries cross-reference.
   error path is the surfacing when they are absent.
 - **Source:** M8, `future_additions.md`; lifted at V2.M6 (ADR-039).
 
-### C-19 — Three of the four compiled CI configs have never been executed
-- **Cannot tell you:** that a generated dependency-cruiser config,
-  semgrep rule, or Rego policy actually runs. **import-linter is no
-  longer on this list** (V2.M6, ADR-039): it is a dev dependency, the
-  agreement suite runs `lint-imports` over generated configs on every
-  test run, and the first real execution found a real emitter bug —
-  unmatched ignore pairs failed a clean repo — which is the argument for
-  narrowing this entry rather than lifting it: the other three emitters
-  are exactly as untested as that one was.
+### C-19 — Two of the four compiled CI configs have never been executed
+- **Cannot tell you:** that a generated dependency-cruiser config or
+  Rego policy actually runs. **import-linter left this list at V2.M6**
+  (ADR-039): the agreement suite runs `lint-imports` over generated
+  configs on every test run, and the first real execution found a real
+  emitter bug — unmatched ignore pairs failed a clean repo. **semgrep
+  left it 2026-08-16**: a dev dependency now, with the same treatment —
+  a violating tree fails, a clean one passes, path exclusions actually
+  exclude, and the dogfood repo's own I-5 rule runs against the real
+  `narrate/` package on every test run (so a new write path in
+  `narrate/` fails the suite before it fails a reviewer). The semgrep
+  emitter survived its first execution clean, which is worth recording
+  precisely because import-linter's did not: the argument for executing
+  the remaining two stands on the one bug found, not on bugs being
+  everywhere.
 - **Because:** compilation is pure text generation by design (no target
-  toolchain needed), and the other three tools are not installed here.
-  Those emitters are asserted against documented formats only.
-- **Bites at:** `hobbes invariants compile` output for dep-cruiser,
-  semgrep, and rego, the first time anyone runs them in real CI.
-- **You find out:** **unsurfaced** for those three. The files look
+  toolchain needed), and dependency-cruiser and conftest are not
+  installed here. Those two emitters are asserted against documented
+  formats only.
+- **Bites at:** `hobbes invariants compile` output for dep-cruiser and
+  rego, the first time anyone runs them in real CI.
+- **You find out:** **unsurfaced** for those two. The files look
   finished.
-- **Source:** M8, `future_additions.md`; narrowed at V2.M6.
+- **Source:** M8, `future_additions.md`; narrowed at V2.M6 and again
+  2026-08-16.
 
 ### C-20 — Decisions do not survive a fresh clone
 - **Cannot tell you:** on a new machine or a re-clone, that you already

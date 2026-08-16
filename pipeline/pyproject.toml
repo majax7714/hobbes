@@ -25,6 +25,7 @@ hobbes = "hobbes.cli:main"
 dev = [
     "import-linter>=2.13",
     "pytest>=8",
+    "semgrep>=1.173.0",
 ]
 
 [build-system]
