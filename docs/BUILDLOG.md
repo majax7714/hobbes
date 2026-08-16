@@ -2592,3 +2592,58 @@ debt on the unsurfaced list alongside C-4, C-19, C-20.
 
 No tests affected (docs only); suite state unchanged from the sixteenth
 entry (245 Go / 566 pytest / 24 scip / 27 tsextract / 52 vitest).
+
+---
+
+## 2026-08-16 (eighteenth) — the tail view: the unresolved remainder, classified
+
+Max's direction in two steps, same day. First: measure what the
+unresolved call sites *are* on the three verified repos. Second, on the
+result: build it into the real ingest — "that measurement is our
+honesty" — with locals handled accurately since the checker can, and
+the vocabulary split three ways: what Hobbes sees, what it sees and
+does not need to model, what it physically cannot resolve.
+
+**The measurement** (scratch, instrumented ingest wrapping the real
+`ev.coverage` — no reimplemented logic). The tails were never uniformly
+dark. Go: 68.9% builtin-named (`len`×174). Python: 45.5% builtin-named,
+44.4% attr calls on untypable receivers — C-2's fixture claim,
+measured. kbet TS: **61% of the tail is bindings declared in the same
+file** (setters, handler consts — below C-9's vocabulary, i.e. seen and
+deliberately not modelled), 22% imported names the index left dark
+(`expect` alone 289 sites), and **9 sites of 1,339** fit no observation
+at all. Incidental live fire: the first background run had no
+`~/.cargo/bin` on PATH and the rust lane *visibly* degraded
+(extraction_errors named the binary and the fix) — artifacts re-ingested
+clean after.
+
+**The build (ADR-045).** Classes are observations or `unclassified` —
+the standing rule against rationalising the unknown from a checklist of
+potentials, which Max named as the fake-honest trap. `tail.py` (pinned
+builtin literals, text shape, priority order; per-file counts that sum
+to `unresolved` by construction — derived from the same
+`_dispositions` walk as the counts, so measured set ≡ counted set).
+tsextract **v4**: `calleeOrigin` reports where an unresolved callee's
+declarations live (`local`/`nested`/`external`) — the knowledge
+`resolveExpressionTarget` was discarding at its gates.
+`resolution_coverage` rows carry `tail` (additive, no schema bump);
+`hobbes ingest` prints the capture line per language, always against
+the honest denominator ("of detected call sites", never "of the
+repo"), split *seen-not-modelled-by-design* vs *cannot resolve*.
+
+**Exit check** — the scratch measurement as oracle, checker replacing
+regex: kbet `local-binding` 846 (regex said 821; the checker found 25
+the regex missed), `external-origin` 462 absorbing what regex called
+imported+attr, `unclassified` **3**; dogfood go builtin 314 (= 264 + the
+pinned conversion-type names), python builtin 246 / attr 243; rust
+tail empty on both repos. Register: C-2 amended (composition measured
+per ingest; `fallback-resolved` names the semantic-ledger subtlety),
+**C-32** added (the classifier's boundaries: TS-only origins, pinned
+lists, text shape — partial). Not scoped: review/surface reading
+`tail`; origin support from other syntax providers (C-32's candidate).
+
+580 pytest / 29 tsextract / Go ok / 52 vitest — all green.
+
+**Stops here for Max's review** (milestone discipline: the exit is his
+to pass): the mechanism, the class vocabulary, and whether the capture
+line's phrasing says what he means.

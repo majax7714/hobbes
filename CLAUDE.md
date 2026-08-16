@@ -224,6 +224,23 @@ evidence table — Python and TS/JS multi-repo; Go verified on one repo
 checklist — now **four** steps, the fourth being verification evidence
 recorded in §3.8 in the same commit — proven twice (Go, Rust).
 
+**2026-08-16 (the tail view, ADR-045 — built, awaiting Max's review):**
+the unresolved call-site remainder is now **classified by observation**
+on every ingest: `resolution_coverage` rows carry `tail`
+(checker-origin classes from tsextract v4 — `local-binding` =
+below-C-9's-floor, seen and deliberately not modelled; pinned
+`builtin-name` lists; text-shape `attr-call`; `unclassified` as the
+honest residue), and `hobbes ingest` prints the per-language capture
+line — always "% **of detected call sites**", never "of the repo" —
+split *seen, not modelled by design* vs *cannot resolve*. Standing
+rule (Max): a class is a checkable observation or it abstains; never
+rationalise the unknown from a checklist of potentials. Measured on
+the three verified repos: kbet's tail is 61% below-floor locals with
+**9 of 1,339** sites unclassifiable; the *cannot resolve* group is the
+concentrated remainder — anything in it that turns out to be needed
+for derived context becomes a direct register entry. C-2 amended,
+C-32 added (classifier boundaries: TS-only origins, pinned lists).
+
 **2026-08-16 (post-v2 doc session):** the constraints register is split
 into **Active** and **Lifted** parts (ADR-043) — lifted entries carry a
 required Was / Lifted-by-technique / Residual-edge-cases format, because
