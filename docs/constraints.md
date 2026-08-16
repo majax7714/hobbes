@@ -523,10 +523,11 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Nine of twenty-six entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
-C-16, C-19, C-20, C-24). One entry — C-11 — has been **lifted**. That
-churn is the point of keeping the register: none of it was knowable before
-this file existed, and what remains is the backlog P8 generates.
+Six of twenty-six entries are **unsurfaced** (C-4, C-12, C-14, C-19,
+C-20, C-24). Three have been **lifted** — C-11 at V2.M3, and C-3 and
+C-16 in the 2026-08-15 pre-M6 sweep, which also surfaced C-5 and C-26.
+That churn is the point of keeping the register: none of it was knowable
+before this file existed, and what remains is the backlog P8 generates.
 
 V2.M4 added one entry (**C-25**) and it is *partial* rather than
 unsurfaced, because `graph.json`'s `packs` list was added in the same
@@ -545,22 +546,29 @@ nothing catches that except measuring the next case.
 The 2026-08-15 audit (before V2.M6) found the complementary failure: **a
 register entry can be made wrong by a milestone that never touched it.**
 Six entries had drifted, all by M4/M5 side-effects — C-3 materially (Go
-emits stdlib `ext:` nodes where Python and TS drop them, an asymmetry no
-ADR registered), C-15's merge order predated both the pack layer and Go,
-and C-5/C-9/C-10/C-14 named mechanisms or providers that had since moved
-or multiplied. Nothing detects this today: the register is prose, and no
-milestone exit re-reads entries it did not write.
+emitted stdlib `ext:` nodes where Python and TS dropped them, an asymmetry
+no ADR registered), C-15's merge order predated both the pack layer and
+Go, and C-5/C-9/C-10/C-14 named mechanisms or providers that had since
+moved or multiplied. Nothing detects this today: the register is prose,
+and no milestone exit re-reads entries it did not write.
 
-Ranked by how badly each misleads, worst first:
+The same day's sweep then paid down the worst of what the audit ranked:
+C-3 was lifted outright (ADR-038 — stdlib everywhere, rather than
+re-hiding what Go already showed), C-16 was lifted (the manifest walk),
+and C-5 and C-26 went from silent to one degradation record per declined
+route and per orphan Go directory. C-5's surfacing also caught the Nest
+reader *emitting* a computed route with the segment dropped — the one
+shape worse than absence, found only because surfacing forced the decline
+path to be written down.
 
-1. **C-16** — a degradation check that appears to run and reports nothing,
-   on the repo Hobbes dogfoods against.
-2. **C-3** — "imports no stdlib" and "stdlib not modelled" look identical,
-   and the question is usually a security one. Worse since V2.M5: Go's
-   visible stdlib nodes make the other languages' silence read as an
-   answer.
-3. **C-24** — an empty `reaches` on a component test reads as "nothing
+Ranked by how badly each remaining entry misleads, worst first:
+
+1. **C-24** — an empty `reaches` on a component test reads as "nothing
    guards this", though it fails in the safe direction by design.
+   Deferred to V2.M6 by its own entry.
+2. **C-12** — a monorepo's cross-zone import edge is simply absent, at
+   exactly the altitude the graph exists to show.
+3. **C-14** — an empty CLI list reads as "no CLI" on TS/JS and Go repos.
 
 The rest stay quiet rather than lying, which is a real difference.
 

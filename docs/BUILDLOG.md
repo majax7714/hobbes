@@ -2112,3 +2112,59 @@ not write.
 
 No code changed. The triage of what to tackle pre-M6 goes to Max with
 this session's report.
+
+---
+
+## 2026-08-15 (tenth) — the sweep: two lifted, two surfaced, before M6
+
+Max's call on the audit's triage: option (b) for C-3 — "no need to hide
+what hobbes does capture" — plus the three surfacing fixes, all before
+V2.M6. Four commits, each with its register update in the same diff.
+
+**C-3 lifted (ADR-038).** Stdlib imports are dependencies everywhere now.
+Python drops the `sys.stdlib_module_names` skip; TS keeps Node builtins
+normalised to a `node:`-prefixed name (`ext:node:fs` however the import is
+spelled, never sharing a node with the npm package called `fs`); Go was
+already right, just alone. On the dogfood repo: 216 → 247 nodes, 653 → 848
+module edges, and `ext:subprocess` now pins exactly the six modules a
+security reviewer would ask about. Externals stay hidden by default in the
+surface — a view choice, where the old rule was an information choice.
+
+**C-16 lifted — and it fired on its first real run.** The
+dependency-degradation check now walks every `pyproject.toml` (the CLI
+pack's pruned walk), and on this very repo it immediately reported
+something true that nobody had seen: **the Python index resolves 0 of the
+5 declared third-party packages** (pyyaml, the tree-sitter family), while
+the TS zone resolves 6 of 9. In-repo Python semantics are intact — 1,977
+semantic edges — but resolution *into* those packages has been absent
+since lane B landed, because the staged copy is indexed outside the venv.
+The check that was inert for two milestones surfaced a real gap within
+minutes of working. Remediation (making the indexer see the environment)
+is real work and is not started here; the WARNING at ingest is the
+designed surfacing, and it is now honest.
+
+**C-26 surfaced.** One degradation record per orphan Go directory names
+the files and the missing `go.mod`. Detection is a pure public function
+(`go_orphans`) so its test runs with no indexer installed; lane-B
+degradation records keep their own `path` instead of flattening to `.`.
+
+**C-5 surfaced — and surfacing found a bug.** All three HTTP packs now
+report a route seen and declined (computed path) as an `extraction_errors`
+record at file:line. Writing the decline path exposed that the Nest reader
+had been *emitting* a route with a computed segment silently dropped —
+`@Get(SOME_CONST)` under `@Controller("items")` reported as `/items`, a
+path the app does not serve, which is the one shape worse than C-5's
+absence. Computed Nest arguments now decline like the rest. tsextract
+helper is v3 (`routes_declined` per file), pinned on both sides. The
+false-positive edges were guarded deliberately: Python's decline is
+framework-import-gated, express requires a registration-shaped call on a
+receiver that resolves to an express app, Go declines only when no string
+argument exists at all — a judged non-path string is not a miss.
+
+Debt summary recounted: six unsurfaced of twenty-six (C-4, C-12, C-14,
+C-19, C-20, C-24), three lifted. Of the six, C-19 and C-24 fall to V2.M6
+by plan. 498 pytest / 21 tsextract / 52 vitest / 16 scip / 12 Go packages,
+and a full dogfood re-ingest verified by hand.
+
+**Still stopped at the M5 review gate.** Nothing here is M6 work — it is
+the register's backlog, paid down so M6 starts clean.
