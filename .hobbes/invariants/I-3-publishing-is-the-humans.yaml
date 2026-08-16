@@ -10,8 +10,7 @@ statement: >-
   to a human rather than running — the default is a question, never a yes.
 scope: .
 status: confirmed
-compile:
-  # Soft: the subject is the policy file's own content, which no code
-  # linter reads. The Go engine's test battery is the real guard.
-  target: soft
+# Soft: the subject is the policy file's own content, which no code
+# linter reads. The Go engine's test battery is the real guard.
+check: soft
 guarded_by: []

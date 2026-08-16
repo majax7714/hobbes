@@ -12,8 +12,7 @@ statement: >-
   validation or carries unverifiable pins writes nothing to disk.
 scope: pipeline/src/hobbes/narrate
 status: confirmed
-compile:
-  target: soft
+check: soft
 guarded_by:
   - pipeline/tests/test_narrate.py::TestWriteModuleDoc::test_invalid_payload_writes_nothing
   - pipeline/tests/test_narrate.py::TestWriteModuleDoc::test_unsafe_id_refused

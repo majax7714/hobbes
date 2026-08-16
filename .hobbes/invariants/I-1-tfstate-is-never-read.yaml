@@ -8,12 +8,11 @@ statement: >-
   touching *.tfstate*, as a builtin floor beneath every repo policy.
 scope: .
 status: confirmed
-compile:
-  # Soft: the rule spans a policy floor (Go), an extractor refusal
-  # (Python), and a gitignore entry. No single target checks all three,
-  # and a rule that checked one would read as a pass while the others
-  # rotted.
-  target: soft
+# Soft: the rule spans a policy floor (Go), an extractor refusal
+# (Python), and a gitignore entry. No single target checks all three,
+# and a rule that checked one would read as a pass while the others
+# rotted.
+check: soft
 guarded_by:
   - pipeline/tests/test_terraform.py::TestPlan::test_tfstate_lookalike_refused
   - pipeline/tests/test_cli.py::TestIngest::test_tfstate_plan_refused

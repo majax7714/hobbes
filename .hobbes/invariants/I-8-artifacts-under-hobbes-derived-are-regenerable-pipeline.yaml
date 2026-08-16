@@ -11,6 +11,5 @@ statement: >-
   are never committed; git add of anything under that path is denied.
 scope: .hobbes/derived
 status: confirmed
-compile:
-  target: soft
+check: soft
 guarded_by: []

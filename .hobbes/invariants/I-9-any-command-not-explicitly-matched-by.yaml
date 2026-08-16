@@ -20,6 +20,5 @@ statement: >-
   that question that should be yes.
 scope: .
 status: confirmed
-compile:
-  target: soft
+check: soft
 guarded_by: []

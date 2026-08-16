@@ -8,10 +8,9 @@ statement: >-
   than in version control.
 scope: .hobbes/derived
 status: confirmed
-compile:
-  # Soft: the claim is about what git tracks, which none of the four
-  # targets can see.
-  target: soft
+# Soft: the claim is about what git tracks, which none of the four
+# targets can see.
+check: soft
 guarded_by:
   - pipeline/tests/test_emit.py::TestEnsureHobbesIgnored::test_appends_without_clobbering
   - pipeline/tests/test_emit.py::TestEnsureHobbesIgnored::test_target_repo_gets_whole_dir_ignored

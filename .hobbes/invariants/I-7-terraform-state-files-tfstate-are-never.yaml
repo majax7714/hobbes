@@ -13,8 +13,7 @@ statement: >-
   touching them.
 scope: .
 status: confirmed
-compile:
-  target: soft
+check: soft
 guarded_by:
   - pipeline/tests/test_terraform.py::TestPlan::test_tfstate_lookalike_refused
   - pipeline/tests/test_cli.py::TestIngest::test_tfstate_plan_refused

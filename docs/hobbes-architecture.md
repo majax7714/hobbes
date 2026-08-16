@@ -437,8 +437,8 @@ clone.
 
 ## 5. Invariants
 
-Constrained YAML schema, one record per invariant, unchanged in shape but with
-a new checking mode:
+Constrained YAML schema, one record per invariant, with a checking mode
+(**built at V2.M6**, ADR-039):
 
 ```yaml
 id: I-3
@@ -446,20 +446,30 @@ statement: only auth.core may mint or validate tokens
 scope: src/
 status: confirmed            # inferred | confirmed | retired
 check: graph                 # graph | emit | soft
+rule:                        # required for graph and emit; forbidden for soft
+  kind: forbidden-import     # forbidden-import | pattern-absent | resource-attribute
+  importers: ["*"]
+  except: [auth.core]
+  imported: [auth.token]
 compile:                     # only when check: emit
   target: import-linter      # import-linter | dep-cruiser | semgrep | rego
-  rule: forbidden — anything except auth.core imports auth.token
 guarded_by: [test_token_boundary]
 ```
 
 - `check: graph` — the **unified checker** evaluates the invariant directly
   against the semantic graph, using semantic-tier edges as proof and flagging
-  syntactic-tier matches as suspicions. This is the v2 direction: one checker,
+  syntactic-tier matches as suspicions (`suspect`, sorted between `fail` and
+  `unknown`; both exit 1) — except on edges only lane A can produce at all
+  (`ext:`/`env:`/`tf:` targets, §3.1), where the syntactic form is the
+  authoritative one and counts as proof. Validation refuses a `check: graph`
+  record whose kind the graph cannot answer — it would sit at `unknown`
+  forever, a check that cannot check. This is the v2 direction: one checker,
   every language, no per-language fragmentation.
 - `check: emit` — compile to per-language tools (import-linter,
   dependency-cruiser, semgrep; Rego/Conftest against `terraform plan -json`).
   Retained as the CI-compatibility escape hatch and for teams' existing
-  toolchains.
+  toolchains. The unified checker still answers in-process wherever the graph
+  can see the rule, so the emitted tool always has a verdict to agree with.
 - `check: soft` — reviewer session evaluates and must cite evidence.
 
 ---

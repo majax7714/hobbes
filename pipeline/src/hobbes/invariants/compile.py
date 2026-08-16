@@ -45,8 +45,12 @@ def compile_all(repo_root: Path, invariants: list[Invariant], graph: dict) -> di
     for inv in invariants:
         if not inv.confirmed:
             skipped.append({"id": inv.id, "why": f"status is {inv.status}"})
-        elif inv.soft:
-            skipped.append({"id": inv.id, "why": "soft — a reviewer session judges it"})
+        elif inv.check == "soft":
+            skipped.append({"id": inv.id, "why": "check: soft — a reviewer session judges it"})
+        elif inv.check == "graph":
+            skipped.append(
+                {"id": inv.id, "why": "check: graph — the unified checker judges it in-process"}
+            )
         else:
             by_target.setdefault(inv.target, []).append(inv)
 

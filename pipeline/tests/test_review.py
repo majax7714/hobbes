@@ -53,14 +53,12 @@ def repo(tmp_path: Path) -> Path:
         "statement": "Only the parser parses source.",
         "scope": "src",
         "status": "confirmed",
-        "compile": {
-            "target": "import-linter",
-            "rule": {
-                "kind": "forbidden-import",
-                "importers": ["*"],
-                "except": ["app.parser"],
-                "imported": ["ext:tree_sitter"],
-            },
+        "check": "graph",
+        "rule": {
+            "kind": "forbidden-import",
+            "importers": ["*"],
+            "except": ["app.parser"],
+            "imported": ["ext:tree_sitter"],
         },
         "guarded_by": [],
     }
@@ -130,7 +128,7 @@ class TestInvariantMovement:
             "statement": "Something soft.",
             "scope": ".",
             "status": "confirmed",
-            "compile": {"target": "soft"},
+            "check": "soft",
             "guarded_by": [],
         }
         write(repo, ".hobbes/invariants/I-2.yaml", yaml.safe_dump(second, sort_keys=False))
@@ -219,7 +217,7 @@ class TestSoftInvariants:
             "statement": "Core stays free of side effects.",
             "scope": "src/app",
             "status": "confirmed",
-            "compile": {"target": "soft"},
+            "check": "soft",
             "guarded_by": [],
         }
         write(repo, ".hobbes/invariants/I-2.yaml", yaml.safe_dump(record, sort_keys=False))

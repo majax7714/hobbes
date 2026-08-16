@@ -12,8 +12,7 @@ statement: >-
   visible in the module graph.
 scope: pipeline
 status: confirmed
-compile:
-  target: soft
+check: soft
 guarded_by:
   - pipeline/tests/test_emit.py::TestIngest::test_cross_layer_env_join_present
   - pipeline/tests/test_terraform.py::TestEnvJoin::test_env_set_edges_and_nodes

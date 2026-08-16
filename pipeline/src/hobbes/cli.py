@@ -402,6 +402,7 @@ def _cmd_invariants(args: argparse.Namespace) -> int:
             {
                 "id": r.id,
                 "status": r.status,
+                "check": r.check,
                 "target": r.target,
                 "scope": r.scope,
                 "statement": r.statement,
@@ -418,7 +419,8 @@ def _cmd_invariants(args: argparse.Namespace) -> int:
             print("no confirmed invariants — see .hobbes/invariants/README.md")
             return 0
         for row in rows:
-            print(f"  {row['id']:<6} {row['status']:<9} {row['target']:<13} {row['scope']}")
+            how = row["check"] + (f":{row['target']}" if row["target"] else "")
+            print(f"  {row['id']:<6} {row['status']:<9} {how:<13} {row['scope']}")
             print(f"         {row['statement']}")
             if row["guarded_by"]:
                 print(f"         guarded by {len(row['guarded_by'])} test(s)")

@@ -1,10 +1,21 @@
-"""Invariant verdicts from the module graph (ADR-025).
+"""Invariant verdicts from the graph — the unified checker (ADR-025/039).
 
 ``hobbes review`` answers "does this rule hold?" in-process, reading
 ``graph.json`` — not by shelling out to import-linter or semgrep. The
 graph already knows who imports whom, so a forbidden-import rule is a
 question it can answer; and a review that needs no toolchain runs
-anywhere the extractor does, deterministically and without quota.
+anywhere the extractor does, deterministically and without quota. Since
+V2.M6 this is one checker for every language and every ``check: graph``
+record — and it still judges ``check: emit`` records where the graph
+can see their rule, because the two answers must agree (the M6 exit).
+
+**Verdicts are tier-aware** (architecture §3.4/§5): a violation whose
+evidence is a ``semantic`` edge is proven; one resting on a
+``syntactic`` edge is a *suspicion* — unless the edge is one only lane A
+can produce at all (``ext:``/``env:``/``tf:`` targets, §3.1), where the
+syntactic form is the authoritative one and counts as proof. A verdict
+whose violations are all suspicions is ``suspect``, not ``fail`` — still
+red, still exit 1, but the reviewer knows which kind of red.
 
 What the graph cannot see, this refuses to guess. A semgrep rule matches
 source patterns and a Rego rule reads a Terraform plan; neither is in
@@ -21,12 +32,18 @@ from hobbes.invariants.schema import Invariant, scope_matches
 
 #: Verdict values, worst first — the order a review sorts by.
 FAIL = "fail"
+SUSPECT = "suspect"
 UNKNOWN = "unknown"
 SOFT = "soft"
 PASS = "pass"
 SKIPPED = "skipped"
 
-_SEVERITY = {FAIL: 0, UNKNOWN: 1, SOFT: 2, PASS: 3, SKIPPED: 4}
+_SEVERITY = {FAIL: 0, SUSPECT: 1, UNKNOWN: 2, SOFT: 3, PASS: 4, SKIPPED: 5}
+
+#: Node-id prefixes only lane A can see (§3.1) — for edges into these,
+#: `syntactic` is not a downgrade, it is the only tier that exists, and
+#: an import statement lane A read is a fact rather than a guess.
+_LANE_A_ONLY = ("ext:", "env:", "tf:")
 
 
 @dataclass
@@ -37,10 +54,19 @@ class Violation:
     imported: str
     path: str = ""
     line: int = 0
+    #: The evidence edge's tier (schema v4); "" on pre-v4 graphs.
+    tier: str = ""
+
+    @property
+    def proven(self) -> bool:
+        """Proof or suspicion (§3.4): semantic evidence proves; syntactic
+        evidence proves only where no semantic form could exist."""
+        return self.tier == "semantic" or self.imported.startswith(_LANE_A_ONLY)
 
     def cite(self) -> str:
         where = f" [{self.path}:{self.line}]" if self.path else ""
-        return f"{self.importer} -> {self.imported}{where}"
+        mark = "" if self.proven else " (syntactic — suspected)"
+        return f"{self.importer} -> {self.imported}{where}{mark}"
 
 
 @dataclass
@@ -97,6 +123,9 @@ def judge(
 
     kind = invariant.kind
     if kind == "forbidden-import":
+        # check: graph records land here by construction; check: emit
+        # records land here too when the graph can see their rule, so the
+        # emitted tool always has an in-process answer to agree with.
         return _judge_forbidden_import(invariant, graph, missing)
 
     # Compiled for CI, unanswerable here — and said so rather than passed.
@@ -150,15 +179,29 @@ def _judge_forbidden_import(
                 imported=edge.get("to", ""),
                 path=evidence.get("path", ""),
                 line=evidence.get("line", 0),
+                tier=edge.get("tier", ""),
             )
         )
 
     violations.sort(key=lambda v: (v.importer, v.imported, v.line))
     if violations:
+        proven = sum(1 for v in violations if v.proven)
+        if proven:
+            reason = f"{len(violations)} forbidden import(s)"
+            if proven < len(violations):
+                reason += f" ({len(violations) - proven} suspected on syntactic evidence)"
+            return Verdict(
+                invariant, FAIL, reason=reason,
+                violations=violations, missing_guards=missing,
+            )
+        # Every violation rests on syntactic evidence lane B could have
+        # confirmed and did not: red, but the reviewer should know which
+        # kind of red (§3.4).
         return Verdict(
             invariant,
-            FAIL,
-            reason=f"{len(violations)} forbidden import(s)",
+            SUSPECT,
+            reason=f"{len(violations)} suspected forbidden import(s), all on "
+            "syntactic evidence",
             violations=violations,
             missing_guards=missing,
         )

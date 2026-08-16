@@ -1,9 +1,20 @@
-"""Invariant record schema: loading and validation (ADR-024).
+"""Invariant record schema: loading and validation (ADR-024, ADR-039).
 
 A record is one YAML file under ``.hobbes/invariants/`` describing a
 structural rule the code is meant to obey: the prose a human reads
-(``statement``), the spec a machine consumes (``compile.rule``), and the
-tests that already pin it down (``guarded_by``).
+(``statement``), how it is checked (``check``), the spec a machine
+consumes (``rule``), and the tests that already pin it down
+(``guarded_by``).
+
+``check`` is the V2.M6 field (architecture §5):
+
+- ``graph`` — the unified checker judges the ``rule`` directly against
+  the semantic graph, tier-aware. No CI config is emitted.
+- ``emit`` — the ``rule`` compiles to the CI tool in ``compile.target``.
+  The checker still gives its own answer where the graph can see the
+  rule, and the two must agree (the M6 exit).
+- ``soft`` — a reviewer session judges it and must cite evidence. No
+  rule, no compile.
 
 Validation is strict and runs before anything compiles or is judged: a
 record that does not mean exactly one thing is worse than no record.
@@ -29,13 +40,24 @@ COMPILED_DIR = ".hobbes/derived/compiled"
 #: Lifecycle states (architecture §10).
 STATUSES = ("inferred", "confirmed", "retired")
 
-#: Compile targets (§10). ``soft`` means a reviewer session judges it.
-TARGETS = ("import-linter", "dep-cruiser", "semgrep", "rego", "soft")
+#: Checking modes (architecture §5, ADR-039).
+CHECKS = ("graph", "emit", "soft")
+
+#: Compile targets for ``check: emit`` (§5). A reviewer-judged record is
+#: ``check: soft`` now, not a target.
+TARGETS = ("import-linter", "dep-cruiser", "semgrep", "rego")
 
 #: Structured rule kinds, one per shape a real record needed (ADR-024).
 KINDS = ("forbidden-import", "pattern-absent", "resource-attribute")
 
-#: Which kind each non-soft target consumes.
+#: Rule kinds the unified checker can answer from the graph. The others
+#: live in the AST or a Terraform plan, which the graph does not carry —
+#: a ``check: graph`` record with one of those would be permanently
+#: ``unknown``, so validation refuses it up front (never a false pass,
+#: and never a check that cannot check).
+GRAPH_KINDS = ("forbidden-import",)
+
+#: Which kind each emit target consumes.
 TARGET_KIND = {
     "import-linter": "forbidden-import",
     "dep-cruiser": "forbidden-import",
@@ -43,8 +65,8 @@ TARGET_KIND = {
     "rego": "resource-attribute",
 }
 
-_RECORD_FIELDS = {"id", "statement", "scope", "status", "compile", "guarded_by"}
-_COMPILE_FIELDS = {"target", "rule"}
+_RECORD_FIELDS = {"id", "statement", "scope", "status", "check", "rule", "compile", "guarded_by"}
+_COMPILE_FIELDS = {"target"}
 _KIND_FIELDS = {
     "forbidden-import": ({"kind", "importers", "imported"}, {"except"}),
     "pattern-absent": ({"kind", "languages", "patterns"}, {"paths", "exclude"}),
@@ -72,6 +94,9 @@ class Invariant:
     statement: str
     scope: str
     status: str
+    #: How the record is checked: graph | emit | soft (ADR-039).
+    check: str
+    #: Emit target; empty for graph and soft records.
     target: str
     rule: dict
     guarded_by: list[str]
@@ -87,7 +112,7 @@ class Invariant:
     @property
     def soft(self) -> bool:
         """Soft records are judged by a reviewer session, not a tool."""
-        return self.target == "soft"
+        return self.check == "soft"
 
     @property
     def kind(self) -> str | None:
@@ -155,9 +180,19 @@ def _validate(
     if unknown:
         problems.append(f"{rel}: unknown field(s) {', '.join(sorted(unknown))}")
 
-    for required in ("id", "statement", "scope", "status", "compile"):
+    for required in ("id", "statement", "scope", "status", "check"):
         if required not in raw:
-            problems.append(f"{rel}: missing required field '{required}'")
+            hint = ""
+            if required == "check":
+                # The one migration everyone hits: a v1 record has no
+                # check field, and telling them "missing field" without
+                # the shape change would strand them (ADR-039).
+                hint = (
+                    " (v1 records migrate: check: soft for target soft, else "
+                    "check: emit with the rule moved from compile.rule to a "
+                    "top-level rule block — ADR-039)"
+                )
+            problems.append(f"{rel}: missing required field '{required}'{hint}")
 
     invariant_id = raw.get("id")
     if invariant_id is not None and not isinstance(invariant_id, str):
@@ -190,7 +225,7 @@ def _validate(
                     f"{rel}: guarded_by names a test not in tests.json: {guard}"
                 )
 
-    target, rule = _validate_compile(raw.get("compile"), rel, problems)
+    check, target, rule = _validate_check(raw, rel, problems)
 
     if len(problems) > before or invariant_id is None:
         return None
@@ -207,6 +242,7 @@ def _validate(
         statement=" ".join(statement.split()),
         scope=scope,
         status=status,
+        check=check,
         target=target,
         rule=rule,
         guarded_by=guarded_by,
@@ -215,65 +251,104 @@ def _validate(
     )
 
 
-def _validate_compile(compile_block, rel: str, problems: list[str]) -> tuple[str, dict]:
-    """Validate the compile block, returning (target, rule)."""
-    if not isinstance(compile_block, dict):
-        problems.append(f"{rel}: compile must be a mapping")
-        return "soft", {}
+def _validate_check(raw: dict, rel: str, problems: list[str]) -> tuple[str, str, dict]:
+    """Validate check/rule/compile together, returning (check, target, rule).
 
-    unknown = set(compile_block) - _COMPILE_FIELDS
-    if unknown:
-        problems.append(f"{rel}: unknown compile field(s) {', '.join(sorted(unknown))}")
+    The three fields are one contract: which of them may appear follows
+    entirely from ``check``, and a combination that YAML would happily
+    hold — a soft record with a rule, a graph record with a compile
+    target — is a record whose author meant something else.
+    """
+    check = raw.get("check")
+    if check is not None and check not in CHECKS:
+        problems.append(f"{rel}: check must be one of {', '.join(CHECKS)}")
+        return "soft", "", {}
+    if check is None:
+        return "soft", "", {}
 
-    target = compile_block.get("target")
-    if target not in TARGETS:
-        problems.append(f"{rel}: compile.target must be one of {', '.join(TARGETS)}")
-        return "soft", {}
+    rule_block = raw.get("rule")
+    compile_block = raw.get("compile")
 
-    rule = compile_block.get("rule")
-    if target == "soft":
+    if check == "soft":
         # A soft record carrying a rule means someone wrote a spec and
-        # then told the compiler to ignore it.
-        if rule is not None:
+        # then told every checker to ignore it.
+        if rule_block is not None:
             problems.append(
-                f"{rel}: soft records take no compile.rule — either drop the rule "
-                "or give the record a target that uses it"
+                f"{rel}: check: soft takes no rule — either drop the rule or "
+                "give the record check: graph or check: emit"
             )
-        return target, {}
+        if compile_block is not None:
+            problems.append(f"{rel}: check: soft takes no compile block")
+        return check, "", {}
 
-    if not isinstance(rule, dict):
-        problems.append(f"{rel}: compile.rule is required for target {target}")
-        return target, {}
-
-    kind = rule.get("kind")
-    expected = TARGET_KIND[target]
-    if kind not in KINDS:
-        problems.append(f"{rel}: compile.rule.kind must be one of {', '.join(KINDS)}")
-        return target, {}
-    if kind != expected:
+    if isinstance(compile_block, dict) and "rule" in compile_block:
         problems.append(
-            f"{rel}: target {target} takes kind {expected}, not {kind}"
+            f"{rel}: compile.rule moved to a top-level rule block (ADR-039)"
         )
-        return target, {}
+        return check, "", {}
+
+    if not isinstance(rule_block, dict):
+        problems.append(f"{rel}: a rule block is required for check: {check}")
+        return check, "", {}
+
+    kind = rule_block.get("kind")
+    if kind not in KINDS:
+        problems.append(f"{rel}: rule.kind must be one of {', '.join(KINDS)}")
+        return check, "", {}
+
+    target = ""
+    if check == "graph":
+        if compile_block is not None:
+            problems.append(
+                f"{rel}: check: graph emits nothing — drop the compile block, "
+                "or use check: emit if a CI tool should run it"
+            )
+        if kind not in GRAPH_KINDS:
+            problems.append(
+                f"{rel}: the graph cannot answer kind {kind} (it lives outside "
+                f"the graph); use check: emit"
+            )
+            return check, "", {}
+    else:  # emit
+        if not isinstance(compile_block, dict):
+            problems.append(f"{rel}: check: emit requires compile.target")
+            return check, "", {}
+        unknown = set(compile_block) - _COMPILE_FIELDS
+        if unknown:
+            problems.append(
+                f"{rel}: unknown compile field(s) {', '.join(sorted(unknown))}"
+            )
+        target = compile_block.get("target")
+        if target not in TARGETS:
+            problems.append(
+                f"{rel}: compile.target must be one of {', '.join(TARGETS)}"
+            )
+            return check, "", {}
+        expected = TARGET_KIND[target]
+        if kind != expected:
+            problems.append(
+                f"{rel}: target {target} takes kind {expected}, not {kind}"
+            )
+            return check, target, {}
 
     required, optional = _KIND_FIELDS[kind]
-    unknown = set(rule) - required - optional
+    unknown = set(rule_block) - required - optional
     if unknown:
         problems.append(
-            f"{rel}: unknown compile.rule field(s) {', '.join(sorted(unknown))}"
+            f"{rel}: unknown rule field(s) {', '.join(sorted(unknown))}"
         )
-    for name in sorted(required - set(rule)):
-        problems.append(f"{rel}: compile.rule missing '{name}'")
+    for name in sorted(required - set(rule_block)):
+        problems.append(f"{rel}: rule missing '{name}'")
 
     for name in ("importers", "imported", "except", "languages", "patterns",
                  "paths", "exclude"):
-        value = rule.get(name)
+        value = rule_block.get(name)
         if value is not None and (
             not isinstance(value, list) or any(not isinstance(v, str) for v in value)
         ):
-            problems.append(f"{rel}: compile.rule.{name} must be a list of strings")
+            problems.append(f"{rel}: rule.{name} must be a list of strings")
 
-    return target, rule
+    return check, target, rule_block
 
 
 def scope_matches(scope: str, path: str | None) -> bool:

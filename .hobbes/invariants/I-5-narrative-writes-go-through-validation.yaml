@@ -8,21 +8,25 @@ statement: >-
   claim must not become an artifact (ADR-019).
 scope: pipeline/src/hobbes/narrate
 status: confirmed
+# emit: source patterns live in the AST, which the graph does not carry —
+# the unified checker answers `unknown` here and semgrep is the checker
+# of record (ADR-039).
+check: emit
+rule:
+  kind: pattern-absent
+  languages: [python]
+  paths:
+    - pipeline/src/hobbes/narrate
+  exclude:
+    # schema.py is the validating writer; it is the one place that may.
+    - pipeline/src/hobbes/narrate/schema.py
+  patterns:
+    - "$P.write_text(...)"
+    - "$P.write_bytes(...)"
+    - "open($P, 'w')"
+    - 'open($P, "w")'
 compile:
   target: semgrep
-  rule:
-    kind: pattern-absent
-    languages: [python]
-    paths:
-      - pipeline/src/hobbes/narrate
-    exclude:
-      # schema.py is the validating writer; it is the one place that may.
-      - pipeline/src/hobbes/narrate/schema.py
-    patterns:
-      - "$P.write_text(...)"
-      - "$P.write_bytes(...)"
-      - "open($P, 'w')"
-      - 'open($P, "w")'
 guarded_by:
   - pipeline/tests/test_narrate.py::TestWriteModuleDoc::test_invalid_payload_writes_nothing
   - pipeline/tests/test_narrate.py::TestWriteModuleDoc::test_unsafe_id_refused

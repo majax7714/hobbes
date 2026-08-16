@@ -261,14 +261,13 @@ class TestInvariantsCommand:
             "statement": "Only the parser parses.",
             "scope": "src",
             "status": "confirmed",
-            "compile": {
-                "target": "import-linter",
-                "rule": {
-                    "kind": "forbidden-import",
-                    "importers": ["*"],
-                    "imported": ["ext:tree_sitter"],
-                },
+            "check": "emit",
+            "rule": {
+                "kind": "forbidden-import",
+                "importers": ["*"],
+                "imported": ["ext:tree_sitter"],
             },
+            "compile": {"target": "import-linter"},
             "guarded_by": [],
         }
         record.update(overrides)
@@ -280,11 +279,14 @@ class TestInvariantsCommand:
         assert "1 record(s) valid" in capsys.readouterr().out
 
     def test_check_exits_one_and_names_every_problem(self, tmp_path, capsys):
-        repo = self._repo(tmp_path, {"id": "I-1", "compile": {"target": "nope"}})
+        repo = self._repo(
+            tmp_path,
+            {"id": "I-1", "check": "emit", "compile": {"target": "nope"}},
+        )
         assert cli.main(["invariants", "check", "--repo", str(repo)]) == 1
         err = capsys.readouterr().err
         assert "problem(s)" in err
-        assert "compile.target" in err
+        assert "rule block is required" in err
 
     def test_list_hides_unconfirmed_unless_asked(self, tmp_path, capsys):
         repo = self._repo(tmp_path, self._record(status="retired"))
