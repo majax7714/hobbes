@@ -424,14 +424,46 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-032, found by the control variant in the V2.M3 spike;
   owned as ours under P9 (ADR-034).
 
+## Extraction — enrichment packs
+
+### C-25 — A pack cannot be turned off for a repo where it misfires
+- **Cannot tell you:** nothing, directly. What it costs you is the ability
+  to *stop* a pack whose edges are wrong for your repo — an Express route
+  matched on a receiver that only looks like a router, a `packages` edge to
+  a path that is a coincidence.
+- **Because:** packs are registered in code and activated by detection
+  (ADR-035). There is deliberately no `hobbes.yaml`, so there is no place
+  to write "not this one, not here". The alternative — a per-repo registry
+  file — collides with ADR-012's "all of `.hobbes/` is personal", and
+  inventing that file before anyone had hit this was the speculative
+  abstraction the decision avoided.
+- **Bites at:** any repo where a framework heuristic guesses wrong. Nothing
+  observed yet on the four sanctioned repos, which is the honest reason
+  this is a registered cost rather than a solved problem.
+- **You find out:** **partial** — `graph.json`'s `packs` list names every
+  pack that ran, so a wrong edge is *attributable* to the pass that made
+  it. Attributable is not suppressible: you can see which pack to blame and
+  you cannot stop it.
+- **Candidate fix:** a per-repo disable list. It must live somewhere that
+  survives a clone, which makes it the ADR-012 question this milestone
+  deferred rather than answered — a pack set is a property of the repo, and
+  ADR-012 says the repo's `.hobbes/` is not.
+- **Source:** ADR-035, V2.M4.
+
 ---
 
 ## Debt summary
 
-Nine of twenty-four entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
+Nine of twenty-five entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
 C-16, C-19, C-20, C-24). One entry — C-11 — has been **lifted**. That
 churn is the point of keeping the register: none of it was knowable before
 this file existed, and what remains is the backlog P8 generates.
+
+V2.M4 added one entry (**C-25**) and it is *partial* rather than
+unsurfaced, because `graph.json`'s `packs` list was added in the same
+commit as the pack layer. Attributing a layer to the pass that produced it
+was the cheap half of the answer; suppressing it is the half that is
+deferred.
 
 Ranked by how badly each misleads, worst first:
 

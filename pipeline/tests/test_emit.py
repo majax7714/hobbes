@@ -166,12 +166,12 @@ class TestLayerOwnership:
 
     def test_no_parser_sees_another_languages_files(self, tmp_path):
         from hobbes.extract.discover import iter_python_files
-        from hobbes.extract.terraform import _discover_tf
+        from hobbes.extract.terraform import discover_tf
 
         for name in ("a.py", "b.tf", "c.ts", "d.js", "e.tsx"):
             (tmp_path / name).write_text("")
         assert [p.name for p in iter_python_files(tmp_path)] == ["a.py"]
-        assert _discover_tf(tmp_path) == ["b.tf"]
+        assert discover_tf(tmp_path) == ["b.tf"]
 
     def test_a_cross_layer_id_collision_is_reported(self, tmp_path):
         # A repo-root widget.py and widget.ts both want the id "widget".

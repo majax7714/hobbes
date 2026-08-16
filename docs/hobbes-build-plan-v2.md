@@ -260,7 +260,19 @@ edges, which discharges the M2 asterisk.**
 
 ---
 
-## V2.M4 — Enrichment packs (3–4)
+## V2.M4 — Enrichment packs (3–4) — **BUILT, awaiting review**
+
+**Outcome: ADR-035.** No `hobbes.yaml` — packs are registered in a code
+tuple and activated by detection, the same answer ADR-027's amendment gave
+for indexer config, and **the ADR-012 tension dissolves rather than being
+resolved**: nothing is authored, so nothing needs tracking or gitignoring.
+Four packs (`http-python`, `cli-python`, `http-ts`, `terraform`), each an
+adapter over the retained implementation rather than a rewrite. Exit
+criterion met on fixtures *and* on SELENEX and the dogfood repo. One
+regression found and fixed in the same pass: the blanket `except` around
+packs swallowed the `.tfstate` refusal that guards I-1, so `PackRefusal`
+is now re-raised rather than degraded. Registered **C-25** (a pack cannot
+be disabled per repo). 455 pytest.
 
 Work:
 

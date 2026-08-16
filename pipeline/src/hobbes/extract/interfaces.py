@@ -74,7 +74,7 @@ def _framework(facts: ParsedFile) -> str:
 def extract_cli_entry_points(repo_root: Path) -> list[dict]:
     """``[project.scripts]`` entries from every pyproject.toml in the repo."""
     entries = []
-    for pyproject in _iter_pyprojects(Path(repo_root)):
+    for pyproject in iter_pyprojects(Path(repo_root)):
         try:
             with open(pyproject, "rb") as fh:
                 data = tomllib.load(fh)
@@ -90,7 +90,13 @@ def extract_cli_entry_points(repo_root: Path) -> list[dict]:
     return sorted(entries, key=lambda e: (e["source"], e["name"]))
 
 
-def _iter_pyprojects(repo_root: Path):
+def iter_pyprojects(repo_root: Path):
+    """Every ``pyproject.toml`` in the repo, pruned like Python discovery.
+
+    Public because the CLI pack's detection needs the same pruned walk:
+    ``rglob`` would descend into ``node_modules``, which is 222 MB on a real
+    Vite app and holds nothing this cares about.
+    """
     stack = [repo_root]
     while stack:
         directory = stack.pop()

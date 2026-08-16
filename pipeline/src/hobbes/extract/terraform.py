@@ -52,7 +52,7 @@ def extract_terraform(
     join. *tf_plan* optionally names a ``terraform show -json`` file.
     """
     repo_root = Path(repo_root).resolve()
-    tf_files = _discover_tf(repo_root)
+    tf_files = discover_tf(repo_root)
     module_by_path = {m.path: m.id for m in modules}
 
     parsed: list[tuple[str, Node, str, str]] = []  # (file, block, addr, kind)
@@ -95,9 +95,13 @@ def extract_terraform(
     }
 
 
-def _discover_tf(repo_root: Path) -> list[str]:
+def discover_tf(repo_root: Path) -> list[str]:
     """Repo-relative .tf paths, pruned like Python discovery (.terraform/
-    is a dot-directory and already excluded)."""
+    is a dot-directory and already excluded).
+
+    Public because the Terraform pack's detection needs the same pruned
+    walk: a plain ``glob("**/*.tf")`` would descend into ``node_modules``.
+    """
     found = []
     stack = [repo_root]
     while stack:

@@ -298,6 +298,35 @@ domain joins. The Terraform cross-layer join (env var → resource →
 security-group rule) is a pack. v1's framework knowledge (FastAPI/Flask,
 Express/Nest) refactors into packs. Packs declare which tier their edges carry.
 
+**Built at V2.M4 (ADR-035).** Four packs — `http-python` (FastAPI/Flask
+decorator routes), `cli-python` (`[project.scripts]`), `http-ts`
+(Express/Nest), `terraform` (the whole HCL layer and its joins) — and the
+graph builder now contains no framework knowledge at all. All four declare
+`syntactic`: each reads structure with no semantic provider behind it.
+
+**Registered in code, activated by detection.** There is no `hobbes.yaml`.
+A pack's `applies()` reads the repo — an import of `fastapi`, the presence
+of a `.tf` file — the same way indexer config is derived rather than
+authored (§3.7). `graph.json` carries a `packs` list naming what ran, so
+the layer is attributable in the artifact.
+
+**A pack is defined by removability**, and that is the property the suite
+asserts per pack: dropping one removes exactly its own contribution and
+nothing else, and putting it back reproduces the artifact byte-for-byte.
+Nodes it *shares* with another producer survive its removal — an `env:VAR`
+that Python also reads is not the Terraform pack's to take away.
+
+**Packs degrade, except when they refuse.** A pack that raises is reported
+in `extraction_errors` and the ingest continues (P6). The exception is
+`PackRefusal`, which is re-raised: a pack declining input the user supplied
+— a `.tfstate` handed to `--tf-plan` — is not a pass that broke, and
+degrading it would turn a refusal into a warning printed beside the thing
+it refused to do. That distinction is load-bearing; it guards I-1.
+
+Known cost: **a pack cannot be disabled for a repo where it misfires**
+(**C-25**). The `packs` list makes a wrong edge attributable, not
+suppressible.
+
 ### 3.6 Incrementality
 Caching, not cleverness: partial SCIP indexes cached by content hash and
 merged; lane B runs debounced locally and per-PR in CI; lane A remains the
@@ -314,18 +343,26 @@ every-commit fast path. Full re-index is always available and always correct
 Nothing else. Rust is the intended proof: rust-analyzer's SCIP output plus
 zero new builder code.
 
-**Where step 1 actually lives, today.** `hobbes.yaml` does not exist — the
-architecture named it before anything needed it, and what landed is
-narrower. The indexer *registry* is `INDEXERS` in `scip/index.mjs`, keyed by
-language, holding the binary and its argv. The per-repo *config* is
-**derived, not authored** (ADR-027 amendment): stage path, TS zone, declared
-dependencies and the pinned project version are computed at ingest by
-`extract/scipsource.py`, because every one of them is a fact about the repo
-that Hobbes can already see, and asking a human to restate it is an
-invitation to state it wrong. A registry file is still owed for **enrichment
-packs**, and it needs its own ADR first: a pack registry is a property of
-the repo rather than of one person's box, which is in genuine tension with
-ADR-012's "all of `.hobbes/` is personal". That decision is open.
+**Where steps 1 and 2 actually live.** `hobbes.yaml` does not exist and is
+not going to — the architecture named it before anything needed it, and
+both registries landed narrower and derived.
+
+The indexer *registry* is `INDEXERS` in `scip/index.mjs`, keyed by language,
+holding the binary and its argv. The per-repo *config* is **derived, not
+authored** (ADR-027 amendment): stage path, TS zone, declared dependencies
+and the pinned project version are computed at ingest by
+`extract/scipsource.py`, because every one is a fact about the repo Hobbes
+can already see, and asking a human to restate it is an invitation to state
+it wrong.
+
+The pack registry is the same shape and for the same reason (ADR-035): a
+tuple in `hobbes/extract/packs/__init__.py`, with each pack detecting its
+own applicability from the repo. **The ADR-012 tension dissolved rather
+than being resolved** — nothing is authored, so nothing needs to be tracked
+or gitignored, and a fresh clone gets the same packs as the machine that
+ingested last. It returns the day someone needs a pack *disabled* for one
+repo (C-25), and that file will have to live somewhere that survives a
+clone.
 
 ---
 
@@ -429,7 +466,7 @@ The v2 extraction programme:
 | **V2.M1** — schema v4 + version gate | done | ADR-028: tiers and lanes, additive over v3; three consumers refuse rather than half-read |
 | **V2.M2** — lane B (Python) | done | ADR-029: two providers meeting in an evidence IR, not two edge sets merged |
 | **V2.M3** — lane A demotion, TS lane, self-test | done, **reviewed 2026-08-15** | ADR-030 (P8), ADR-031 (demote, don't delete), ADR-032 (stage and symlink); discharges M2's asterisk |
-| **V2.M4** — enrichment packs | **next** | — |
+| **V2.M4** — enrichment packs | built, awaiting review | ADR-035: registered in code, activated by detection — no `hobbes.yaml`, and the ADR-012 tension dissolves |
 | **V2.M5** — Go support | not started | First real test of P7; also the first time Hobbes can see its own 9.4k lines of Go |
 | **V2.M6** — unified invariant checker | not started | `check: graph` over the semantic graph, tier-aware verdicts |
 | **V2.M7** — Rust proof | not started | P7 demonstrated on a language nobody planned for |

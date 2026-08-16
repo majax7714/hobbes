@@ -1834,3 +1834,90 @@ It ends on a four-row table of which pieces exist, and the fourth row says
 sit in a README at all — a vision stated next to an honest account of how
 much of it is real is a plan; stated alone it is marketing, and this project
 has a principle about that.
+
+---
+
+## 2026-08-15 (sixth) — V2.M4: the framework knowledge leaves the builder
+
+Max's direction: raise the extractor's ability before using Hobbes for real,
+because accuracy is the backbone and a half-composed extractor makes the
+rest uninteresting. So: V2.M4, enrichment packs.
+
+**ADR-035 — packs are registered in code and activated by detection.** The
+plan required this ADR before any pack existed, because §3.7's `hobbes.yaml`
+collides with ADR-012 (all of `.hobbes/` is personal in target repos) and a
+pack registry describes the *repo*, not one person's box.
+
+The answer is the one ADR-027's amendment already found for indexer config:
+**derive it.** Whether a repo uses FastAPI is a fact Hobbes reads from
+imports; whether it has Terraform is a fact about `.tf` files. So there is no
+`hobbes.yaml`, the registry is a tuple in `extract/packs/__init__.py`, each
+pack answers `applies()` from the repo, and **the ADR-012 tension dissolves
+rather than being resolved** — nothing is authored, so nothing needs
+tracking or gitignoring, and a fresh clone gets the same packs as the
+machine that ingested last, which an untracked registry could never have
+promised.
+
+**Four packs, each an adapter over the retained implementation.**
+`http-python` (FastAPI/Flask decorator routes), `cli-python`
+(`[project.scripts]`), `http-ts` (Express/Nest), `terraform` (the HCL layer
+and its cross-layer joins). `terraform.py` and `interfaces.py` keep their
+code and get a new — and *only* — caller. Rewriting 372 hand-verified lines
+for a structural change no user can observe is how a milestone about
+removability becomes a milestone about regressions.
+
+One asymmetry stated rather than hidden: **TS route detection stays in the
+Node helper.** Express's receiver check asks ts-morph what `app` was
+initialised to, so `app.get("/x", h)` is a route and `cache.get("/x")` is
+not. Reimplementing that in Python means losing it. The pack *claims* the
+helper's rows and declares their tier; it does not re-derive them. The pack
+contract is about owning a contribution, not about where the regex lives.
+
+**The port is byte-identical, and that was checked rather than assumed.** A
+git worktree at HEAD ran the pre-M4 code over miniapp, minits and SELENEX;
+the new code ran over the same three with the same TS helper and
+`HOBBES_SCIP=0`. Every document identical apart from the new `packs` field —
+SELENEX at 207 nodes / 602 edges / 50 routes / 211 tests, unchanged.
+
+**Exit criterion met, on fixtures and on real repos.** `test_packs.py`
+asserts per pack that removal takes exactly that pack's contribution and
+that restoring it reproduces the artifact byte-for-byte. The subtle half is
+that a node a pack *shares* must survive its removal, and the dogfood repo
+demonstrates it: dropping `terraform` removes its 5 edges and 3 `tf:` nodes
+and **keeps all 5 `env:` nodes**, because Python reads those. On SELENEX,
+dropping `terraform` takes 22 nodes and 21 edges (`references`, `packages`)
+and the `hcl` language, and touches no route, no test, nothing else; on
+kbet **no pack applies at all** and the graph is purely the lanes', which is
+the honest answer for a Vite/React app with no routes, no pyproject and no
+HCL.
+
+**The regression this milestone nearly shipped.** Packs degrade rather than
+raise (P6) — a framework pass failing on one repo must not cost that repo
+its graph. Implemented as a blanket `except Exception`, that swallowed
+`PlanError`, the refusal that guards **I-1**: `hobbes ingest --tf-plan
+prod.tfstate` stopped exiting 1 and started *succeeding* with a warning
+beside the state file it had declined to read. The existing test caught it.
+
+The rule that came out of it is now in the architecture: **packs degrade,
+except when they refuse.** `PackRefusal` is re-raised and never degraded,
+because a pack declining input the user supplied is not a pass that broke.
+It is worth noticing what the failure shape was — a generic safety mechanism
+(degrade everything) quietly eating a specific safety guarantee (refuse
+this). The test that caught it was written at M3 about tfstate, not about
+packs.
+
+**Registered C-25** — a pack cannot be turned off for a repo where it
+misfires. *Partial* rather than unsurfaced, because `graph.json`'s `packs`
+list shipped in the same commit: a wrong edge is attributable to the pass
+that made it, just not suppressible. The fix is a per-repo disable list,
+which has to live somewhere that survives a clone — the ADR-012 question
+deferred rather than answered.
+
+Suites: **455 pytest** (429 + 26 new), 12 Go packages, 52 vitest, 20
+tsextract, 12 scip. `hobbes lanes` still exits 0 after a full lane-B ingest
+of the dogfood repo (133 nodes, 290 module edges, 2138 call edges, 522
+tests).
+
+**V2.M4 is built and stops here for review.** V2.M5 (Go support — and the
+first time Hobbes can see its own 9.4k lines of Go) does not start until Max
+passes it.

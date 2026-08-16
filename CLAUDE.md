@@ -62,7 +62,10 @@ the interactive graph.
   CLI (`src/hobbes/cli.py`), the shell-out wrapper for the Go policy binary
   (`src/hobbes/policy.py`), the deterministic extractors
   (`src/hobbes/extract/`: discover → pysource (tree-sitter walk) → graph /
-  interfaces / testmap → emit), the Mermaid export (`src/hobbes/render.py`),
+  testmap → **packs** → emit; `extract/packs/` is the V2.M4 enrichment
+  layer, ADR-035 — four packs in a code tuple, activated by detection, and
+  the only path by which route/CLI/Terraform knowledge reaches the
+  artifacts), the Mermaid export (`src/hobbes/render.py`),
   the graph-diff engine (`src/hobbes/graphdiff.py`), and the M5 narrative
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
@@ -197,7 +200,32 @@ is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
 deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
 (ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
 Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4
-(enrichment packs) is next.**
+(ADR-035) is BUILT and awaiting review; V2.M5 (Go support) is next and
+must not start until Max passes M4.**
+
+**V2.M4 — enrichment packs (ADR-035).** Framework knowledge left the graph
+builder: four packs (`http-python`, `cli-python`, `http-ts`, `terraform`)
+in `extract/packs/`, **registered in a code tuple and activated by
+detection**. There is no `hobbes.yaml` and there is not going to be — the
+same answer ADR-027's amendment gave for indexer config, and the ADR-012
+tension *dissolves* rather than being resolved, since nothing is authored.
+Each pack is an **adapter over the retained implementation**, not a
+rewrite: `terraform.py`'s 372 hand-verified lines got a new caller.
+`graph.json` gained a `packs` list (additive; no schema bump — it changes
+how no existing field is read). Exit criterion — removing a pack removes
+exactly its contribution, adding it back restores byte-for-byte — is
+asserted per pack in `test_packs.py` and was verified on SELENEX and the
+dogfood repo, where removing `terraform` drops its 5 edges and 3 `tf:`
+nodes but **keeps all 5 `env:` nodes**, because Python reads them.
+
+**The regression M4 nearly shipped, and the rule it produced.** Wrapping
+packs in `except Exception` for P6 degradation swallowed the `.tfstate`
+refusal that guards **I-1**: `ingest --tf-plan prod.tfstate` started
+*succeeding* with a warning. Packs degrade, **except when they refuse** —
+`PackRefusal` is re-raised, never degraded. A refusal is not a pass that
+broke, and degrading one turns "Hobbes refused to read your state file"
+into "Hobbes read it, with a warning". Any future pack that declines
+user-supplied input raises `PackRefusal`.
 
 **The architecture is one running document (ADR-033, 2026-08-15).**
 `hobbes-architecture-v2.md` is gone: it became `hobbes-architecture.md`,

@@ -4,9 +4,11 @@ Walks a repo with tree-sitter (ADR-005) and emits the three SHA-stamped
 derived artifacts (ADR-006) into ``.hobbes/derived/``:
 
 - ``graph.json`` — module nodes + symbol layer, typed edges (``imports``,
-  ``env-read`` at module level, ``calls`` at symbol level),
+  ``env-read`` at module level, ``calls`` at symbol level), plus whatever
+  the enrichment packs contributed and a ``packs`` list naming them,
 - ``tests.json`` — pytest inventory with static test→symbol reach,
-- ``interfaces.json`` — FastAPI/Flask routes and CLI entry points.
+- ``interfaces.json`` — HTTP routes and CLI entry points, all of which
+  now come from packs (ADR-035) rather than from the pipeline itself.
 
 No LLM is involved anywhere in this package (P5: deterministic first).
 The public entry points are :func:`extract_repo` (pure: tree → documents)
@@ -23,9 +25,9 @@ from hobbes.extract import scipsource, staging
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
 from hobbes.extract.graph import build_graph, resolve_call_sites
-from hobbes.extract.interfaces import extract_cli_entry_points, extract_routes
+from hobbes.extract.packs import REGISTRY as PACK_REGISTRY
+from hobbes.extract.packs import Pack, PackContext, run_packs
 from hobbes.extract.pysource import parse_source
-from hobbes.extract.terraform import extract_terraform
 from hobbes.extract.testmap import collect_tests
 from hobbes.extract.tssource import collect_ts_tests, extract_ts
 
@@ -50,8 +52,12 @@ class Extraction:
     interfaces: dict
 
 
-def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
-    """Extract the knowledge skeleton (app + infra layers) under *repo_root*.
+def extract_repo(
+    repo_root: Path,
+    tf_plan: Path | None = None,
+    packs: tuple[Pack, ...] = PACK_REGISTRY,
+) -> Extraction:
+    """Extract the knowledge skeleton (lanes + packs) under *repo_root*.
 
     Pure with respect to the working tree: no git access, no writes — the
     stamp and the emission live in :func:`ingest` so tests can exercise
@@ -60,11 +66,16 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
 
     The order is load-bearing since V2.M3. **All of lane A first**, across
     every language, so the node and symbol space is complete; **then the
-    range join**, which is the only producer of symbol edges and needs
-    that space to project onto; **then the test map**, whose reach is
-    measured over the edges the join produced. Running lane B per language
-    as each was parsed — the M2 shape — could not work for TypeScript,
-    because its nodes did not exist yet when the join ran.
+    packs** (V2.M4), which read those facts and add framework knowledge on
+    top; **then the range join**, which is the only producer of symbol edges
+    and needs the node space to project onto; **then the test map**, whose
+    reach is measured over the edges the join produced. Running lane B per
+    language as each was parsed — the M2 shape — could not work for
+    TypeScript, because its nodes did not exist yet when the join ran.
+
+    *packs* is a seam for the exit criterion (ADR-035): the suite extracts
+    with a pack and without it, and asserts the difference is exactly that
+    pack's contribution. Callers have no reason to pass it.
     """
     repo_root = Path(repo_root).resolve()
     modules = discover_modules(repo_root)
@@ -72,16 +83,11 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
         m.id: parse_source((repo_root / m.path).read_bytes()) for m in modules
     }
     graph = build_graph(modules, parsed)
-    routes = extract_routes(modules, parsed)
     degraded: list[dict] = []
 
-    infra = extract_terraform(repo_root, modules, tf_plan=tf_plan)
     # Languages reflect what the repo actually contains — a TS-only repo
     # (M6) must not claim python.
     languages = ["python"] if modules else []
-    if infra["tf_file_count"]:
-        languages.append("hcl")
-        degraded += _merge_layer(graph, infra["nodes"], infra["module_edges"])
 
     ts = extract_ts(repo_root)
     if ts:
@@ -89,11 +95,24 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
         degraded += list(ts["errors"])
         degraded += _merge_layer(graph, ts["nodes"], ts["module_edges"])
         graph["symbols"] = _merge_symbols(graph["symbols"], ts["symbols"])
-        routes = sorted(
-            routes + ts["routes"], key=lambda r: (r["file"], r.get("line", 0))
-        )
 
-    # Lane A is complete; everything below joins onto it.
+    # Lane A is complete. Packs read it and add framework knowledge; the
+    # graph builder itself knows nothing about FastAPI, Express or HCL.
+    enriched = run_packs(
+        PackContext(
+            repo_root=repo_root,
+            modules=modules,
+            parsed=parsed,
+            ts=ts,
+            tf_plan=tf_plan,
+        ),
+        packs,
+    )
+    languages += enriched.languages
+    degraded += enriched.errors
+    degraded += _merge_layer(graph, enriched.nodes, enriched.module_edges)
+    graph["packs"] = enriched.ran
+
     degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts)
 
     tests = collect_tests(modules, parsed, graph["symbol_edges"])
@@ -104,14 +123,21 @@ def extract_repo(repo_root: Path, tf_plan: Path | None = None) -> Extraction:
             key=lambda t: t["id"],
         )
     if degraded:
-        graph["extraction_errors"] = degraded
+        # Sorted, not append-ordered: which pass reported first is an
+        # accident of pipeline order, and an artifact that changes with it
+        # is not reproducible in the sense P1 means (ADR-035).
+        graph["extraction_errors"] = sorted(
+            degraded, key=lambda d: (d["stage"], d["path"], d["message"])
+        )
 
     return Extraction(
         graph={"languages": sorted(languages), **graph},
         tests={"tests": tests},
         interfaces={
-            "routes": routes,
-            "cli_entry_points": extract_cli_entry_points(repo_root),
+            "routes": sorted(
+                enriched.routes, key=lambda r: (r["file"], r.get("line", 0))
+            ),
+            "cli_entry_points": enriched.cli_entry_points,
         },
     )
 
