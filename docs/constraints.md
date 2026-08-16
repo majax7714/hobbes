@@ -711,7 +711,7 @@ information appears in both, and the entries cross-reference.
 ## Debt summary
 
 Three of **thirty** entries are **unsurfaced** (C-4, C-19 — narrowed to
-three tools at V2.M6 — and C-20). Six have been **lifted** —
+two tools — and C-20). Six have been **lifted** —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
@@ -721,6 +721,16 @@ that "in every meaningful sense" keeps its outliers named, which the
 lifted entry does. That churn is the point of keeping the register: none
 of it was knowable before this file existed, and what remains is the
 backlog P8 generates.
+
+The **2026-08-16 paydown** worked the register's own ranking, worst
+first, at Max's direction: C-14 lifted (CLI packs), C-12 narrowed and
+surfaced (ADR-041 — the #1 entry's common cases now resolve, its
+residue reports itself), C-19 narrowed to two tools (semgrep executes
+in the agreement suite, and its emitter survived first contact clean
+where import-linter's had not), and C-21 surfaced (ADR-042 — the queue
+shows the record a proposal restates, with the I-9/I-3 failure as the
+pinned case). Four entries, four mechanisms, each landed with its
+tests in one commit.
 
 C-27 arrived the way the register says entries should: C-16's first
 working run produced a number (0 of 5 resolved), the number was

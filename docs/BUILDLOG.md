@@ -2473,3 +2473,63 @@ ADR count 40, test counts current (242 Go / 555 pytest / 52 vitest / 22
 tsextract / 24 scip).
 
 Nothing starts next until Max names it.
+
+---
+
+## 2026-08-16 (sixteenth) — the register paydown: four entries, worst first
+
+Max's direction: tackle the easiest and highest-severity constraints. The
+register's own ranking chose the slate — C-14 and C-12 held the
+worst-misleading list, C-21 had observed real harm, C-19's argument was
+one commit of precedent — and each landed as one commit with its tests.
+
+**C-14 lifted** (`79a3e84`). Three packs on the ADR-035 registry:
+`cli-ts` (package.json `bin`, both forms), `cli-go` (`package main` +
+`func main`, named by the `go build` rule — split-package mains yield
+one entry), `cli-rust` (cargo's three binary shapes). PackContext gained
+the rust layer; the packs appended to the registry so existing
+artifacts' `ran` order holds. Exit check is the entry's own
+counter-example, pinned: the dogfood repo's four Go binaries now appear
+in `interfaces.json` beside the Python scripts.
+
+**C-12 narrowed and surfaced** (ADR-041, `a6fd519`). The #1 entry's
+mechanism was a silent fallthrough in `extractImports`: what the checker
+(a per-zone program) could not resolve either named a package or
+vanished. Two deterministic fallbacks now run first — relative
+specifiers against the repo's own file set (a path is not a compiler
+configuration), bare specifiers against the repo's own package names
+(read from package.json, entry or subpath) — ordered so a published
+copy cannot shadow in-repo source. What still resolves nowhere becomes
+one `imports-unresolved` record per file. The floor's first run flagged
+`./index.css` on both kbet and this repo — real imports of files the
+graph deliberately does not model — so asset specifiers are excluded
+from the records by an explicit predicate (the C-26 noise-floor lesson,
+applied before the noise shipped). Cross-zone edges are lane A's alone,
+syntactic tier, honestly.
+
+**C-19 narrowed to two tools** (`104760b`). semgrep is a dev dependency
+and the agreement suite executes generated configs: violating tree
+fails, clean tree passes, exclusions exclude, and the dogfood repo's own
+I-5 rule runs against the real `narrate/` package on every test run — a
+new write path there now fails the suite before it fails a reviewer.
+The semgrep emitter survived its first execution clean, recorded in the
+register precisely because import-linter's did not. dep-cruiser and
+rego remain.
+
+**C-21 surfaced** (ADR-042, `8d825dd`). The queue attaches each
+proposal's nearest confirmed record — word-set Jaccard, deterministic,
+threshold tuned on the observed I-9/I-3 pair and pinned by test with
+the real texts — and the card renders "possible restatement of I-n"
+with the confirmed prose and the instruction to read it before
+approving. Retired records are history, not neighbours. Surfaced, not
+lifted: the neighbour is lexical, and narration still does not read
+`.hobbes/invariants/` — the entry's honest residue names both.
+
+Register after the paydown: thirty entries, six lifted, three
+unsurfaced (C-4, C-19, C-20), and the worst-misleading list is empty —
+what remains under-reports or stays quiet. The next tier of debt, if
+Max wants it: C-4 (fixture-aware reach), C-19's last two tools, C-20
+(needs a design decision on where decisions live).
+
+245 Go / 566 pytest / 24 scip / 27 tsextract / 52 vitest — all green.
+SPA and `hobbes-web` rebuilt.

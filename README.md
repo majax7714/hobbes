@@ -175,7 +175,7 @@ Current detail lives in the "Current status" section of
 | [`docs/hobbes-build-plan-v2.md`](docs/hobbes-build-plan-v2.md) | The v2 programme, V2.M0–V2.M7, complete — kept with its exit criteria and outcomes |
 | [`docs/hobbes-architecture-v1.md`](docs/hobbes-architecture-v1.md) | The frozen v1 design — history, kept for the reasoning behind the carried subsystems |
 | [`docs/hobbes-build-plan.md`](docs/hobbes-build-plan.md) | v1 milestones M0–M8 and the locked decisions |
-| [`docs/adr/`](docs/adr/) | 40 numbered ADRs — one per decision the running architecture doesn't make |
+| [`docs/adr/`](docs/adr/) | 42 numbered ADRs — one per decision the running architecture doesn't make |
 | [`docs/constraints.md`](docs/constraints.md) | **What Hobbes cannot tell you**, and where you find that out |
 | [`docs/first-run.md`](docs/first-run.md) | Bringing Hobbes up on a new app, in the order the system is meant to be used |
 | [`docs/future_additions.md`](docs/future_additions.md) | Deliberately deferred work, with the reasoning kept |
@@ -257,10 +257,10 @@ shape: extract, let the lanes check each other, then gate on the concepts.
 ## Tests
 
 ```sh
-cd go        && go test ./...     # 242 cases across 12 packages
-cd pipeline  && uv run pytest     # 555 cases
+cd go        && go test ./...     # 245 cases across 12 packages
+cd pipeline  && uv run pytest     # 566 cases
 cd web       && npm test          # 52 vitest cases (the pure layer)
-cd tsextract && npm test          # 22 node --test cases
+cd tsextract && npm test          # 27 node --test cases
 cd scip      && npm test          # 24 node --test cases
 ```
 
