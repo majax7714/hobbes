@@ -2064,3 +2064,51 @@ vitest / 20 tsextract.
 not start until Max passes it — and it is the milestone that inherits P10's
 parked ask, since "does a broad handler enclose a path that must refuse?"
 is a graph question.
+
+---
+
+## 2026-08-15 (ninth) — the register audited against the system it describes
+
+Max asked for the constraints register to be verified against the current
+tree before any of it is tackled pre-M6. Every entry was checked against
+code, not against the ADR that filed it. Twenty of twenty-six survive
+untouched; six had drifted, and every drift was a V2.M4/M5 side-effect
+landing in an entry those milestones never edited.
+
+**The material one: C-3 was false for Go.** `gosource` emits an `ext:`
+node for every import that resolves to no in-repo package — no stdlib
+filter — so the dogfood graph carries `ext:os`, `ext:fmt`, `ext:syscall`,
+`ext:net`: ~20 stdlib packages among its 51 external nodes, while Python
+(`sys.stdlib_module_names`) and TS (Node builtins) drop theirs as noise
+per ADR-007. The docstring says "stdlib and third-party" knowingly, but
+neither ADR-037 nor the register reconciled it. The asymmetry is worse
+than the old uniform silence: visible Go stdlib teaches a reader that
+stdlib is modelled, so a Python module's missing node now reads as
+*positively* clean. C-3 rewritten to state the split; **which way to
+harmonise (drop Go's, or emit everywhere and lift C-3) is a decision for
+Max**, not taken here.
+
+The mechanical five: C-15's collision order said "(Python, HCL, TS)" —
+it is Python → TS → Go → packs-last since M4/M5, verified at the
+`_merge_layer` call sites. C-9 gained `scip-go` 0.2.7 on its provider
+line and Go's 72% drop rate beside the 86%. C-10 now names
+`--module-version`, the third flag for the same pinned decision. C-14
+widened to Go: this repo's four `cmd/` binaries are absent from an
+`interfaces.json` that lists `hobbes` and `mini`. C-5's mechanism moved
+into the packs at M4 (all three http packs cite it and skip computed
+paths identically) — the rule is ADR-007's, the code is ADR-035's.
+
+Verified and unchanged, with the checks that mattered:
+`resolution_coverage` emitted (C-2), the degradation check still reads
+only the repo root's manifest (C-16, `scipsource.py`), the staging
+properties still carry their tests (C-22), and the debt summary's counts
+hold — still nine unsurfaced of twenty-six, still nothing that inflates
+a number.
+
+The summary gained the audit's lesson as the mirror of M5's: **a register
+entry can be made wrong by a milestone that never touched it**, and
+nothing detects that today — no milestone exit re-reads entries it did
+not write.
+
+No code changed. The triage of what to tackle pre-M6 goes to Max with
+this session's report.

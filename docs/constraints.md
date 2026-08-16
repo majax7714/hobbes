@@ -89,18 +89,31 @@ information appears in both, and the entries cross-reference.
   wearing a probability.
 - **Source:** ADR-029.
 
-### C-3 — Standard-library dependencies are invisible
-- **Cannot tell you:** that a module depends on `subprocess`, `os`, or
-  `json`.
-- **Because:** stdlib imports are dropped as noise at resolution; only
-  third-party imports become `ext:` nodes.
+### C-3 — Standard-library dependencies are invisible — except in Go
+- **Cannot tell you:** that a Python module depends on `subprocess`, `os`,
+  or `json`, or a TS module on `node:fs` or `node:child_process`.
+- **Because:** stdlib imports are dropped as noise at resolution for
+  Python (`sys.stdlib_module_names`, ADR-007) and for JS/TS (the Node
+  builtins list, M6); only third-party imports become `ext:` nodes. **Go
+  does the opposite** (V2.M5): `gosource` emits an `ext:` node for every
+  import that resolves to no in-repo package, with no stdlib filter — its
+  docstring says "stdlib and third-party" knowingly, but the choice was
+  never reconciled with ADR-007's noise rule or with this entry. The
+  dogfood graph carries `ext:os`, `ext:fmt`, `ext:syscall`, `ext:net`
+  today, ~20 stdlib packages among the 51 external nodes.
 - **Bites at:** any question of the form "what does this module touch" —
   notably security-shaped ones, where `subprocess` is exactly the import
-  a reviewer wants flagged.
-- **You find out:** **unsurfaced.** The graph simply has no such nodes and
-  says nothing. A reader cannot distinguish "imports no stdlib" from
-  "stdlib not modelled".
-- **Source:** ADR-007.
+  a reviewer wants flagged. **The asymmetry aggravates it (found by the
+  2026-08-15 register audit):** a graph that shows `ext:os` on Go modules
+  teaches the reader that stdlib *is* modelled, so a Python module with no
+  such node now reads as positively clean rather than unexamined.
+- **You find out:** **unsurfaced** for Python and TS — the graph has no
+  such nodes and says nothing, and Go's visible ones make the silence read
+  as an answer. Either direction can be right (drop Go's for consistency,
+  or emit stdlib everywhere and lift this entry); split by language it is
+  wrong in both.
+- **Source:** ADR-007 (the rule); asymmetry entered at V2.M5 (ADR-037,
+  unregistered there), recorded 2026-08-15.
 
 ### C-4 — Pytest fixtures do not appear in test reach
 - **Cannot tell you:** that a test exercises code reached only through a
@@ -123,7 +136,10 @@ information appears in both, and the entries cross-reference.
   app's surface area.
 - **You find out:** **unsurfaced.** The route is absent with no record
   that a decorator was seen and declined.
-- **Source:** ADR-007.
+- **Source:** ADR-007 (the rule). The mechanism lives in the enrichment
+  packs since V2.M4 (ADR-035) — `http-python`, `http-ts`, and V2.M5's
+  `http-go` each cite this entry and skip computed paths the same way, so
+  the constraint now spans five frameworks across three languages.
 
 ### C-6 — A semantic index cannot say what a reference syntactically was
 - **Cannot tell you:** from lane B alone, whether an occurrence is a call,
@@ -183,7 +199,8 @@ information appears in both, and the entries cross-reference.
 
 ### C-9 — Only four descriptor kinds become graph symbols
 - **Cannot tell you:** about parameters, locals, or meta symbols; roughly
-  **86%** of what an indexer defines is dropped.
+  **86%** of what a Python or TS indexer defines is dropped (**72%** for
+  Go — 27.9% of `scip-go`'s definitions are graph-worthy, ADR-037).
 - **Because:** the graph models namespaces, types, methods and terms.
   kbet's frontend alone offers 6,696 definitions against 949 graph-worthy;
   the whole v1 dogfood graph has 834 symbols.
@@ -192,18 +209,22 @@ information appears in both, and the entries cross-reference.
 - **You find out:** **partial.** The filter is stated in ADR-027 and the
   omission is uniform, so it does not mislead about *specific* code — but
   nothing in the artifact declares the modelled vocabulary.
-- **Provider (P9):** ours, not inherited — the descriptor filter is
-  Hobbes's choice over what `@sourcegraph/scip-python` **0.6.6** and
-  `@sourcegraph/scip-typescript` **0.4.0** emit. Listed here because it is
-  easily mistaken for a provider limit: the indexers *do* report these
-  symbols and Hobbes drops them. Not liftable by an upgrade.
+- **Provider (P9):** ours, not inherited — the descriptor filter
+  (`GRAPH_KINDS` in the shared `scip/index.mjs` helper) is Hobbes's choice
+  over what `@sourcegraph/scip-python` **0.6.6**,
+  `@sourcegraph/scip-typescript` **0.4.0**, and `scip-go` **0.2.7** (added
+  V2.M5) emit. Listed here because it is easily mistaken for a provider
+  limit: the indexers *do* report these symbols and Hobbes drops them. Not
+  liftable by an upgrade.
 - **Source:** ADR-027, Decision 3.
 
 ### C-10 — Node ids carry no version, so cross-version merging is out
 - **Cannot tell you:** which version of a package a symbol belongs to.
-- **Because:** `--project-version` is pinned to a constant, since its
-  default is the git revision and would re-key every node on every commit
-  — which would make `hobbes diff` report the whole repo as
+- **Because:** the indexer's version flag is pinned to a constant —
+  `--project-version` for scip-python/scip-typescript, `--module-version`
+  for scip-go (the same decision under a third flag name, ADR-037) —
+  since its default is the git revision and would re-key every node on
+  every commit, which would make `hobbes diff` report the whole repo as
   removed-and-re-added, destroying the thing v2 exists to sharpen.
 - **Bites at:** a future multi-repo graph merge, which must key on package
   identity alone. Nothing today.
@@ -276,17 +297,27 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-021, M6.
 
 ### C-14 — CLI entry points come from `pyproject.toml` only
-- **Cannot tell you:** about a JS package's `bin` entry points.
-- **Bites at:** `interfaces.json` on TS/JS repos.
+- **Cannot tell you:** about a JS package's `bin` entry points, or a Go
+  binary — a `package main` under `cmd/` is exactly the shape this repo's
+  own four binaries take, and `interfaces.json` on the dogfood repo lists
+  `hobbes` and `mini` (Python console scripts) while `hobbes-policy`,
+  `hobbes-proxy`, `hobbes-session` and `hobbes-web` are absent.
+- **Because:** the `cli-python` pack (ADR-035, which owns this mechanism
+  since V2.M4) reads `[project.scripts]` from every `pyproject.toml`, and
+  it is the only CLI source; nothing reads `package.json` `bin` or Go
+  main packages.
+- **Bites at:** `interfaces.json` on TS/JS and Go repos.
 - **You find out:** **unsurfaced.** The list is empty and reads as "no CLI".
-- **Source:** M6, `future_additions.md`.
+- **Source:** M6, `future_additions.md`; widened to Go at the 2026-08-15
+  register audit.
 
 ## Extraction — cross-layer
 
 ### C-15 — A node-id collision across languages drops a file from the graph
 - **Cannot tell you:** anything about the losing file — a repo-root
   `widget.py` and `widget.ts` both want the id `widget`, and merge order
-  (Python, HCL, TS) decides.
+  decides: Python is the base graph, then TS, then Go (V2.M5), then the
+  pack layer's nodes, `tf:` among them, last (V2.M4).
 - **Because:** ids are path-derived per layer and are not namespaced on
   collision. Fixing it properly means rewriting ids across a whole layer's
   nodes, edges, symbols, tests and routes.
@@ -505,12 +536,23 @@ it too, so the entry now says no indexer populates it and an upgrade of one
 lifts nothing. **A register entry can be wrong by being too specific**, and
 nothing catches that except measuring the next case.
 
+The 2026-08-15 audit (before V2.M6) found the complementary failure: **a
+register entry can be made wrong by a milestone that never touched it.**
+Six entries had drifted, all by M4/M5 side-effects — C-3 materially (Go
+emits stdlib `ext:` nodes where Python and TS drop them, an asymmetry no
+ADR registered), C-15's merge order predated both the pack layer and Go,
+and C-5/C-9/C-10/C-14 named mechanisms or providers that had since moved
+or multiplied. Nothing detects this today: the register is prose, and no
+milestone exit re-reads entries it did not write.
+
 Ranked by how badly each misleads, worst first:
 
 1. **C-16** — a degradation check that appears to run and reports nothing,
    on the repo Hobbes dogfoods against.
 2. **C-3** — "imports no stdlib" and "stdlib not modelled" look identical,
-   and the question is usually a security one.
+   and the question is usually a security one. Worse since V2.M5: Go's
+   visible stdlib nodes make the other languages' silence read as an
+   answer.
 3. **C-24** — an empty `reaches` on a component test reads as "nothing
    guards this", though it fails in the safe direction by design.
 
