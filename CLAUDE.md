@@ -215,10 +215,25 @@ lane-disagreement tab). Do not start any of them unprompted; the
 sequencing discipline (one milestone at a time, exits reviewed by Max)
 carries over to whatever he names.
 
-Languages supported: **Python, TypeScript/JavaScript, Go, Rust** (+ the
+Languages wired: **Python, TypeScript/JavaScript, Go, Rust** (+ the
 Terraform/HCL layer), each with a syntax provider and a pinned SCIP
-indexer, joined by the one range join. Adding a language is §3.7's
-three-step checklist, proven twice (Go, Rust).
+indexer, joined by the one range join. **"Supported" is scoped by P11**
+(ADR-044): the claim extends exactly as far as architecture §3.8's
+evidence table — Python and TS/JS multi-repo; Go verified on one repo
+(this one); Rust on one small repo. Adding a language is §3.7's
+checklist — now **four** steps, the fourth being verification evidence
+recorded in §3.8 in the same commit — proven twice (Go, Rust).
+
+**2026-08-16 (post-v2 doc session):** the constraints register is split
+into **Active** and **Lifted** parts (ADR-043) — lifted entries carry a
+required Was / Lifted-by-technique / Residual-edge-cases format, because
+a lift's boundary is where the old concession quietly survives. P11
+added (coverage claims scoped to evidence; C-31 registers the residue,
+unsurfaced) and the **guaranteed-fraction** framing is now architecture
+text in "Where this is going": Hobbes as insurance — the captured
+fraction's integrity outranks its size, and the uncapturable complement
+is *identified* as needing care, never model-filled. Follow-up owed:
+README's language list re-read against §3.8.
 
 **V2.M7 — Rust, the P7 proof (ADR-040).** Hobbes ingests Rust with
 **zero new builder code**: the diff is `rustsource.py` (fifth syntax

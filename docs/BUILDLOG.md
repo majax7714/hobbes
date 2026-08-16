@@ -2533,3 +2533,62 @@ Max wants it: C-4 (fixture-aware reach), C-19's last two tools, C-20
 
 245 Go / 566 pytest / 24 scip / 27 tsextract / 52 vitest — all green.
 SPA and `hobbes-web` rebuilt.
+
+---
+
+## 2026-08-16 (seventeenth) — the register splits; coverage claims get scoped
+
+Max's direction, one honesty argument in two halves: the register should
+read as active vs lifted with lifting techniques documented, and the
+project's coverage claims must shrink to their evidence — "asserting
+that hobbes can fully cover rust off of a 20 file repo" is a claim the
+docs were structurally allowing. Docs only; no code changed.
+
+**The register restructure (ADR-043, `0b72b15`).** `constraints.md` now
+has two parts. Active constraints, grouped by subsystem (C-22/23/27
+moved out of the narrative section into a lane-B-environments group
+where they belong). Lifted constraints, each in a required four-field
+format: Was / **Lifted by — the technique** / **Residual edge cases** /
+Source — because a lift is a technique with a boundary, and an input the
+technique does not classify falls back to being conceded silently unless
+the boundary is written down. Two lifted entries gained boundary
+documentation the old format never asked for, both verified against the
+tree rather than remembered: C-3's TS normalisation is bounded by the
+*running* Node's `builtinModules` (not a pin), and C-16's manifest walk
+is bounded by format — a `setup.py`/`requirements.txt`-only repo still
+presents an empty declared list with the same appears-to-run failure
+shape the lift fixed. Numbers stable; nothing renumbered. The register
+also now states it is written for anyone who runs Hobbes, named
+individuals appearing only as decision attribution.
+
+**Coverage claims scoped (ADR-044).** P11 joins the principles: a
+coverage claim is scoped to its evidence, "supported" means the checks
+passed on the named sample and licenses nothing beyond it. New §3.8
+holds the per-language evidence table and states the asymmetry plainly —
+Python and TS/JS multi-repo; **Go's entire base is one repo, this one**;
+**Rust's is one small repo, 33 hand-checked edges** — proof of the
+machinery, not the language. §3.7 gains mandatory step 4: a language
+lands by extending §3.8 in the same commit, else it is wired, not
+supported. **C-31** registers the residue and is filed *unsurfaced*
+knowingly (thirty-one entries, four unsurfaced): nothing at ingest
+states verification depth, and a table in a document is not a surfacing
+by the register's own rule. Candidate surfacing named — depth beside the
+language list.
+
+**The guaranteed fraction ("Where this is going").** The insurance
+framing is now architecture text: a raw-context model carries a 0%
+*guarantee*; Hobbes converts some fraction of the codespace to derived,
+checked, citable — and that fraction's integrity outranks its size. If
+it is 20%, that 20% is properly captured; the complement is identified
+as the unique/needs-care part rather than papered over; the sandbox is
+the same move on the action side (absent, not refused). This is the
+yardstick the unbuilt derivation work will be measured against — derived
+context comes from the guaranteed fraction, and what falls outside it
+gets pointed at, not model-filled.
+
+Follow-up owed, not done here: re-read README's language claims against
+§3.8 (it presents the five languages as peers); C-31's surfacing is new
+debt on the unsurfaced list alongside C-4, C-19, C-20.
+
+No tests affected (docs only); suite state unchanged from the sixteenth
+entry (245 Go / 566 pytest / 24 scip / 27 tsextract / 52 vitest).
