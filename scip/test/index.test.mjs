@@ -270,3 +270,97 @@ test('decode drops documents outside the repo entirely', () => {
   assert.deepEqual(out.references, [])
   assert.deepEqual(out.external, [])
 })
+
+// --- V2.M7: Rust via rust-analyzer's native SCIP export (ADR-040) -------
+
+// Real monikers, pasted from rust-analyzer 1.97.1 output during the
+// spike-rust.mjs run on ~/rust_proj.
+const RS = 'rust-analyzer cargo example_project_structure 0.1.0'
+const RS_STD = 'rust-analyzer cargo std https://github.com/rust-lang/rust/library/std'
+
+test('macro descriptors classify as macro and survive the filter', () => {
+  // Without this, a repo-defined macro_rules! never enters the
+  // definitions map and every invocation of it drops to external_refs.
+  assert.equal(classify(`${RS_STD} macros/println!`), 'macro')
+  assert.equal(classify(`${RS} twice!`), 'macro')
+  assert.ok(GRAPH_KINDS.has('macro'))
+})
+
+test('terminalName strips the macro bang', () => {
+  // Lane A's call site says `println`, not `println!` — the two providers
+  // must speak the same name or the range join matches nothing.
+  assert.equal(terminalName(`${RS_STD} macros/println!`), 'println')
+  assert.equal(terminalName(`${RS} twice!`), 'twice')
+})
+
+test('the rust indexer entry runs rust-analyzer scip with no version flag', () => {
+  // The moniker version is the crate's Cargo.toml version, not the git
+  // revision (spike-rust.mjs) — the one indexer where Decision 1 needs
+  // no pin, so the argv must not invent one.
+  const argv = INDEXERS.rust.args({ stage: '/stage', output: '/out.scip' })
+  assert.deepEqual(argv, ['scip', '/stage', '--output', '/out.scip'])
+  assert.ok(INDEXERS.rust.onPath, 'a rustup component, not an npm dev dep')
+})
+
+test('a moniker defined in two files is ambiguous, dropped, and reported', () => {
+  // rust-analyzer emits the same `crate/` and `main().` for every cargo
+  // target of a package (its own "Duplicate symbol" warning). First-wins
+  // would attribute a `use mylib` in a test to whichever binary decode
+  // saw first — a false edge, worse than a missing one (ADR-007).
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/main.rs',
+      occurrences: [
+        { symbol: `${RS} crate/`, symbol_roles: DEF, range: [0, 0, 38, 0] },
+      ],
+    },
+    {
+      relative_path: 'src/lib.rs',
+      occurrences: [
+        { symbol: `${RS} crate/`, symbol_roles: DEF, range: [0, 0, 4, 1] },
+        { symbol: `${RS} really_complicated_code().`, symbol_roles: DEF, range: [2, 7, 2, 30] },
+      ],
+    },
+    {
+      relative_path: 'tests/it.rs',
+      occurrences: [
+        { symbol: `${RS} crate/`, symbol_roles: 0, range: [0, 4, 0, 9] },
+        { symbol: `${RS} really_complicated_code().`, symbol_roles: 0, range: [4, 22, 4, 45] },
+      ],
+    },
+  ])
+  const decoded = decode(idx)
+  assert.deepEqual(decoded.ambiguous, [`${RS} crate/`])
+  assert.ok(
+    !decoded.definitions.some((d) => d.moniker === `${RS} crate/`),
+    'the ambiguous definition must not survive under either file',
+  )
+  // Its reference is unattributed, not guessed.
+  assert.ok(decoded.external.some((e) => e.file === 'tests/it.rs' && e.line === 1))
+  // The unambiguous symbol still resolves normally.
+  assert.equal(decoded.references.length, 1)
+  assert.equal(decoded.references[0].def_file, 'src/lib.rs')
+  // And the drop is visible, never silent (P6).
+  const out = degradations(idx, decoded, {})
+  assert.ok(out.some((d) => d.stage === 'scip-decode' && /more than one/.test(d.message)))
+})
+
+test("rust's toolchain stdlib is not evidence of an environment", () => {
+  // std/core/alloc resolve from the rustup sysroot whatever the repo's
+  // dependencies look like — the scip-go lesson, a language later.
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/lib.rs',
+      occurrences: [
+        { symbol: `${RS} run().`, symbol_roles: DEF, range: [0, 0, 0, 3] },
+        { symbol: `${RS_STD} macros/println!`, symbol_roles: 0, range: [1, 0, 1, 7] },
+      ],
+    },
+  ])
+  const coverage = dependencyCoverage(decode(idx), {
+    declaredDeps: ['serde'],
+    language: 'rust',
+  })
+  assert.equal(coverage.resolved, 0, 'std resolving proves nothing')
+  assert.deepEqual(coverage.missing, ['serde'])
+})

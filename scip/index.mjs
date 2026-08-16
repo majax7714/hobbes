@@ -84,6 +84,22 @@ export const INDEXERS = {
     // scip-go runs the real Go loader, whose cwd must be inside the module.
     cwd: (c) => c.stage,
   },
+  rust: {
+    // rust-analyzer's native SCIP export (ADR-040) — not a scip-* wrapper,
+    // the analyzer itself. Installed as a rustup component, pinned by the
+    // toolchain the user has.
+    bin: 'rust-analyzer',
+    onPath: true,
+    install: 'rustup component add rust-analyzer',
+    // No version flag, and for once none is needed: the moniker version is
+    // the crate's Cargo.toml version, not the git revision (measured,
+    // spike-rust.mjs) — the first indexer whose default satisfies
+    // Decision 1 by itself. ADR-037's "assume the next one does too"
+    // was wrong in the safe direction.
+    args: (c) => ['scip', c.stage, '--output', c.output],
+    // Like scip-go: cargo metadata resolves relative to cwd.
+    cwd: (c) => c.stage,
+  },
 }
 
 /**
@@ -120,11 +136,16 @@ export function classify(symbol) {
   if (desc.endsWith('.')) return 'term'
   if (desc.endsWith('/')) return 'namespace'
   if (desc.endsWith(':')) return 'meta'
+  // SCIP's macro descriptor (`macros/println!`). Only rust-analyzer emits
+  // it today; without this a repo-defined macro_rules! is invisible to
+  // the definitions map and every invocation of it lands in external_refs
+  // attributed to the repo's own crate (ADR-040).
+  if (desc.endsWith('!')) return 'macro'
   return 'other'
 }
 
 /** Descriptor kinds that become graph symbols. */
-export const GRAPH_KINDS = new Set(['namespace', 'type', 'method', 'term'])
+export const GRAPH_KINDS = new Set(['namespace', 'type', 'method', 'term', 'macro'])
 
 /**
  * The terminal descriptor's bare name, which is what a syntax provider
@@ -137,7 +158,7 @@ export function terminalName(symbol) {
   if (parts.length < 5) return ''
   const desc = parts.slice(4).join(' ')
   // Strip the descriptor suffix, then take the last path/member segment.
-  const bare = desc.replace(/(\(\)\.|#|\.|\/|:)$/, '')
+  const bare = desc.replace(/(\(\)\.|#|\.|\/|:|!)$/, '')
   const seg = bare.split(/[/#.]/).filter(Boolean).pop() ?? ''
   return seg.replace(/`/g, '')
 }
@@ -168,6 +189,15 @@ export function decode(index) {
   // the join tell "correctly out of scope" from "nobody could resolve it",
   // which is the difference between coverage and a silent hole (P6).
   const external = []
+  // Monikers defined in more than one document. rust-analyzer emits the
+  // same `crate/` and `main().` for every cargo target of a package
+  // (its own "Duplicate symbol" warning), so first-wins would attribute
+  // a `use mylib` in a test to whichever binary decode saw first — a
+  // false edge, which is worse than a missing one (ADR-007). Ambiguous
+  // monikers are dropped from the definitions map: their references fall
+  // to `external`, unattributed rather than guessed, and `degradations`
+  // reports the drop (ADR-040).
+  const ambiguous = new Set()
 
   for (const doc of index.documents) {
     if (!insideRepo(doc.relative_path)) continue
@@ -176,7 +206,11 @@ export function decode(index) {
       if (!isDefinition(occ)) continue
       const kind = classify(occ.symbol)
       if (!GRAPH_KINDS.has(kind)) continue
-      if (definitions.has(occ.symbol)) continue
+      const prior = definitions.get(occ.symbol)
+      if (prior) {
+        if (prior.file !== doc.relative_path) ambiguous.add(occ.symbol)
+        continue
+      }
       const r = occ.range
       definitions.set(occ.symbol, {
         moniker: occ.symbol,
@@ -187,6 +221,7 @@ export function decode(index) {
       })
     }
   }
+  for (const symbol of ambiguous) definitions.delete(symbol)
 
   for (const doc of index.documents) {
     if (!insideRepo(doc.relative_path)) continue
@@ -219,7 +254,13 @@ export function decode(index) {
     }
   }
 
-  return { definitions: [...definitions.values()], references, external, packages }
+  return {
+    definitions: [...definitions.values()],
+    references,
+    external,
+    packages,
+    ambiguous: [...ambiguous].sort(),
+  }
 }
 
 /**
@@ -234,6 +275,16 @@ const SELF_PACKAGES = new Set([
   // resolved dependency would report full coverage for a repo whose real
   // dependencies were all missing (ADR-032's lesson, a language later).
   'github.com/golang/go/src',
+  // Rust's stdlib crates resolve from the rustup sysroot, always (their
+  // moniker versions are rust-lang/rust URLs, not crates.io versions —
+  // spike-rust.mjs). Same rule, fourth language. The names are generic,
+  // but the exclusion is symmetric (both declared and seen sides), so a
+  // repo that really depended on a crates.io package by one of these
+  // names is left uncounted, never miscounted.
+  'std',
+  'core',
+  'alloc',
+  'proc_macro',
 ])
 
 /**
@@ -322,6 +373,19 @@ export function degradations(index, decoded, config) {
     out.push({
       stage: 'scip-decode',
       message: 'documents were indexed but no graph-worthy definitions came out',
+    })
+  }
+  if ((decoded.ambiguous ?? []).length > 0) {
+    const sample = decoded.ambiguous
+      .slice(0, 3)
+      .map((s) => s.split(' ').slice(4).join(' '))
+      .join(', ')
+    out.push({
+      stage: 'scip-decode',
+      message:
+        `${decoded.ambiguous.length} symbol(s) are defined in more than one ` +
+        `file (e.g. ${sample}) — typically cargo targets sharing a name; ` +
+        'references to them are left unattributed rather than guessed',
     })
   }
   return out

@@ -225,7 +225,7 @@ constraint **C-8**.
 ### 3.2 Lane B — semantics (SCIP indexers)
 Per-language batch indexers emitting SCIP, the universal IR: `scip-python`
 (built on Pyright), `scip-typescript`, `scip-go`, and rust-analyzer's native
-`scip` output when Rust arrives. Hobbes writes no provider adapters — it runs
+`scip` export (V2.M7, ADR-040). Hobbes writes no provider adapters — it runs
 indexers and consumes their output. Precise symbols, definitions, references,
 and cross-file edges. Slower than lane A; cached (§3.6).
 
@@ -236,10 +236,11 @@ parse independently and never consume tree-sitter ASTs.
 gets real name resolution for a language it never has to understand, and in
 exchange it inherits that indexer's blind spots and owns them in public. The
 inherited limits so far are registered as C-6 (SCIP cannot say what a
-reference syntactically *was*), C-9 (only four descriptor kinds become graph
-symbols), and C-23 (TypeScript semantics need the target repo's dependency
-tree installed). Each names its provider and version, because unlike our own
-concessions these can end on an upstream release.
+reference syntactically *was*), C-9 (only five descriptor kinds become graph
+symbols), C-23 (TypeScript semantics need the target repo's dependency
+tree installed), and C-28 (a symbol two cargo targets both define is
+unattributed rather than guessed). Each names its provider and version,
+because unlike our own concessions these can end on an upstream release.
 
 **Lane B never writes to the target repo.** Indexers want to run inside the
 tree they index, so Hobbes stages a copy under `~/.hobbes/cache` and runs

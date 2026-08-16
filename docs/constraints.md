@@ -198,11 +198,13 @@ information appears in both, and the entries cross-reference.
 - **Source:** architecture §3.2/P6, ADR-029. Registered at V2.M3, when
   demoting lane A's resolver made the floor explicit rather than incidental.
 
-### C-9 — Only four descriptor kinds become graph symbols
+### C-9 — Only five descriptor kinds become graph symbols
 - **Cannot tell you:** about parameters, locals, or meta symbols; roughly
   **86%** of what a Python or TS indexer defines is dropped (**72%** for
   Go — 27.9% of `scip-go`'s definitions are graph-worthy, ADR-037).
-- **Because:** the graph models namespaces, types, methods and terms.
+- **Because:** the graph models namespaces, types, methods, terms and —
+  since V2.M7 — macros (`macro_rules!` is architecture in Rust the way a
+  function is; only rust-analyzer emits the descriptor, ADR-040).
   kbet's frontend alone offers 6,696 definitions against 949 graph-worthy;
   the whole v1 dogfood graph has 834 symbols.
 - **Bites at:** any expectation that the symbol layer is a complete index
@@ -213,11 +215,12 @@ information appears in both, and the entries cross-reference.
 - **Provider (P9):** ours, not inherited — the descriptor filter
   (`GRAPH_KINDS` in the shared `scip/index.mjs` helper) is Hobbes's choice
   over what `@sourcegraph/scip-python` **0.6.6**,
-  `@sourcegraph/scip-typescript` **0.4.0**, and `scip-go` **0.2.7** (added
-  V2.M5) emit. Listed here because it is easily mistaken for a provider
-  limit: the indexers *do* report these symbols and Hobbes drops them. Not
-  liftable by an upgrade.
-- **Source:** ADR-027, Decision 3.
+  `@sourcegraph/scip-typescript` **0.4.0**, `scip-go` **0.2.7** (added
+  V2.M5), and `rust-analyzer` **1.97.1** (added V2.M7) emit. Listed here
+  because it is easily mistaken for a provider limit: the indexers *do*
+  report these symbols and Hobbes drops them. Not liftable by an upgrade.
+- **Source:** ADR-027, Decision 3. Amended by ADR-040 (macro joined the
+  set).
 
 ### C-10 — Node ids carry no version, so cross-version merging is out
 - **Cannot tell you:** which version of a package a symbol belongs to.
@@ -545,6 +548,36 @@ information appears in both, and the entries cross-reference.
   would still invent their dependencies — what changed is that the skip is
   visible where a user meets it.
 - **Source:** ADR-037, V2.M5; surfaced 2026-08-15.
+
+## Extraction — Rust
+
+### C-28 — A symbol defined in two cargo targets is unattributed
+- **Cannot tell you:** which file a reference lands in, when the symbol's
+  moniker is emitted by more than one cargo target of the same package —
+  the lib crate root that `use mylib` names, a `main` in two binaries, a
+  `tests` module both targets declare. References to such symbols produce
+  no edge at all.
+- **Because:** rust-analyzer gives every target of a package the same
+  `crate/`, `main().`, `tests/` monikers (it prints its own "Duplicate
+  symbol" warnings while doing so), and the decode's definitions map can
+  hold one file per moniker. First-wins would attribute a test's
+  `use mylib` to whichever binary decoded first — a **false** module
+  edge, worse than a missing one (ADR-007) — so `decode()` drops any
+  moniker defined in more than one document and lets its references fall
+  to `external_refs`, unattributed rather than guessed.
+- **Bites at:** module edges whose only evidence is a reference to a
+  duplicated symbol. In practice the function and type monikers that
+  carry the call graph are unique, so the lib-import edge is still raised
+  by the join wherever a real call resolves; what is lost is the edge a
+  bare `use mylib;` with no call would have justified.
+- **You find out:** **surfaced** — the `scip-decode` degradation record
+  counts the dropped symbols and names a sample, landing in
+  `extraction_errors` and the ingest WARNING like every other decode
+  degradation.
+- **Provider (P9):** inherited from `rust-analyzer` **1.97.1**. An
+  upstream release that scoped monikers per target would make the drop a
+  no-op and lift this entry.
+- **Source:** ADR-040, V2.M7 spike.
 
 ## Extraction — enrichment packs
 
