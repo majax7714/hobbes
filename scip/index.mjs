@@ -51,6 +51,13 @@ export const INDEXERS = {
       '--project-version', c.projectVersion,
       '--output', c.output,
       '--quiet',
+      // Package attribution (C-27). Without this, scip-python asks the
+      // first `pip3` on PATH which environment is installed — the system
+      // one, not the repo's venv (a uv venv has no pip at all), so every
+      // third-party reference is attributed to the *local* project and
+      // the dependency simply vanishes. The Python side pre-computes the
+      // listing from the venv's own interpreter via importlib.metadata.
+      ...(c.environment ? ['--environment', c.environment] : []),
     ],
   },
   typescript: {
@@ -243,6 +250,17 @@ const SELF_PACKAGES = new Set([
  * So the counts are emitted on every run, degraded or not — the ADR-029
  * denominator pattern — and the threshold is secondary to them.
  */
+/** PEP 503 name normalisation, Python only: distribution names are
+ * case-insensitive and `-`/`_`/`.` are one character, so a manifest's
+ * `pyyaml` and the moniker's `PyYAML` (or `tree-sitter` and
+ * `tree_sitter`) are the same package. Without this the C-27 fix half
+ * worked — the index resolved into PyYAML and the coverage report went
+ * on saying `pyyaml` was missing. npm and Go names stay verbatim: their
+ * ecosystems treat case and punctuation as identity. */
+function canonicalName(name, language) {
+  return language === 'python' ? name.toLowerCase().replace(/[-_.]+/g, '-') : name
+}
+
 export function dependencyCoverage(decoded, config) {
   // Excluded from *both* sides. A bundled package resolving is not
   // evidence the environment exists, and a repo declaring it (nearly
@@ -253,13 +271,13 @@ export function dependencyCoverage(decoded, config) {
   for (const key of decoded.packages.keys()) {
     const name = key.split(':')[1]
     if (!name || SELF_PACKAGES.has(name)) continue
-    seen.add(name)
+    seen.add(canonicalName(name, config.language))
     // `import React from "react"` resolves to @types/react, so the
     // package SCIP attributes is the types package. Crediting only the
     // literal name would report every typed dependency as missing.
     if (name.startsWith('@types/')) seen.add(name.slice('@types/'.length))
   }
-  const missing = declared.filter((d) => !seen.has(d))
+  const missing = declared.filter((d) => !seen.has(canonicalName(d, config.language)))
   return {
     declared: declared.length,
     resolved: declared.length - missing.length,

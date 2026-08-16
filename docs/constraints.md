@@ -470,6 +470,45 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-032, found by the control variant in the V2.M3 spike;
   owned as ours under P9 (ADR-034).
 
+### C-27 — Python third-party semantics need a discoverable venv
+- **Cannot tell you:** where a call into a third-party package goes, when
+  the repo's environment is not a venv Hobbes can find — a conda env,
+  system-installed packages, or a venv living somewhere unconventional.
+- **Because:** two mechanisms both need the environment, and both were
+  quietly broken until the C-16 fix exposed it (2026-08-15). *Resolution*:
+  Pyright needs `venvPath`, which was hardcoded to `<root>/.venv` — this
+  repo's venv is `pipeline/.venv`, so it resolved nothing; now discovered
+  (`find_venv`: `.venv`/`venv` at the root, then beside each manifest,
+  `pyvenv.cfg` required). *Attribution*: scip-python maps resolved files
+  to packages by asking the first `pip3` on PATH which environment is
+  installed — the **system** one, and a uv venv has no pip at all — so
+  every third-party reference was attributed to the local project and the
+  dependency vanished; now Hobbes pre-computes the listing with the
+  venv's own interpreter (stdlib `importlib.metadata`) and hands it over
+  via `--environment`. Names are matched PEP-503-style (`pyyaml` ==
+  `PyYAML`), Python only.
+- **Bites at:** third-party `uses`/`calls` edges on any Python repo whose
+  environment the discovery conventions miss. On this repo the fix took
+  resolution from **0 of 5 declared packages to 5 of 5**.
+- **You find out:** **surfaced** — `dependency_coverage` counts plus the
+  ingest WARNING below the threshold, the same mechanism as C-23. The
+  degradation had existed since lane B landed and was invisible until
+  C-16's manifest walk gave the check its denominator; three days of
+  "semantic" Python graphs carried no third-party edges and nothing said
+  so.
+- **Honest residue:** discovery is convention-bound. An environment
+  without `pyvenv.cfg` under `.venv`/`venv` at the root or beside a
+  manifest is not searched for, and the coverage counts are the answer
+  there, not a fix.
+- **Provider (P9):** inherited from `@sourcegraph/scip-python` **0.6.6**
+  — its environment discovery (PATH's pip) is the part Hobbes routes
+  around, and `--environment` is the indexer's own escape hatch, marked
+  experimental. Re-check on any version bump: an upgrade that fixes its
+  discovery could retire our listing; one that drops the flag would
+  break it loudly (the helper passes it only when computed).
+- **Source:** found 2026-08-15 by C-16's first real run; fixed and
+  registered the same day. The Python sibling of C-23.
+
 ## Extraction — Go
 
 ### C-26 — A Go file outside any module gets no semantics
@@ -523,11 +562,19 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Six of twenty-six entries are **unsurfaced** (C-4, C-12, C-14, C-19,
+Six of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19,
 C-20, C-24). Three have been **lifted** — C-11 at V2.M3, and C-3 and
 C-16 in the 2026-08-15 pre-M6 sweep, which also surfaced C-5 and C-26.
 That churn is the point of keeping the register: none of it was knowable
 before this file existed, and what remains is the backlog P8 generates.
+
+C-27 arrived the way the register says entries should: C-16's first
+working run produced a number (0 of 5 resolved), the number was
+investigated rather than explained away, and the investigation found
+*two* stacked causes — a hardcoded venv path and an indexer asking the
+wrong environment entirely. Both fixed same-day, and the entry records
+what remains: discovery is convention-bound, and `dependency_coverage`
+is the answer for environments the conventions miss.
 
 V2.M4 added one entry (**C-25**) and it is *partial* rather than
 unsurfaced, because `graph.json`'s `packs` list was added in the same

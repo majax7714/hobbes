@@ -2168,3 +2168,57 @@ and a full dogfood re-ingest verified by hand.
 
 **Still stopped at the M5 review gate.** Nothing here is M6 work — it is
 the register's backlog, paid down so M6 starts clean.
+
+---
+
+## 2026-08-15 (eleventh) — the resolution gap C-16 found, closed (C-27)
+
+Max: fix the resolution gaps and true up the register before M6. The
+tenth entry's finding — the Python index resolving 0 of 5 declared
+packages — turned out to be **two stacked causes**, and finding the
+second required fixing the first.
+
+**Cause one: the venv was assumed, not discovered.** `extract_scip`
+hardcoded Pyright's `venvPath` to `<root>/.venv`; this repo's venv is
+`pipeline/.venv`. The same root-only shape as C-16, one layer down.
+`find_venv` now walks the conventions in a deterministic order — `.venv`
+then `venv` at the root, then beside each manifest — and requires
+`pyvenv.cfg`, so a directory merely *named* `.venv` is never handed to
+the indexer. That alone moved PyYAML but not tree-sitter, which is what
+exposed:
+
+**Cause two: scip-python asks the wrong environment entirely.** Its
+package attribution shells out to the first `pip3` on PATH — the system
+one, and a uv venv carries no pip at all. Pyright *resolved*
+`tree_sitter` perfectly; scip-python then attributed it to the local
+project ("Could not find package information") and the dependency
+vanished from the package list. PyYAML had only ever worked **by
+coincidence**: Fedora's system Python happens to have it. The fix routes
+around the discovery: Hobbes asks the venv's own interpreter for its
+distributions (stdlib `importlib.metadata`, read-only, sixty-second
+timeout, None on any failure) and hands the listing to scip-python via
+its own `--environment` flag. The helper passes the flag only when a
+listing was computed, so absence degrades exactly as before.
+
+A third, smaller lie fell out en route: coverage matched names by exact
+string, so once the index *did* resolve `PyYAML`, the report went on
+saying `pyyaml` was missing. PEP-503 normalisation (case-insensitive,
+`-`/`_`/`.` equivalent) now applies — Python only, since npm and Go
+treat case and punctuation as identity.
+
+**Result on the dogfood repo: 5 of 5 declared packages resolved, zero
+extraction errors** (was 0 of 5 with a WARNING). 3,598 semantic edges.
+The TS zone's 6 of 9 stands and is honest: the three missing are
+devDependencies no source file imports. Verified end-to-end on a probe
+repo first — `python:tree-sitter` and `python:tree-sitter-python`
+attributed by name — then on the full ingest.
+
+Registered **C-27** (Python third-party semantics need a discoverable
+venv — the Python sibling of C-23, provider line `scip-python` 0.6.6,
+surfaced via `dependency_coverage`). Discovery stays convention-bound:
+conda and system environments are the honest residue, answered by the
+counts rather than guessed at. 504 pytest / 18 scip; the register now
+counts twenty-seven entries, six unsurfaced, three lifted.
+
+**Still at the M5 review gate.** M6 starts on Max's pass, with the
+register current as of this entry.

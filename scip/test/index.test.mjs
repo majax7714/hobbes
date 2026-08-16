@@ -7,6 +7,7 @@ import {
   degradations,
   dependencyCoverage,
   GRAPH_KINDS,
+  INDEXERS,
   insideRepo,
   packageOf,
   terminalName,
@@ -163,6 +164,45 @@ test('dependency coverage is reported as counts, not only as a verdict', () => {
   ])
   const coverage = dependencyCoverage(decode(idx), { declaredDeps: ['axios', 'react'] })
   assert.deepEqual(coverage, { declared: 2, resolved: 1, missing: ['react'] })
+})
+
+test('python coverage matches names PEP-503-style, other languages verbatim', () => {
+  // C-27's second half: the index resolved into PyYAML while the report
+  // went on saying `pyyaml` was missing — distribution names are
+  // case-insensitive with -/_/. equivalent, for Python only.
+  const idx = fakeIndex([
+    {
+      relative_path: 'src/a.py',
+      occurrences: [
+        { symbol: `${PY}/api.`, symbol_roles: DEF, range: [0, 0, 0, 3] },
+        { symbol: 'scip-python python PyYAML 6.0.1 `yaml`/load().', symbol_roles: 0, range: [1, 0, 1, 3] },
+        { symbol: 'scip-python python tree_sitter 0.25.0 `tree_sitter`/Parser#', symbol_roles: 0, range: [2, 0, 2, 3] },
+      ],
+    },
+  ])
+  const py = dependencyCoverage(decode(idx), {
+    language: 'python',
+    declaredDeps: ['pyyaml', 'tree-sitter', 'httpx'],
+  })
+  assert.deepEqual(py, { declared: 3, resolved: 2, missing: ['httpx'] })
+  // npm treats case and punctuation as identity: no normalisation there.
+  const ts = dependencyCoverage(decode(idx), {
+    language: 'typescript',
+    declaredDeps: ['pyyaml'],
+  })
+  assert.deepEqual(ts.missing, ['pyyaml'])
+})
+
+test('python indexer args carry --environment only when one was computed', () => {
+  // C-27: without it, scip-python asks the first pip3 on PATH which
+  // environment exists and attributes third-party references to the
+  // local project. With no listing the flag must be absent, not empty.
+  const base = { stage: '/s', projectName: 'p', projectVersion: '0', output: '/o' }
+  const with_ = INDEXERS.python.args({ ...base, environment: '/s.env.json' })
+  assert.ok(with_.includes('--environment'))
+  assert.equal(with_[with_.indexOf('--environment') + 1], '/s.env.json')
+  const without = INDEXERS.python.args(base)
+  assert.ok(!without.includes('--environment'))
 })
 
 test('terminalName reads the bare name a syntax provider would have seen', () => {

@@ -50,6 +50,83 @@ class ScipError(RuntimeError):
     """The indexer helper could not run, or answered something unusable."""
 
 
+def find_venv(repo_root: Path) -> tuple[str, str] | None:
+    """Pyright's ``(venvPath, venv)`` for the repo's virtual environment.
+
+    Discovery is by convention, in a deterministic order: ``.venv`` then
+    ``venv`` at the repo root, then beside each ``pyproject.toml`` in the
+    pruned manifest walk — the same "not just the root" correction C-16
+    needed, one layer down: this repo's own venv is ``pipeline/.venv``,
+    and pointing Pyright at ``<root>/.venv`` quietly resolved none of the
+    five declared packages (C-27). A candidate counts only if it holds a
+    ``pyvenv.cfg``, the marker every venv/virtualenv writes — a directory
+    merely *named* ``.venv`` must not be handed to the indexer as an
+    environment. Returns None when nothing qualifies; conda and system
+    environments have no on-disk marker here and are not searched for,
+    which is C-27's honest residue.
+    """
+    from hobbes.extract.interfaces import iter_pyprojects
+
+    repo_root = Path(repo_root).resolve()
+    candidates = [repo_root / name for name in (".venv", "venv")]
+    for pyproject in iter_pyprojects(repo_root):
+        candidates.extend(pyproject.parent / name for name in (".venv", "venv"))
+    for candidate in candidates:
+        if (candidate / "pyvenv.cfg").is_file():
+            return str(candidate.parent), candidate.name
+    return None
+
+
+#: Runs inside the *venv's* interpreter, never ours: the environment being
+#: described is the one whose ``sys.path`` this python owns. stdlib only —
+#: a uv venv has no pip, which is exactly why scip-python's own discovery
+#: (the first ``pip3`` on PATH) described the wrong environment (C-27).
+_ENV_LISTING_SNIPPET = (
+    "import importlib.metadata, json, sys\n"
+    "out = []\n"
+    "for dist in importlib.metadata.distributions():\n"
+    "    name = dist.metadata['Name'] if dist.metadata else None\n"
+    "    if not name:\n"
+    "        continue\n"
+    "    out.append({'name': name, 'version': dist.version,\n"
+    "                'files': [str(f) for f in (dist.files or [])]})\n"
+    "json.dump(out, sys.stdout)\n"
+)
+
+
+def venv_environment(venv_path: str, venv_name: str) -> list[dict] | None:
+    """The venv's installed distributions, in scip-python's
+    ``--environment`` shape (``[{name, version, files}]``).
+
+    Asked of the venv's own interpreter, because that is the only thing
+    that knows what the venv holds: scip-python's fallback asks whichever
+    ``pip3`` is first on PATH, and a uv-managed venv carries no pip, so
+    the answer described the *system* environment and every third-party
+    reference was attributed to the local project (C-27). Read-only, and
+    None on any failure — the index still runs, resolution degrades, and
+    ``dependency_coverage`` says so.
+    """
+    python = Path(venv_path) / venv_name / "bin" / "python"
+    if not python.is_file():
+        return None
+    try:
+        proc = subprocess.run(
+            [str(python), "-c", _ENV_LISTING_SNIPPET],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        listing = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    return listing if isinstance(listing, list) else None
+
+
 def declared_dependencies(repo_root: Path) -> list[str]:
     """Third-party packages the repo says it needs (every pyproject.toml).
 
@@ -650,31 +727,37 @@ def extract_scip(
     """
     if not enabled() or not files:
         return None
-    stage = staging.build_stage(
-        repo_root,
-        files,
-        config={
-            "extraPaths": roots,
-            # Absolute, so third-party resolution survives staging — without
-            # it every dependency edge silently vanishes (ADR-027 Decision 4).
-            "venvPath": str(Path(repo_root).resolve()),
-            "venv": ".venv",
-        },
-        sha=sha,
-    )
+    config: dict = {"extraPaths": roots}
+    venv = find_venv(repo_root)
+    environment = None
+    if venv is not None:
+        # Absolute, so third-party resolution survives staging — without
+        # it every dependency edge silently vanishes (ADR-027 Decision 4).
+        # Discovered, not assumed at the root: pointing at a venv that is
+        # not there resolved 0 of this repo's 5 declared packages (C-27).
+        config["venvPath"], config["venv"] = venv
+        environment = venv_environment(*venv)
+    stage = staging.build_stage(repo_root, files, config=config, sha=sha)
+    env_path = stage.parent / f"{stage.name}.env.json"
+    helper_config = {
+        "stage": str(stage),
+        "language": "python",
+        "projectName": project_name,
+        # Pinned, never defaulted: the default is the git revision,
+        # which would change every moniker on every commit.
+        "projectVersion": "0",
+        "output": str(stage.parent / f"{stage.name}.scip"),
+        "declaredDeps": declared_deps or [],
+    }
+    if environment is not None:
+        # C-27's second mechanism: venvPath gives Pyright *resolution*,
+        # this gives scip-python *attribution*. Both land in the cache,
+        # never the repo.
+        env_path.write_text(json.dumps(environment))
+        helper_config["environment"] = str(env_path)
     try:
-        facts = run_helper(
-            {
-                "stage": str(stage),
-                "language": "python",
-                "projectName": project_name,
-                # Pinned, never defaulted: the default is the git revision,
-                # which would change every moniker on every commit.
-                "projectVersion": "0",
-                "output": str(stage.parent / f"{stage.name}.scip"),
-                "declaredDeps": declared_deps or [],
-            }
-        )
+        facts = run_helper(helper_config)
     finally:
+        env_path.unlink(missing_ok=True)
         staging.remove_stage(stage)
     return facts

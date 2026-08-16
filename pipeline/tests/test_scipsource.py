@@ -207,6 +207,58 @@ class TestDeclaredDependencies:
         (sub / "pyproject.toml").write_text('[project]\ndependencies = ["httpx", "redis"]\n')
         assert scipsource.declared_dependencies(tmp_path) == ["httpx", "redis"]
 
+    def test_find_venv_at_the_repo_root(self, tmp_path):
+        (tmp_path / ".venv").mkdir()
+        (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr\n")
+        assert scipsource.find_venv(tmp_path) == (str(tmp_path.resolve()), ".venv")
+
+    def test_find_venv_beside_a_subdirectory_manifest(self, tmp_path):
+        # C-27's discovery: this repo's own shape, venv at pipeline/.venv.
+        sub = tmp_path / "pipeline"
+        sub.mkdir()
+        (sub / "pyproject.toml").write_text('[project]\nname = "x"\n')
+        (sub / ".venv").mkdir()
+        (sub / ".venv" / "pyvenv.cfg").write_text("home = /usr\n")
+        assert scipsource.find_venv(tmp_path) == (str(sub.resolve()), ".venv")
+
+    def test_find_venv_requires_the_pyvenv_marker(self, tmp_path):
+        # A directory merely named .venv is not an environment, and handing
+        # it to the indexer would trade one silent zero for another.
+        (tmp_path / ".venv").mkdir()
+        assert scipsource.find_venv(tmp_path) is None
+
+    def test_find_venv_prefers_the_root_and_dot_venv(self, tmp_path):
+        for name in (".venv", "venv"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "pyvenv.cfg").write_text("home = /usr\n")
+        assert scipsource.find_venv(tmp_path) == (str(tmp_path.resolve()), ".venv")
+
+    def test_venv_environment_lists_the_venvs_own_distributions(self, tmp_path):
+        # C-27: the listing must come from the venv's interpreter, because
+        # scip-python's fallback (first pip3 on PATH) describes whatever
+        # environment the shell happens to have. A fake venv whose python
+        # is this suite's interpreter answers with this suite's packages.
+        import sys
+
+        venv = tmp_path / ".venv"
+        (venv / "bin").mkdir(parents=True)
+        (venv / "pyvenv.cfg").write_text("home = /usr\n")
+        (venv / "bin" / "python").symlink_to(sys.executable)
+
+        listing = scipsource.venv_environment(str(tmp_path), ".venv")
+        assert listing is not None
+        by_name = {d["name"] for d in listing}
+        assert "pytest" in by_name
+        sample = next(d for d in listing if d["name"] == "pytest")
+        assert sample["version"] and isinstance(sample["files"], list)
+
+    def test_venv_environment_degrades_to_none_without_an_interpreter(self, tmp_path):
+        # No python in the venv: attribution is skipped, never guessed —
+        # the index still runs and dependency_coverage reports the gap.
+        (tmp_path / ".venv").mkdir()
+        (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr\n")
+        assert scipsource.venv_environment(str(tmp_path), ".venv") is None
+
     def test_walk_prunes_hidden_and_vendored_directories(self, tmp_path):
         # node_modules can be 222 MB on a real app; a dependency's own
         # manifest is not this repo's declaration either way.
