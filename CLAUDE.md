@@ -245,9 +245,16 @@ and qwen-pathology (82.6%, env-missing surfaced): their unclassified
 residue was bare calls of **imported names**, so `import-binding`
 joined the classes (lane A's own FromImport parse, Python-only,
 binding-proven — ADR-045 amendment) — SELENEX unclassified 46 → 4,
-qwen 6 → 1. Remaining known residue: locally-declared Python helpers
-(dogfood's 45 — fixtures), Go closure locals (20), and attr-call —
-the genuine untypable-receiver limit — everywhere.
+qwen 6 → 1. **Review passed by Max**; C-32's candidate fix then
+applied (ADR-046): `pysource`/`gosource` collect sub-module bindings
+with enclosing-function extents, and `local-binding` fires on scope
+containment for Python and Go — dogfood unclassified went **45 → 0**
+(python) and **20 → 0** (go); Rust deliberately not extended (empty
+verified tails — a collector with nothing to verify against would be
+the P11 mistake at class scale). Fleet-wide honest residue: 112 sites,
+all but one in TS zones, plus attr-call — the genuine
+untypable-receiver limit — everywhere. C-32 restated as proof grades
+(declaration-proven TS vs binding-proven-with-containment Py/Go).
 
 **2026-08-16 (post-v2 doc session):** the constraints register is split
 into **Active** and **Lifted** parts (ADR-043) — lifted entries carry a

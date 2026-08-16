@@ -2688,3 +2688,52 @@ amended in place (same-day, section named), C-32 amended, architecture
 §3.4 class list updated.
 
 583 pytest / 29 tsextract — green (Go and web untouched this round).
+
+---
+
+## 2026-08-16 (twentieth) — C-32's candidate fix applied: lane A local bindings
+
+Max passed the tail-view review ("the tail review of the repo really
+saves us and will help for validating larger repos") and directed the
+C-32 candidate fix: origin support from the other syntax providers
+(ADR-046).
+
+**The mechanism.** `pysource` and `gosource` each gain a local-binding
+collector — a walk separate from `_walk`, on purpose: one collects what
+the graph models, the other what it deliberately does not (C-9's
+floor). Python records parameters (a pytest fixture argument is one),
+assignment/walrus/`for`/`with`/`except` targets, and nested
+`def`/`class` names; Go records parameters (receivers and named
+results included), `:=`/`var`/`range` targets, `func_literal`s
+covered. Every binding carries its **enclosing function's line
+extent**, and a bare unresolved call classifies `local-binding` only
+when an extent spans the call's line — scope containment, not a
+file-wide name coincidence. A scope-contained local outranks an import
+binding (shadowing — the mirror of import-over-builtin, one scope in).
+A local class binds its name outward; its methods bind nothing. Rust
+deliberately not extended: both verified Rust tails are empty, and
+wiring a collector on zero evidence would be the P11 mistake at class
+scale.
+
+**Observed impact (all five repos re-ingested):**
+
+- dogfood python: unclassified **45 → 0** (`fake_policy_bin` — a
+  fixture parameter — `symbol_at`, `out`, `runner`: all local-binding).
+- dogfood go: unclassified **20 → 0** (`cleanup`, `cancel` — the
+  closure-typed locals).
+- SELENEX python: unclassified **4 → 0**; qwen keeps its honest **1**.
+- TS unchanged everywhere (99/3/9) — correct: its checker origins
+  already answer, one grade stronger.
+
+Fleet-wide, the honestly-unknown residue is now **112 sites across
+five repos** — all but one in TS zones — plus `attr-call`, the genuine
+untypable-receiver limit (C-2's core), which no class may absorb.
+C-32 narrowed: the asymmetry is now stated as **proof grades**
+(declaration-proven for TS, binding-proven-with-containment for
+Python/Go) rather than presence/absence; Rust's absence and the pinned
+lists remain. Both collectors carry `TestLocalBindings` suites — the
+2026-08-15 audit lesson pre-applied: a grammar bump is what would
+drift them, and the tests are what would notice.
+
+598 pytest / 29 tsextract — green (helper untouched this round; Go and
+web untouched).
