@@ -2737,3 +2737,46 @@ drift them, and the tests are what would notice.
 
 598 pytest / 29 tsextract — green (helper untouched this round; Go and
 web untouched).
+
+---
+
+## 2026-08-16 (twenty-first) — blindness is context: list_blind_spots and the derivation contract
+
+Max's direction: reference the constraint register as a needed
+integration with agentic policy and, eventually, the derived agentic
+context layer — "knowing what we cant see is very useful and by adding
+that as a part of hobbes functionality we aid agents in pointing to the
+work they do need to do." Two deliverables (ADR-047).
+
+**`list_blind_spots(scope)` — built.** The sixth knowledge tool on the
+session proxy, and the complement of the other five: they serve the
+captured fraction, this serves its boundary. For a path prefix (or the
+repo) it answers with the staleness header, the always-on denominator
+statement (dynamic dispatch, fixture reach, and computed routes are in
+NO count — C-1/C-4/C-5 — so every number is a floor over detected
+sites), the per-language capture rollup in ADR-045's two groups,
+environment gaps ("invisible, not absent — C-23/C-27/C-30"),
+degradation records, the ten worst files class-broken, and a meaning
+line per class present, each naming its register entry — C-n references
+now reach an agent at the moment they matter, which is P8's bar. Same
+contract as the rest: read-only, flight-logged, empty scope = whole
+repo. The proxy's tool-inventory contract test pins seven; live smoke
+against the real dogfood artifacts rendered pipeline/ correctly
+(including the stale-artifacts warning, which was true at the time).
+Proxy binaries rebuilt: static `go/bin/hobbes-proxy` + the sandbox
+copy.
+
+**The derivation contract — written, not built.** Architecture "Where
+this is going" now states two requirements on the future milestone:
+derived context carries the **stated complement** beside the captured
+fraction (an agent receives "what you must verify yourself" alongside
+"what is known", or the derivation recreates the fake-honest gap at the
+layer built to prevent it), and derived policy treats unseen regions as
+low-evidence — narrow or escalate, never widen. Register preamble now
+names agents as an audience; C-2's surfacing gains the agent-facing
+leg; future_additions holds the two unbuilt consumers (review verdicts
+weighing low-capture diffs, surface rendering) and re-records the
+derivation requirement so the milestone inherits it.
+
+246 Go tests across 12 packages green (knowledge +4, proxy inventory
+updated); pytest/tsextract/web untouched.

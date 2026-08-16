@@ -43,7 +43,8 @@ the interactive graph.
   `~/.hobbes/sessions/<session>/flight.jsonl`, ADR-015) +
   `internal/escalation/` (park/approve/expire queue, ADR-016) +
   `internal/knowledge/` (graph_neighborhood/who_calls/tests_guarding/
-  get_module_doc/list_invariants over `.hobbes/derived/`, ADR-017/019/024).
+  get_module_doc/list_invariants over `.hobbes/derived/`, ADR-017/019/024,
+  plus list_blind_spots — the boundary's tool, ADR-047).
   `cmd/hobbes-session/` + `internal/sandbox/` launch a session in rootless
   Podman (ADR-018); the **reviewer** role mounts the worktree ro and drops
   Edit/Write/exec, and every role gets `.hobbes/derived/` mounted ro so the
@@ -224,7 +225,22 @@ evidence table — Python and TS/JS multi-repo; Go verified on one repo
 checklist — now **four** steps, the fourth being verification evidence
 recorded in §3.8 in the same commit — proven twice (Go, Rust).
 
-**2026-08-16 (the tail view, ADR-045 — built, awaiting Max's review):**
+**2026-08-16 (blindness is context, ADR-047 — built, awaiting Max's
+review):** the register and tail view are now **agent-facing
+functionality**, per Max's direction ("knowing what we cant see is very
+useful… we aid agents in pointing to the work they do need to do").
+`list_blind_spots(scope)` is the sixth knowledge tool on the session
+proxy — the complement of the other five: scoped capture rollup, the
+always-on denominator statement (C-1/C-4/C-5 are in no count), environment
+gaps, degradations, worst files, and a meaning line per present class
+naming its C-n entry. The **derivation contract** is architecture text:
+derived context must carry the stated complement beside the captured
+fraction, and derived policy treats unseen regions as low-evidence
+(narrow or escalate) — requirements recorded on the unbuilt milestone.
+Proxy binaries rebuilt (static + sandbox copy). Not scoped: review/
+surface consuming blind spots (future_additions).
+
+**2026-08-16 (the tail view, ADR-045 — built, review passed):**
 the unresolved call-site remainder is now **classified by observation**
 on every ingest: `resolution_coverage` rows carry `tail`
 (checker-origin classes from tsextract v4 — `local-binding` =
