@@ -35,7 +35,9 @@ TSEXTRACT_CMD_ENV = "HOBBES_TSEXTRACT_CMD"
 #: evidence IR can join it against SCIP occurrences (ADR-029); ``callee``
 #: is None where the checker resolved nothing. Test cases carry
 #: ``end_line``.
-HELPER_VERSION = 2
+#: v3 (C-5 surfacing): files carry ``routes_declined`` — registrations
+#: seen and declined for a computed path, reported by the http-ts pack.
+HELPER_VERSION = 3
 
 #: Extensions the helper extracts; used only for the cheap "does this repo
 #: have TS/JS at all" scan that decides whether the helper must run.

@@ -57,6 +57,44 @@ def _route_entries(decorator, module: ModuleInfo, symbol, framework: str) -> lis
     ]
 
 
+def declined_route_sites(
+    modules: list[ModuleInfo], parsed: dict[str, ParsedFile]
+) -> list[dict]:
+    """Route-shaped decorators whose path is not a string literal (C-5).
+
+    The complement of :func:`extract_routes`: same decorator shapes, the
+    sites where the path argument did not survive digestion —
+    ``@app.get(f"/items/{v}")``, ``@app.route(PREFIX)``. The route stays
+    out of the inventory (a guessed path is a false interface), but the
+    sighting is reported so the absence is legible. Only modules that
+    import a known framework are read, so ``@x.get``-shaped decorators on
+    arbitrary objects never produce a record.
+    """
+    declined = []
+    for module in modules:
+        facts = parsed[module.id]
+        framework = _framework(facts)
+        if framework == "unknown":
+            continue
+        for symbol in facts.symbols:
+            for decorator in symbol.decorators:
+                if decorator.dotted is None or "." not in decorator.dotted:
+                    continue
+                attr = decorator.dotted.rsplit(".", 1)[1]
+                if attr != "route" and attr not in _HTTP_VERBS:
+                    continue
+                if decorator.args:
+                    continue
+                declined.append(
+                    {
+                        "framework": framework,
+                        "file": module.path,
+                        "line": decorator.line,
+                    }
+                )
+    return sorted(declined, key=lambda d: (d["file"], d["line"]))
+
+
 def _framework(facts: ParsedFile) -> str:
     """Which web framework the module imports; tags its routes."""
     tops = set()

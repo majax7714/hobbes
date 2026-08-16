@@ -23,7 +23,10 @@ import { Node, Project, ts } from "ts-morph";
 // against SCIP occurrences; `callee`/`callee_path` are null when the
 // checker could not resolve it, and are now the join's fallback rather
 // than an edge. Test cases carry `end_line`, so reach can be per case.
-export const HELPER_VERSION = 2;
+// v3 (C-5 surfacing): every file carries `routes_declined` — route
+// registrations seen and declined because their path is computed, so the
+// http-ts pack can report the absence instead of leaving it silent.
+export const HELPER_VERSION = 3;
 
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
@@ -404,6 +407,7 @@ function expressReceiverOk(receiver) {
 
 function extractRoutes(sourceFile, repoRoot, fileSet) {
   const routes = [];
+  const declined = [];
   // Express: app.get("/path", handler) — receiver must look like an
   // express app/router and the path literal must start with "/", so
   // map.get("key") never counts.
@@ -413,10 +417,21 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
     if (!Node.isPropertyAccessExpression(expr)) return;
     const verb = expr.getName();
     if (!EXPRESS_VERBS.has(verb)) return;
-    const routePath = firstStringArg(node);
-    if (!routePath || !routePath.startsWith("/")) return;
     if (!expressReceiverOk(expr.getExpression())) return;
     const args = node.getArguments();
+    const routePath = firstStringArg(node);
+    if (!routePath) {
+      // A registration-shaped call (real express receiver, a handler
+      // argument) whose path is computed. The route stays absent — a
+      // guessed path is a false interface — but the sighting is reported
+      // so the absence is legible (C-5). One string argument alone is not
+      // registration-shaped: `app.get('view engine')` reads a setting.
+      if (args.length >= 2) {
+        declined.push({ framework: "express", line: node.getStartLineNumber() });
+      }
+      return;
+    }
+    if (!routePath.startsWith("/")) return;
     const handlerArg = args[args.length - 1];
     let handler = "<inline>";
     let handlerPath = null;
@@ -435,10 +450,15 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
     });
   });
   // Nest: @Controller("prefix") classes with @Get("sub")-family methods.
+  // A decorator argument that exists but is not a string literal is a
+  // computed path: the route is declined, never emitted with the computed
+  // segment silently dropped — that would report a path the app does not
+  // serve, which is worse than C-5's absence.
   for (const cls of sourceFile.getClasses()) {
     const controller = cls.getDecorator("Controller");
     if (!controller || !cls.getName()) continue;
     const prefixArg = controller.getArguments()[0];
+    const prefixComputed = Boolean(prefixArg) && !Node.isStringLiteral(prefixArg);
     const prefix =
       prefixArg && Node.isStringLiteral(prefixArg) ? prefixArg.getLiteralValue() : "";
     for (const method of cls.getMethods()) {
@@ -446,8 +466,11 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
         const decorator = method.getDecorator(decoratorName);
         if (!decorator) continue;
         const subArg = decorator.getArguments()[0];
-        const sub =
-          subArg && Node.isStringLiteral(subArg) ? subArg.getLiteralValue() : "";
+        if (prefixComputed || (subArg && !Node.isStringLiteral(subArg))) {
+          declined.push({ framework: "nest", line: method.getStartLineNumber() });
+          continue;
+        }
+        const sub = subArg ? subArg.getLiteralValue() : "";
         const parts = [prefix, sub].filter(Boolean).map((p) => p.replace(/^\/|\/$/g, ""));
         routes.push({
           framework: "nest",
@@ -460,7 +483,10 @@ function extractRoutes(sourceFile, repoRoot, fileSet) {
       }
     }
   }
-  return routes.sort((a, b) => a.line - b.line || a.path.localeCompare(b.path));
+  return {
+    routes: routes.sort((a, b) => a.line - b.line || a.path.localeCompare(b.path)),
+    declined: declined.sort((a, b) => a.line - b.line),
+  };
 }
 
 // --- tests -----------------------------------------------------------------
@@ -623,12 +649,16 @@ export function extractRepo(repoRoot) {
       const tests = attempt("tests", { framework: null, cases: [] }, () =>
         extractTests(sourceFile, file, imports)
       );
+      const routeFacts = attempt("routes", { routes: [], declined: [] }, () =>
+        extractRoutes(sourceFile, root, fileSet)
+      );
       out.push({
         calls: attempt("calls", [], () => extractCalls(sourceFile, root, fileSet)),
         env_reads: attempt("env_reads", [], () => extractEnvReads(sourceFile)),
         imports,
         path: file,
-        routes: attempt("routes", [], () => extractRoutes(sourceFile, root, fileSet)),
+        routes: routeFacts.routes,
+        routes_declined: routeFacts.declined,
         symbols: attempt("symbols", [], () => extractSymbols(sourceFile)),
         test_framework: tests.framework,
         tests: tests.cases,

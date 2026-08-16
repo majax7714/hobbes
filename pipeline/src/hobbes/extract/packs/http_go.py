@@ -54,12 +54,33 @@ def _run(ctx: PackContext) -> PackResult:
     from hobbes.extract.gosource import module_id
 
     routes = []
+    errors = []
     for parsed in ctx.go["files"]:
         for call in parsed.calls:
             if call["name"] not in _HANDLERS:
                 continue
             route = _route_from(call)
             if route is None:
+                # A registration verb whose pattern argument is computed:
+                # declined, and said so (C-5). Only when no string argument
+                # exists at all — a string that is not a path (a host
+                # pattern, a middleware name) was seen and judged, not
+                # missed.
+                if call["args"] and not any(
+                    arg["kind"] == "string" for arg in call["args"]
+                ):
+                    errors.append(
+                        {
+                            "path": parsed.path,
+                            "stage": "http-go",
+                            "message": (
+                                f"{parsed.path}:{call['call_line']}: a net/http "
+                                "route registration whose pattern is computed "
+                                "rather than literal; the route is absent from "
+                                "interfaces.json, not guessed at (C-5)."
+                            ),
+                        }
+                    )
                 continue
             handler = route["handler"]
             routes.append(
@@ -75,7 +96,8 @@ def _run(ctx: PackContext) -> PackResult:
                 }
             )
     return PackResult(
-        routes=sorted(routes, key=lambda r: (r["file"], r["line"], r["path"]))
+        routes=sorted(routes, key=lambda r: (r["file"], r["line"], r["path"])),
+        errors=sorted(errors, key=lambda e: (e["path"], e["message"])),
     )
 
 

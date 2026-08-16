@@ -128,12 +128,19 @@ information appears in both, and the entries cross-reference.
   at evidence, and inventing the path would be a false interface.
 - **Bites at:** `interfaces.json`, the Tests and Docs tabs' sense of the
   app's surface area.
-- **You find out:** **unsurfaced.** The route is absent with no record
-  that a decorator was seen and declined.
+- **You find out:** **surfaced** (2026-08-15, the pre-M6 register sweep) —
+  each HTTP pack now emits one `extraction_errors` record per declined
+  registration, naming file:line and saying the route is absent rather
+  than guessed. The constraint itself stands: the route still cannot be
+  reported, only its absence is now legible. Surfacing it also fixed a
+  quiet inversion in the Nest reader, which had been *emitting* a route
+  with the computed segment dropped — a path the app does not serve, worse
+  than C-5's absence; computed Nest arguments now decline like the rest.
 - **Source:** ADR-007 (the rule). The mechanism lives in the enrichment
   packs since V2.M4 (ADR-035) — `http-python`, `http-ts`, and V2.M5's
   `http-go` each cite this entry and skip computed paths the same way, so
   the constraint now spans five frameworks across three languages.
+  Surfaced 2026-08-15 (tsextract helper v3).
 
 ### C-6 — A semantic index cannot say what a reference syntactically was
 - **Cannot tell you:** from lane B alone, whether an occurrence is a call,

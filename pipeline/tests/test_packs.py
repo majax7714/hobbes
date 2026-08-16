@@ -296,6 +296,99 @@ class TestPackContributions:
         # never guessed at.
         assert http_go._route_from({"args": [{"kind": "ident", "value": "prefix"}]}) is None
 
+    def test_http_python_reports_a_declined_computed_route(self, tmp_path):
+        # C-5 (surfaced): the route stays absent — a guessed path is a
+        # false interface — but the sighting is a degradation record.
+        (tmp_path / "api.py").write_text(
+            "from fastapi import FastAPI\n"
+            "app = FastAPI()\n"
+            'PREFIX = "/items"\n'
+            "@app.get(f\"{PREFIX}/all\")\n"
+            "def listing():\n"
+            "    return []\n"
+            '@app.get("/ok")\n'
+            "def ok():\n"
+            "    return []\n"
+        )
+        result = http_python.PACK.run(_context(tmp_path))
+        assert [r["path"] for r in result.routes] == ["/ok"]
+        assert len(result.errors) == 1
+        assert result.errors[0]["stage"] == "http-python"
+        assert "api.py:4" in result.errors[0]["message"]
+        assert "C-5" in result.errors[0]["message"]
+
+    def test_http_python_ignores_route_shaped_decorators_off_framework(self, tmp_path):
+        # @x.get on an arbitrary object in a module importing no framework
+        # must not produce a phantom decline record.
+        (tmp_path / "plain.py").write_text(
+            "import functools\n"
+            "class Reg:\n"
+            "    def get(self, *a, **k):\n"
+            "        return lambda f: f\n"
+            "reg = Reg()\n"
+            "@reg.get()\n"
+            "def f():\n"
+            "    return 1\n"
+        )
+        result = http_python.PACK.run(_context(tmp_path))
+        assert result.errors == []
+
+    def test_http_ts_claims_declined_routes_as_its_records(self):
+        # A repo whose every route path is computed still applies, so its
+        # C-5 records exist — and they are the pack's contribution, gone
+        # with it.
+        ts = {
+            "routes": [],
+            "files": [
+                {
+                    "path": "src/server.js",
+                    "routes_declined": [{"framework": "express", "line": 7}],
+                }
+            ],
+        }
+        ctx = PackContext(repo_root=MINITS, modules=[], parsed={}, ts=ts)
+        assert http_ts.PACK.applies(ctx)
+        errors = http_ts.PACK.run(ctx).errors
+        assert len(errors) == 1
+        assert errors[0]["stage"] == "http-ts"
+        assert "src/server.js:7" in errors[0]["message"]
+        assert "C-5" in errors[0]["message"]
+
+    def test_http_go_reports_a_declined_computed_pattern(self, tmp_path):
+        (tmp_path / "go.mod").write_text("module example.com/x\n")
+        (tmp_path / "main.go").write_text(
+            "package main\n\n"
+            'import "net/http"\n\n'
+            "func handler(w http.ResponseWriter, r *http.Request) {}\n\n"
+            "func main() {\n"
+            "\thttp.HandleFunc(pattern, handler)\n"
+            '\thttp.HandleFunc("/ok", handler)\n'
+            "}\n"
+        )
+        result = http_go.PACK.run(
+            PackContext(repo_root=tmp_path, modules=[], parsed={}, go=extract_go(tmp_path))
+        )
+        assert [r["path"] for r in result.routes] == ["/ok"]
+        assert len(result.errors) == 1
+        assert result.errors[0]["stage"] == "http-go"
+        assert "main.go:8" in result.errors[0]["message"]
+
+    def test_http_go_judged_non_path_strings_are_not_declined(self, tmp_path):
+        # A literal that is not a path (a host pattern, a middleware name)
+        # was seen and judged — recording it as computed would be false.
+        (tmp_path / "go.mod").write_text("module example.com/x\n")
+        (tmp_path / "main.go").write_text(
+            "package main\n\n"
+            'import "net/http"\n\n'
+            "func main() {\n"
+            '\thttp.Handle("example.com/", nil)\n'
+            "}\n"
+        )
+        result = http_go.PACK.run(
+            PackContext(repo_root=tmp_path, modules=[], parsed={}, go=extract_go(tmp_path))
+        )
+        assert result.routes == [] and result.errors == []
+
     def test_http_go_does_not_apply_without_net_http(self, tmp_path):
         (tmp_path / "go.mod").write_text("module example.com/x\n")
         (tmp_path / "main.go").write_text('package main\n\nimport "fmt"\n')

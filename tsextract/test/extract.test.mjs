@@ -241,6 +241,46 @@ test("express routes: verb + slash literal + express-ish receiver", () => {
   );
 });
 
+test("computed route paths are declined and reported, never guessed (C-5)", () => {
+  const root = makeRepo({
+    "src/server.js": [
+      'import express from "express";',
+      "const app = express();",
+      'const PREFIX = "/api";',
+      "function handler(req, res) { res.send([]); }",
+      "app.get(PREFIX, handler);", // computed: declined, recorded
+      "app.get(`/items/${PREFIX}`, handler);", // template with hole: same
+      'app.get("view engine");', // settings read: neither route nor declined
+      'app.get("/ok", handler);', // literal: a route, not a decline
+    ].join("\n"),
+    "src/items.controller.ts": [
+      'import { Controller, Get } from "@nestjs/common";',
+      'const SUB = ":id";',
+      '@Controller("items")',
+      "export class ItemsController {",
+      "  @Get(SUB)", // computed sub: declined — NOT reported as "/items"
+      "  findOne() { return {}; }",
+      '  @Get("plain")',
+      "  list() { return {}; }",
+      "}",
+    ].join("\n"),
+  });
+  const facts = extractRepo(root);
+  const server = byPath(facts, "src/server.js");
+  assert.deepEqual(server.routes.map((r) => r.path), ["/ok"]);
+  assert.deepEqual(
+    server.routes_declined.map((d) => [d.framework, d.line]),
+    [["express", 5], ["express", 6]]
+  );
+  const controller = byPath(facts, "src/items.controller.ts");
+  // The computed segment must not be silently dropped into a wrong path.
+  assert.deepEqual(controller.routes.map((r) => r.path), ["/items/plain"]);
+  assert.deepEqual(
+    controller.routes_declined.map((d) => [d.framework, d.line]),
+    [["nest", 5]]
+  );
+});
+
 test("nest routes: controller prefix joins method paths", () => {
   const root = makeRepo({
     "src/items.controller.ts": [

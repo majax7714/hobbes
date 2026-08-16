@@ -21,18 +21,37 @@ from hobbes.extract.schema import SYNTACTIC
 
 
 def _applies(ctx: PackContext) -> bool:
-    """True when the TS layer ran and reported any route rows.
+    """True when the TS layer ran and saw any route registration.
 
     Unlike the Python HTTP pack this cannot key on an import: the helper has
     already made the framework judgement by the time Python sees anything,
     and re-deriving it here from ``package.json`` would be a second opinion
-    that can disagree with the first (P1).
+    that can disagree with the first (P1). Declined registrations count as
+    sightings — a repo whose every route path is computed still has this
+    pack run, so its C-5 records exist.
     """
-    return bool(ctx.ts and ctx.ts.get("routes"))
+    if not ctx.ts:
+        return False
+    return bool(ctx.ts.get("routes")) or any(
+        f.get("routes_declined") for f in ctx.ts.get("files", [])
+    )
 
 
 def _run(ctx: PackContext) -> PackResult:
-    return PackResult(routes=list(ctx.ts["routes"]))
+    errors = [
+        {
+            "path": f["path"],
+            "stage": "http-ts",
+            "message": (
+                f"{f['path']}:{d['line']}: a {d['framework']} route registration "
+                "whose path is computed rather than literal; the route is absent "
+                "from interfaces.json, not guessed at (C-5)."
+            ),
+        }
+        for f in ctx.ts.get("files", [])
+        for d in f.get("routes_declined", [])
+    ]
+    return PackResult(routes=list(ctx.ts["routes"]), errors=errors)
 
 
 PACK = Pack(name="http-ts", tier=SYNTACTIC, applies=_applies, run=_run)

@@ -9,7 +9,7 @@ module is the only path by which its output reaches ``interfaces.json``.
 
 from __future__ import annotations
 
-from hobbes.extract.interfaces import extract_routes
+from hobbes.extract.interfaces import declined_route_sites, extract_routes
 from hobbes.extract.packs.base import Pack, PackContext, PackResult
 from hobbes.extract.pysource import FromImport, PlainImport
 from hobbes.extract.schema import SYNTACTIC
@@ -40,7 +40,21 @@ def _applies(ctx: PackContext) -> bool:
 
 
 def _run(ctx: PackContext) -> PackResult:
-    return PackResult(routes=extract_routes(ctx.modules, ctx.parsed))
+    errors = [
+        {
+            "path": d["file"],
+            "stage": "http-python",
+            "message": (
+                f"{d['file']}:{d['line']}: a {d['framework']} route registration "
+                "whose path is computed rather than literal; the route is absent "
+                "from interfaces.json, not guessed at (C-5)."
+            ),
+        }
+        for d in declined_route_sites(ctx.modules, ctx.parsed)
+    ]
+    return PackResult(
+        routes=extract_routes(ctx.modules, ctx.parsed), errors=errors
+    )
 
 
 PACK = Pack(name="http-python", tier=SYNTACTIC, applies=_applies, run=_run)
