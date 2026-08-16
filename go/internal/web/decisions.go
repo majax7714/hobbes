@@ -144,6 +144,119 @@ type inferredRecord struct {
 type pendingInvariant struct {
 	Key string `json:"key"`
 	inferredRecord
+	// NearestConfirmed is the confirmed record this proposal most
+	// resembles, when the resemblance is strong enough to matter
+	// (C-21). Narration is told about the repo but not about
+	// `.hobbes/invariants/`, so it re-proposes settled records in fresh
+	// words — and a reword does not match the content key. On
+	// 2026-08-15 that approved I-9 carrying a claim I-3 had been
+	// corrected to remove: the reviewer could see the queue was noisy,
+	// but not that *this* reword reversed a correction. Showing the
+	// neighbour is the fix the C-21 entry named.
+	NearestConfirmed *confirmedNeighbour `json:"nearest_confirmed,omitempty"`
+}
+
+// confirmedNeighbour is a confirmed record surfaced beside a proposal.
+type confirmedNeighbour struct {
+	ID        string  `json:"id"`
+	Statement string  `json:"statement"`
+	Score     float64 `json:"score"`
+}
+
+// confirmedStatements reads id/statement/scope from every confirmed
+// record under .hobbes/invariants/. Deliberately minimal and local: the
+// queue needs the prose to show, not the rule to check, and a file this
+// cannot parse simply is not offered as a neighbour.
+func (s *Server) confirmedStatements() []confirmedNeighbour {
+	dir := filepath.Join(s.cfg.RepoRoot, ".hobbes", "invariants")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []confirmedNeighbour
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var record struct {
+			ID        string `yaml:"id"`
+			Statement string `yaml:"statement"`
+			Status    string `yaml:"status"`
+		}
+		if yaml.Unmarshal(data, &record) != nil || record.ID == "" {
+			continue
+		}
+		if record.Status != "confirmed" {
+			continue
+		}
+		record.Statement = strings.Join(strings.Fields(record.Statement), " ")
+		out = append(out, confirmedNeighbour{ID: record.ID, Statement: record.Statement})
+	}
+	return out
+}
+
+// statementTokens normalises a statement for overlap comparison:
+// lowercased words of three letters or more. Determinism is the point —
+// no model judges similarity, the same pair scores the same forever.
+var tokenPattern = regexp.MustCompile(`[a-z0-9]+`)
+
+func statementTokens(statement string) map[string]bool {
+	tokens := map[string]bool{}
+	for _, token := range tokenPattern.FindAllString(strings.ToLower(statement), -1) {
+		if len(token) >= 3 {
+			tokens[token] = true
+		}
+	}
+	return tokens
+}
+
+// neighbourThreshold is the Jaccard overlap below which a confirmed
+// record is not offered as a neighbour. Tuned on the observed failure:
+// I-9's inferred wording against the confirmed I-3 scores well above
+// this; unrelated records score near zero. Low on purpose — a wrongly
+// offered neighbour costs a glance, a missed one re-approves a
+// corrected-away claim.
+const neighbourThreshold = 0.2
+
+// nearestConfirmed returns the best-overlapping confirmed record, or
+// nil when nothing crosses the threshold.
+func nearestConfirmed(statement string, confirmed []confirmedNeighbour) *confirmedNeighbour {
+	proposal := statementTokens(statement)
+	if len(proposal) == 0 {
+		return nil
+	}
+	var best *confirmedNeighbour
+	bestScore := 0.0
+	for i := range confirmed {
+		candidate := statementTokens(confirmed[i].Statement)
+		if len(candidate) == 0 {
+			continue
+		}
+		shared := 0
+		for token := range proposal {
+			if candidate[token] {
+				shared++
+			}
+		}
+		union := len(proposal) + len(candidate) - shared
+		score := float64(shared) / float64(union)
+		if score > bestScore {
+			bestScore = score
+			best = &confirmed[i]
+		}
+	}
+	if best == nil || bestScore < neighbourThreshold {
+		return nil
+	}
+	return &confirmedNeighbour{
+		ID:        best.ID,
+		Statement: best.Statement,
+		Score:     float64(int(bestScore*100)) / 100,
+	}
 }
 
 func (s *Server) inferred() ([]inferredRecord, error) {
@@ -172,6 +285,7 @@ func (s *Server) pending(l *ledger) ([]pendingInvariant, error) {
 		return nil, err
 	}
 	decided := l.byKey()
+	confirmed := s.confirmedStatements()
 	out := []pendingInvariant{}
 	for _, r := range records {
 		key := contentKey(r.Statement, r.Scope)
@@ -179,7 +293,11 @@ func (s *Server) pending(l *ledger) ([]pendingInvariant, error) {
 			continue
 		}
 		r.Statement = strings.Join(strings.Fields(r.Statement), " ")
-		out = append(out, pendingInvariant{Key: key, inferredRecord: r})
+		out = append(out, pendingInvariant{
+			Key:              key,
+			inferredRecord:   r,
+			NearestConfirmed: nearestConfirmed(r.Statement, confirmed),
+		})
 	}
 	return out, nil
 }

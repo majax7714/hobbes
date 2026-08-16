@@ -275,6 +275,10 @@ export interface PendingInvariant {
   scope: string
   evidence: Pin[]
   guarded_by: string[]
+  /** The confirmed record this proposal most resembles (C-21): narration
+   * re-proposes settled invariants in fresh words, and a reword once
+   * re-approved a claim its original had been corrected to remove. */
+  nearest_confirmed?: { id: string; statement: string; score: number }
 }
 
 export interface DecidedInvariant {

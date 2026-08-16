@@ -468,15 +468,24 @@ information appears in both, and the entries cross-reference.
   the uncorrected text, the queue could not show that a corrected record
   already existed, and the approval versioned the false claim on a record
   Hobbes will now compile and check against.
-- **You find out:** **partial, and now known to be insufficient.** The queue
-  is noisy in a way an attentive user will recognise — but recognising
-  *noise* is not recognising that this particular reword reverses a
-  correction. Nothing shows the reviewer the neighbouring confirmed record,
-  so the decision surface is where this has to be fixed: an inferred
-  statement should arrive next to the confirmed records that overlap its
-  scope.
+- **You find out:** **surfaced** (2026-08-16, ADR-042) — the fix the
+  entry named, built where it named it: each pending proposal arrives
+  with its nearest confirmed record when the statement overlap crosses a
+  deterministic threshold (word-set Jaccard, no model), rendered as a
+  "possible restatement of I-n" banner carrying the confirmed prose and
+  the instruction to read it before approving. The I-9/I-3 pair — the
+  observed failure — is the pinned test case: the reworded proposal
+  names I-3 beside itself, an unrelated proposal names nothing, and a
+  retired record is history, not a neighbour. The *constraint* stands:
+  narration still does not know about `.hobbes/invariants/` and still
+  re-proposes; what changed is that the reviewer now decides while
+  looking at the record being reworded.
+- **Honest residue:** the neighbour is lexical. A restatement sharing no
+  vocabulary with its original scores below the threshold and arrives
+  bare — the mechanism catches rewords, not paraphrases, and says so
+  here rather than pretending otherwise.
 - **Source:** ADR-026, `future_additions.md`. Instance recorded
-  2026-08-15.
+  2026-08-15; surfaced by ADR-042 (2026-08-16).
 
 ### C-22 — Lane B links the repo's `node_modules`, and trusts it not to be written
 - **Cannot tell you:** with structural certainty that indexing a TypeScript

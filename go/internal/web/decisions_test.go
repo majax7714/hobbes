@@ -479,3 +479,105 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(data)
 }
+
+// --- C-21: the queue shows the record a proposal restates -------------------
+
+// The observed failure this guards against: narration re-proposed I-3's
+// uncorrected wording, nothing showed the reviewer the corrected record
+// sitting in .hobbes/invariants/, and the approval versioned a false
+// claim as I-9 (2026-08-15). The texts below are the real pair.
+const confirmedI3 = `id: I-3
+statement: >-
+  A session can commit but cannot publish. Every push, forced or not, is
+  denied outright, and any command the repo policy does not match escalates
+  to a human rather than running — the default is a question, never a yes.
+scope: .
+status: confirmed
+check: soft
+guarded_by: []
+`
+
+const rewordedI9 = "Any command not explicitly matched by a repo policy rule escalates " +
+	"to a human by default — the default is a question, never a yes. Pushes " +
+	"are the exception in the other direction: every push, forced or not, is " +
+	"denied outright rather than escalated."
+
+func writeConfirmed(t *testing.T, repo, name, body string) {
+	t.Helper()
+	writeFile(t, filepath.Join(repo, ".hobbes", "invariants", name), body)
+}
+
+func queueOf(t *testing.T, f *fixture) []pendingInvariant {
+	t.Helper()
+	rec := f.send(t, http.MethodGet, "/api/decisions", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("decisions: %d %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Pending []pendingInvariant `json:"pending_invariants"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload.Pending
+}
+
+func TestARewordedProposalNamesItsConfirmedNeighbour(t *testing.T) {
+	f := newFixture(t)
+	writePolicy(t, f.repo, starterPolicy)
+	writeConfirmed(t, f.repo, "I-3.yaml", confirmedI3)
+	writeInferred(t, f.repo, []map[string]any{
+		inferredRec("INF-1", rewordedI9, "."),
+	})
+
+	queue := queueOf(t, f)
+	if len(queue) != 1 {
+		t.Fatalf("want 1 pending, got %d", len(queue))
+	}
+	neighbour := queue[0].NearestConfirmed
+	if neighbour == nil {
+		t.Fatal("the reworded proposal must name its confirmed neighbour (C-21)")
+	}
+	if neighbour.ID != "I-3" {
+		t.Fatalf("neighbour = %q, want I-3", neighbour.ID)
+	}
+	if neighbour.Score < neighbourThreshold {
+		t.Fatalf("score %v below threshold %v", neighbour.Score, neighbourThreshold)
+	}
+	if !strings.Contains(neighbour.Statement, "cannot publish") {
+		t.Fatalf("the neighbour must carry the confirmed prose, got %q", neighbour.Statement)
+	}
+}
+
+func TestAnUnrelatedProposalOffersNoNeighbour(t *testing.T) {
+	// A wrongly offered neighbour costs a glance; offering one for every
+	// proposal would train the reviewer to ignore the banner.
+	f := newFixture(t)
+	writePolicy(t, f.repo, starterPolicy)
+	writeConfirmed(t, f.repo, "I-3.yaml", confirmedI3)
+	writeInferred(t, f.repo, []map[string]any{
+		inferredRec("INF-1", "Module docs cite file and line for every claim they make.", "."),
+	})
+
+	queue := queueOf(t, f)
+	if len(queue) != 1 {
+		t.Fatalf("want 1 pending, got %d", len(queue))
+	}
+	if queue[0].NearestConfirmed != nil {
+		t.Fatalf("unrelated proposal must not name a neighbour, got %+v", queue[0].NearestConfirmed)
+	}
+}
+
+func TestNonConfirmedRecordsAreNeverOfferedAsNeighbours(t *testing.T) {
+	f := newFixture(t)
+	writePolicy(t, f.repo, starterPolicy)
+	writeConfirmed(t, f.repo, "I-9.yaml", strings.Replace(confirmedI3, "status: confirmed", "status: retired", 1))
+	writeInferred(t, f.repo, []map[string]any{
+		inferredRec("INF-1", rewordedI9, "."),
+	})
+
+	queue := queueOf(t, f)
+	if queue[0].NearestConfirmed != nil {
+		t.Fatal("a retired record is history, not a neighbour")
+	}
+}

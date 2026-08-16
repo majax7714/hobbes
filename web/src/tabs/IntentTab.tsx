@@ -418,6 +418,31 @@ function InvariantCard({
       ) : (
         <>
           <p style={{ margin: '0 0 6px' }}>{item.statement}</p>
+          {item.nearest_confirmed && (
+            <div
+              className="card"
+              style={{
+                border: '1px solid var(--line)',
+                borderLeft: '3px solid var(--warn, #b8860b)',
+                padding: '6px 10px',
+                margin: '0 0 8px',
+              }}
+            >
+              <div className="row wrap" style={{ gap: 6, marginBottom: 4 }}>
+                <Badge kind="escalate">
+                  possible restatement of {item.nearest_confirmed.id}
+                </Badge>
+              </div>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                {item.nearest_confirmed.statement}
+              </p>
+              <p style={{ margin: '4px 0 0', color: 'var(--dim)', fontSize: 12 }}>
+                Read the confirmed record before approving: a reworded duplicate
+                once re-introduced a claim its original had been corrected to
+                remove. If this proposal adds nothing, deny it.
+              </p>
+            </div>
+          )}
           <PinList pins={item.evidence} onOpen={onOpenPin} />
           <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
             <span className="spacer" />
