@@ -289,6 +289,75 @@ class TestSoftInvariants:
         assert review.soft == []
         assert judge_soft(review, [], runner=runner) == []
 
+    def test_the_prompt_is_source_based(self, repo):
+        # V2.M6 (C-18 lifted): the session runs in a read-only checkout
+        # and the prompt carries the diff hunks, not just a file list.
+        self._soft_repo(repo)
+        write(repo, "src/app/core.py", "import os\n\n\ndef run():\n    os.environ['X'] = '1'\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "side effect")
+
+        prompts = []
+
+        def runner(prompt: str) -> str:
+            prompts.append(prompt)
+            return "VERDICT: holds"
+
+        build_review(repo, "HEAD~1", "HEAD", with_soft=True, runner=runner)
+        (prompt,) = prompts
+        assert "read-only checkout" in prompt
+        assert "diff hunks" in prompt
+        assert "os.environ['X'] = '1'" in prompt  # the actual change
+        assert "who_calls" in prompt  # the knowledge tools are named
+
+    def test_a_missing_sandbox_is_an_error_not_a_silent_fallback(
+        self, repo, monkeypatch
+    ):
+        # Falling back to the delta-based prompt would quietly recreate
+        # C-18; the answer must carry the error instead.
+        from hobbes import review as review_mod
+
+        self._soft_repo(repo)
+        write(repo, "src/app/core.py", "def run():\n    return 3\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "change")
+        monkeypatch.setenv(review_mod.SESSION_BIN_ENV, "/nonexistent/hobbes-session")
+
+        review = build_review(repo, "HEAD~1", "HEAD", with_soft=True)
+        (answer,) = review.soft
+        assert answer["id"] == "I-2"
+        assert "error" in answer and "answer" not in answer
+
+    def test_the_diff_excerpt_is_bounded(self, repo):
+        from hobbes.review import _DIFF_LIMIT, _diff_excerpt
+
+        self._soft_repo(repo)
+        write(repo, "src/app/core.py", "\n".join(f"x{i} = {i}" for i in range(600)) + "\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "big change")
+        review = build_review(repo, "HEAD~1", "HEAD")
+        excerpt = _diff_excerpt(repo, review, ["src/app/core.py"])
+        assert len(excerpt.splitlines()) == _DIFF_LIMIT + 1
+        assert "omitted" in excerpt.splitlines()[-1]
+
+
+class TestSuspectMovement:
+    def test_pass_to_suspect_is_a_regression(self):
+        from hobbes.invariants.schema import Invariant
+        from hobbes.invariants.verdict import FAIL, PASS, SUSPECT, Verdict
+        from hobbes.review import REGRESSED, STILL_FAILING, _movement
+
+        inv = Invariant(
+            id="I-1", statement="s", scope=".", status="confirmed",
+            check="graph", target="",
+            rule={"kind": "forbidden-import", "importers": ["*"], "imported": ["a.b"]},
+            guarded_by=[], source="x",
+        )
+        assert _movement(Verdict(inv, PASS), Verdict(inv, SUSPECT)) == REGRESSED
+        # fail <-> suspect is a tier change inside the red family, not a
+        # fix-and-regress pair.
+        assert _movement(Verdict(inv, FAIL), Verdict(inv, SUSPECT)) == STILL_FAILING
+
 
 class TestOutput:
     def test_human_output_follows_the_review_order(self, repo):

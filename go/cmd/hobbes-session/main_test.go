@@ -138,6 +138,33 @@ func TestSessionCloneIsSelfContained(t *testing.T) {
 	}
 }
 
+func TestRefPinsTheSessionTree(t *testing.T) {
+	// V2.M6: a soft-verdict reviewer must read the head of the range
+	// under review, which is not necessarily the repo's HEAD.
+	repo := gitRepo(t)
+	first, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo, "later.txt"), []byte("later\n"), 0o644)
+	exec.Command("git", "-C", repo, "add", "-A").Run()
+	exec.Command("git", "-C", repo, "commit", "-qm", "later").Run()
+
+	sessions := t.TempDir()
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+	opt := options{repo: repo, role: "reviewer", session: "S-ref",
+		ref: strings.TrimSpace(string(first)), sessions: sessions, proxyBin: fakeProxy}
+	_, worktree, cleanup, err := setup(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if _, err := os.Stat(filepath.Join(worktree, "later.txt")); !os.IsNotExist(err) {
+		t.Errorf("worktree at --ref should predate later.txt (stat err %v)", err)
+	}
+}
+
 func TestSessionCloneDoesNotHardlinkObjects(t *testing.T) {
 	// A local clone hardlinks objects by default, and a hardlink cannot
 	// cross a filesystem — so a repo on a different device than the

@@ -41,6 +41,7 @@ flags:
   --repo DIR       repo to spawn a session from (required)
   --role ROLE      session role (required)
   --task TEXT      the implementer's prompt (default Claude Code command)
+  --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
   --image IMG      session image (default hobbes-session:local)
   --network NET    podman --network (default none)
@@ -75,7 +76,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // options holds parsed start flags plus the trailing command override.
 type options struct {
-	repo, role, task, session string
+	repo, role, task, session, ref string
 	image, network, box       string
 	proxyBin, sessions        string
 	claudeCred, dryRun        bool
@@ -153,7 +154,14 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 	if out, err := gitOut(repo, "clone", "--local", "--no-hardlinks", "--quiet", repo, worktree); err != nil {
 		return nil, "", noop, fmt.Errorf("git clone: %v: %s", err, out)
 	}
-	if out, err := gitOut(worktree, "checkout", "-q", "-b", "hobbes/"+opt.session); err != nil {
+	// --ref pins the session's tree to a specific commit — a soft-verdict
+	// reviewer (V2.M6) must read the *head of the range under review*,
+	// which is not necessarily the repo's HEAD.
+	checkout := []string{"checkout", "-q", "-b", "hobbes/" + opt.session}
+	if opt.ref != "" {
+		checkout = append(checkout, opt.ref)
+	}
+	if out, err := gitOut(worktree, checkout...); err != nil {
 		os.RemoveAll(worktree)
 		return nil, "", noop, fmt.Errorf("git checkout: %v: %s", err, out)
 	}
@@ -273,6 +281,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.repo, "repo", "", "")
 	fs.StringVar(&opt.role, "role", "", "")
 	fs.StringVar(&opt.task, "task", "", "")
+	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")
 	fs.StringVar(&opt.network, "network", "", "")

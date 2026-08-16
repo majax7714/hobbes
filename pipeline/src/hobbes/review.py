@@ -13,13 +13,20 @@ to ignore it.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from hobbes.graphdiff import diff_graphs, extract_all_at_ref, has_changes
 from hobbes.invariants import Invariant, load_all, scope_matches
-from hobbes.invariants.verdict import FAIL, PASS, Verdict, judge_all
+from hobbes.invariants.verdict import FAIL, PASS, SUSPECT, Verdict, judge_all
+
+#: The red family: verdicts that demand attention. `suspect` is a
+#: violation resting on syntactic evidence (V2.M6) — a different kind of
+#: red, not a lesser one, so movement and exit codes treat them alike.
+_RED = {FAIL, SUSPECT}
 
 #: How an invariant's verdict moved across the range.
 REGRESSED = "regressed"
@@ -104,9 +111,10 @@ def build_review(
 ) -> Review:
     """Extract both trees and assemble the review (ADR-025).
 
-    *with_soft* runs the ADR-020 reviewer session for soft invariants
-    whose scope this change touches; it is the only part that spends
-    quota, and it is off by default.
+    *with_soft* runs a sandboxed reviewer session (read-only checkout of
+    the head ref + knowledge tools, V2.M6) for soft invariants whose
+    scope this change touches; it is the only part that spends quota,
+    and it is off by default.
     """
     repo_root = Path(repo_root)
     base = extract_all_at_ref(repo_root, base_ref)
@@ -145,7 +153,7 @@ def build_review(
         changed_paths=touched,
     )
     if with_soft:
-        review.soft = judge_soft(review, records, runner=runner)
+        review.soft = judge_soft(review, records, runner=runner, repo_root=repo_root)
     return review
 
 
@@ -153,12 +161,15 @@ _MOVEMENT_ORDER = {REGRESSED: 0, STILL_FAILING: 1, FIXED: 2, UNCHANGED: 3}
 
 
 def _movement(base: Verdict, head: Verdict) -> str:
-    """How a verdict moved. Only fail/pass transitions are movements."""
-    if base.result == head.result:
-        return STILL_FAILING if head.result == FAIL else UNCHANGED
-    if head.result == FAIL:
+    """How a verdict moved. Only red/green transitions are movements —
+    fail and suspect are one family, so a verdict shifting between them
+    (evidence changed tier) is still-failing, not fixed-and-regressed."""
+    base_red, head_red = base.result in _RED, head.result in _RED
+    if base_red and head_red:
+        return STILL_FAILING
+    if head_red:
         return REGRESSED
-    if base.result == FAIL:
+    if base_red:
         return FIXED
     return UNCHANGED
 
@@ -221,20 +232,83 @@ def _coverage_delta(base, head, records: list[Invariant], head_tests: set[str]) 
     )
 
 
-def judge_soft(
-    review: Review, records: list[Invariant], runner=None
-) -> list[dict]:
-    """Ask a reviewer session about each in-scope soft invariant (ADR-020).
+#: Environment override for locating hobbes-session (mirrors policy.py).
+SESSION_BIN_ENV = "HOBBES_SESSION_BIN"
 
-    Only records whose scope contains a changed path are asked: narrating
+#: Diff excerpt budget per soft invariant — enough to judge a change,
+#: bounded so a mass rename cannot blow the prompt.
+_DIFF_LIMIT = 400
+
+
+class ReviewerSessionRunner:
+    """Runs a soft-invariant prompt in the M4 reviewer sandbox (V2.M6).
+
+    The M8 shape sent prompts through the tool-less ADR-020 runner, so a
+    session judged from the architecture delta and a changed-file list —
+    honest but shallow (C-18): "does this change violate the invariant"
+    often needs the files. The reviewer role has what that needs — the
+    worktree mounted read-only at the review's *head ref* (`--ref`), and
+    the knowledge tools — so the session can open what it judges.
+
+    Failure is loud, not silent: no binary, no podman, or a non-zero
+    session raises, and `judge_soft` records the error on the answer.
+    Falling back to the delta-based prompt would quietly recreate C-18.
+    """
+
+    def __init__(self, repo_root: Path, head_ref: str):
+        self.repo_root = Path(repo_root)
+        self.head_ref = head_ref
+
+    def _binary(self) -> str:
+        override = os.environ.get(SESSION_BIN_ENV)
+        if override:
+            return override
+        found = shutil.which("hobbes-session")
+        if not found:
+            raise RuntimeError(
+                "hobbes-session not found — build go/cmd/hobbes-session and put "
+                f"it on PATH, or set ${SESSION_BIN_ENV}"
+            )
+        return found
+
+    def __call__(self, prompt: str) -> str:
+        proc = subprocess.run(
+            [
+                self._binary(), "start",
+                "--repo", str(self.repo_root),
+                "--role", "reviewer",
+                "--ref", self.head_ref,
+                "--task", prompt,
+                "--claude-cred",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=900,
+        )
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()[-300:]
+            raise RuntimeError(f"reviewer session exited {proc.returncode}: {detail}")
+        return proc.stdout
+
+
+def judge_soft(
+    review: Review,
+    records: list[Invariant],
+    runner=None,
+    repo_root: Path | None = None,
+) -> list[dict]:
+    """Ask a reviewer session about each in-scope soft invariant.
+
+    Only records whose scope contains a changed path are asked: judging
     an invariant this change cannot have touched spends quota to say
     "unaffected". *runner* is any prompt → text callable, so tests drive
-    this without a subprocess.
+    this without a sandbox; the default is the real reviewer session
+    (V2.M6 — source-based, not delta-based).
     """
     if runner is None:
-        from hobbes.narrate.runner import ClaudeRunner
-
-        runner = ClaudeRunner()
+        if repo_root is None:
+            raise ValueError("judge_soft needs repo_root to start reviewer sessions")
+        runner = ReviewerSessionRunner(repo_root, review.head_ref)
 
     answers = []
     for record in records:
@@ -243,32 +317,75 @@ def judge_soft(
         touched = [p for p in review.changed_paths if scope_matches(record.scope, p)]
         if not touched:
             continue
+        diff = _diff_excerpt(repo_root, review, touched) if repo_root else ""
         try:
-            raw = runner(soft_prompt(record, review, touched))
+            raw = runner(soft_prompt(record, review, touched, diff))
             answers.append({"id": record.id, "answer": raw.strip(), "scope_hits": touched})
         except Exception as exc:  # a failed session must not fail the review
             answers.append({"id": record.id, "error": str(exc), "scope_hits": touched})
     return answers
 
 
-def soft_prompt(record: Invariant, review: Review, touched: list[str]) -> str:
-    """The reviewer-session prompt for one soft invariant."""
+def _diff_excerpt(repo_root: Path, review: Review, touched: list[str]) -> str:
+    """The range's diff hunks for *touched*, bounded to `_DIFF_LIMIT` lines."""
+    result = subprocess.run(
+        [
+            "git", "-C", str(repo_root), "diff",
+            f"{review.base_ref}...{review.head_ref}", "--", *touched,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    lines = result.stdout.splitlines()
+    if len(lines) > _DIFF_LIMIT:
+        omitted = len(lines) - _DIFF_LIMIT
+        lines = lines[:_DIFF_LIMIT] + [f"… (+{omitted} diff lines omitted — read the files)"]
+    return "\n".join(lines)
+
+
+def soft_prompt(
+    record: Invariant, review: Review, touched: list[str], diff: str = ""
+) -> str:
+    """The reviewer-session prompt for one soft invariant.
+
+    Source-based since V2.M6: the session runs in a read-only checkout of
+    the head ref with the knowledge tools, and the prompt carries the
+    range's diff hunks — the delta plus a file list was honest but
+    shallow (C-18, lifted).
+    """
     from hobbes.graphdiff import format_delta
 
-    return (
-        "You are reviewing one change against one stated invariant.\n\n"
-        f"INVARIANT {record.id} (scope {record.scope}):\n{record.statement}\n\n"
-        f"FILES THIS CHANGE TOUCHES INSIDE THAT SCOPE:\n"
-        + "\n".join(f"  {p}" for p in touched)
-        + "\n\nARCHITECTURE DELTA:\n"
-        + format_delta(review.delta, review.base_ref, review.head_ref)
-        + "\n\nAnswer in exactly this shape:\n"
-        "VERDICT: holds | violated | unclear\n"
-        "WHY: one sentence\n"
-        "EVIDENCE: file:line, file:line\n\n"
-        "Cite only lines you are confident exist. If the change does not bear "
-        "on the invariant, answer 'holds' and say so."
-    )
+    sections = [
+        "You are reviewing one change against one stated invariant.",
+        "",
+        f"INVARIANT {record.id} (scope {record.scope}):\n{record.statement}",
+        "",
+        "You are in a read-only checkout of the repo at the head of this "
+        "change. Read any file you need before answering; the knowledge "
+        "tools (graph_neighborhood, who_calls, tests_guarding, "
+        "get_module_doc, list_invariants) answer structural questions.",
+        "",
+        "FILES THIS CHANGE TOUCHES INSIDE THAT SCOPE:",
+        "\n".join(f"  {p}" for p in touched),
+        "",
+        "ARCHITECTURE DELTA:",
+        format_delta(review.delta, review.base_ref, review.head_ref),
+    ]
+    if diff:
+        sections += ["", "THE CHANGE (diff hunks inside the scope):", diff]
+    sections += [
+        "",
+        "Answer in exactly this shape:",
+        "VERDICT: holds | violated | unclear",
+        "WHY: one sentence",
+        "EVIDENCE: file:line, file:line",
+        "",
+        "Cite only lines you verified exist in the checkout. If the change "
+        "does not bear on the invariant, answer 'holds' and say so.",
+    ]
+    return "\n".join(sections)
 
 
 def format_review(review: Review) -> str:
@@ -303,7 +420,7 @@ def format_review(review: Review) -> str:
         label = f"   {head.result.upper():<8} {item.invariant.id:<6}"
         suffix = f"  [{marker}]" if marker else ""
         add(f"{label} {item.invariant.statement[:64]}{suffix}")
-        if head.result == FAIL:
+        if head.result in _RED:
             for violation in head.violations[:5]:
                 add(f"            {violation.cite()}")
             if len(head.violations) > 5:
