@@ -302,3 +302,21 @@ resolves in neither. Registered as **C-12**.
   the change that causes it is in a different subsystem, made for an
   unrelated and good reason, by someone not thinking about the guarantee
   at all.
+
+- **Criterion benches as test inventory** (from V2.M7, deferred
+  2026-08-15). A criterion bench is a plain function registered by
+  `criterion_group!` — no attribute marks it, so `cargo-test` inventory
+  (which is `#[test]`-family attributes) does not see it. Detecting the
+  registration macro is framework knowledge, which is pack territory
+  (§3.5): a `bench-rust` pack reading the macro's arguments from the
+  lane's recorded call sites, the same way `http-go` reads routes. Parked
+  rather than half-detected — a bench that appears in inventory only when
+  spelled one way is worse than none appearing.
+
+- **Cache the Rust staging tree's `target/` across ingests** (from
+  V2.M7, deferred 2026-08-15). rust-analyzer compiles build scripts and
+  proc macros into the stage's `target/` (72 MB on the spike repo), and
+  the stage is deleted after every ingest, so every re-ingest pays the
+  compile again. §3.6's content-hash cache is the natural shape; the
+  crate registry is already user-global and survives. Worth doing when a
+  real Rust repo makes ingest latency hurt; not before.

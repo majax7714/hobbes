@@ -71,12 +71,14 @@ the interactive graph.
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
   behind `hobbes narrate` / `hobbes docs status`). `extract/tssource.py`
   joins the tsextract helper's facts (M6, ADR-021);
-  `extract/gosource.py` is Go's lane A (V2.M5, ADR-037). M8 adds
+  `extract/gosource.py` is Go's lane A (V2.M5, ADR-037), and
+  `extract/rustsource.py` is Rust's (V2.M7, ADR-040). M8 adds
   `src/hobbes/invariants/` (ADR-024: record loading/validation,
   graph-computed verdicts, and the four CI-config emitters) and
   `src/hobbes/review.py` (ADR-025: `hobbes review`).
   Test fixture repos: `tests/fixtures/miniapp/`
-  (Python) and `tests/fixtures/minits/` (TS/JS), both excluded from
+  (Python), `tests/fixtures/minits/` (TS/JS), `tests/fixtures/minigo/`
+  (Go), and `tests/fixtures/minirust/` (Rust), all excluded from
   pytest collection via `norecursedirs`.
 - `tsextract/` — Node helper (ADR-021): ts-morph walk emitting facts
   JSON for the Python join; own `node --test` suite (`npm test`);
@@ -85,7 +87,10 @@ the interactive graph.
 - `scip/` — **v2 lane B** (ADR-027): the SCIP indexers, pinned
   (`scip-python`, `scip-typescript` from npm; **`scip-go` 0.2.7 is a Go
   binary — `go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`**,
-  note the module moved from `sourcegraph/`), `index.mjs` (the real helper:
+  note the module moved from `sourcegraph/`; **rust-analyzer is a rustup
+  component** — `rustup component add rust-analyzer`, pinned by the
+  toolchain, and `~/.cargo/bin` is on PATH via the shell profiles),
+  `index.mjs` (the real helper:
   runs an indexer, decodes, filters, reports `dependency_coverage`), and
   the spike tooling kept as reproducible evidence — `analyze.mjs` /
   `compare.mjs` for ADR-027's numbers, `spike-ts.mjs` for ADR-032's
@@ -200,12 +205,39 @@ uv run hobbes lanes --json
 **Active: the v2 extraction architecture.** Source of truth is the running
 `docs/hobbes-architecture.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0–M5 all done and passed by Max**
-(M5 cleared 2026-08-15, after a same-day register audit and sweep —
-ADR-038 lifted C-3, C-16/C-18 lifted, C-5/C-26 surfaced, C-27 found and
-fixed by C-16's first working run). **V2.M6 (ADR-039) is BUILT and
-awaiting review; V2.M7 (Rust proof) must not start until Max passes
-M6.**
+deviations folded into §7). **V2.M0–M6 all done and passed by Max**
+(M6 cleared 2026-08-15). **V2.M7 (ADR-040, the Rust proof) is BUILT and
+awaiting review — the v2 programme is fully built; nothing starts until
+Max passes it.**
+
+**V2.M7 — Rust, the P7 proof (ADR-040).** Hobbes ingests Rust with
+**zero new builder code**: the diff is `rustsource.py` (fifth syntax
+provider), an `INDEXERS.rust` entry (rust-analyzer's native `scip`
+export, a rustup component, no version flag — the moniker version is the
+crate's own, the first indexer where Decision 1 needs no pin), one
+staging function (nearest Cargo.toml collapsed to `[workspace]` roots),
+and Go's four orchestration touches repeated. `syntax_kind`: unset for
+0 of 169 — the third indexer confirming ADR-037's mandatory step 2.
+Verified on `~/rust_proj` (33 call edges, all semantic, 100%
+hand-checked; lanes clean) and on the dogfood repo (six languages,
+3,085 sites, 0 disagreements).
+
+Four things M7 found that later sessions should know: **macro arguments
+are token trees** to tree-sitter, so `rustsource` does call-shape
+detection inside them (an identifier followed by a parenthesized token
+tree), and rust-analyzer's pre-expansion positions make the join meet —
+without this, Rust test reach would be empty. **`terminalName` was
+losing every impl method** (`impl#[Counter]new().` → `[Counter]new`);
+fixed, so value-method calls now promote to semantic. **The
+ambiguous-definition drop (C-28) fired on scip-go too** and removed two
+Go module edges that had been false since V2.M5 — a register entry
+generalised the day it was written. **I-4 turned red on cue** when
+`rustsource` landed and was amended rule-block-only, the ADR-039
+mechanism doing its job the first time it was asked. Register adds:
+C-28 (dup monikers dropped), **C-29 (ingesting a Rust repo executes its
+build.rs/proc macros — disclosed on stderr every rust ingest)**, C-30
+(crate registry needed for third-party semantics), C-9 amended (macro
+is the fifth graph kind).
 
 **V2.M6 — the unified invariant checker (ADR-039).** Records carry
 `check: graph | emit | soft`; the rule block is top-level; `compile`

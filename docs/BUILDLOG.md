@@ -2345,3 +2345,87 @@ residue was replaced with the true edge, not with the safer inaccuracy.
 521 pytest / 22 tsextract / 52 vitest / 18 scip; Go untouched.
 
 **Pausing here before V2.M7 (the Rust proof), per Max.**
+
+---
+
+## 2026-08-15 (fourteenth) — V2.M7: the Rust proof (ADR-040)
+
+Max passed M6 and cleared M7, adding `~/rust_proj` as the verification
+repo. Toolchain installed user-locally (rustup, Rust 1.97.1,
+rust-analyzer as a component).
+
+**The spike before anything else** (`scip/spike-rust.mjs`, the ADR-027
+convention). Three measurements decided the shape: `syntax_kind` unset
+for **0 of 169** occurrences — the third indexer with the same omission,
+ADR-037's mandatory syntax provider confirmed a third time; the moniker
+version is the **crate's Cargo.toml version**, the first indexer whose
+default satisfies Decision 1 unpinned (the INDEXERS entry passes no
+version flag, with a comment saying the omission is deliberate); and
+rust-analyzer **executes the repo's build scripts and proc macros**
+while indexing — no other lane B provider runs repo-authored code
+(C-29, disclosed by a stderr NOTE on every rust ingest).
+
+**The exit criterion holds: zero new builder code.** The diff is one
+syntax provider (`rustsource.py`), one `INDEXERS` entry, one staging
+function (`extract_scip_rust`: nearest Cargo.toml collapsed to the
+nearest `[workspace]` root), and the same four orchestration touches Go
+added. `graph.py`, `evidence.py`, the join, the schema, the packs:
+untouched. P7 proven twice, on the language the checklist was corrected
+for.
+
+**Rust's own lesson: macro arguments are token trees.** tree-sitter
+leaves everything between `!` and `;` unparsed, so `assert_eq!(add(1,
+2), 3)` contains no call_expression — and nearly every Rust test asserts
+through a macro. `rustsource` applies call-shape detection inside token
+trees (identifier immediately followed by a parenthesized token tree);
+rust-analyzer emits macro-argument occurrences at their real
+pre-expansion positions, so the lanes still meet on ranges, and a
+false-shaped site produces no edge because nothing resolves at it. The
+fallback resolver rides the module system's deterministic file mapping
+(`mod x;` → `x.rs` | `x/mod.rs` | `#[path]`, use-aliases, crate names →
+lib targets from Cargo.toml) and refuses value methods, `crate::` roots
+and globs, per ADR-031.
+
+**Verification found two real bugs, one of them two milestones old.**
+(1) `terminalName` kept the bracketed self type of impl-scoped methods
+(`impl#[Counter]new().` → `[Counter]new`), so no method reference ever
+name-matched its call site and every in-repo Rust method edge silently
+fell out — observed as `unwrap` counting *unresolved*. Fixed and pinned;
+`c.incr()` now carries a semantic calls edge, lane B doing the one job
+the fallback refuses. (2) The ambiguous-definition drop (a moniker DEF'd
+in more than one document is dropped, refs go unattributed — written for
+rust-analyzer's duplicate `crate/`/`main()` target monikers) fired on
+**scip-go too**: a Go package's namespace is declared in every file of
+the package, and the controlled dogfood re-ingest (old helper vs new,
+same tree) showed the drop removing two module edges that had been
+**false since V2.M5** — `hobbes-proxy/main → internal/proxy/knowledge`
+and `hobbes-web/main → internal/web/artifacts`, semantic tier, pointing
+at same-named files in the wrong package. Zero symbol edges changed for
+any language. C-28 was generalised the day it was written — the ADR-037
+"too specific" lesson, caught in hours this time.
+
+**I-4 turned red on cue.** The first `hobbes review` after `rustsource`
+landed reported I-4 FAIL citing its `tree_sitter` import — the unified
+checker forcing the conscious roster amendment ADR-039 promised. Rule
+block amended (`rustsource`, `ext:tree_sitter_rust`); statement
+untouched; PASS; the lint-imports agreement test runs the new roster for
+real and stays green.
+
+**Verified on rust_proj**: 19 nodes, 20 module edges, 33 call edges —
+every `calls` edge semantic tier and hand-checked against its cited
+line, including test→lib edges through `assert_eq!` token trees; 4
+cargo-test rows with correct closure reach; `hobbes lanes` clean (17
+sites, 0 disagree; the lane-B-only exclusion counts 17). Dogfood repo
+re-ingested: six languages now (the minirust fixture counts), 3,085
+sites compared, 0 disagreements; kbet clean. Register: **C-28** (dup
+monikers; generalised), **C-29** (ingest executes Rust repo code),
+**C-30** (third-party semantics need a fetchable crate registry —
+C-23/C-27's fourth language), C-9 amended (macro is the fifth graph
+kind). Criterion bench inventory and stage `target/` caching parked in
+future_additions.
+
+12 Go packages / 555 pytest / 24 scip / 22 tsextract / 52 vitest — all
+green.
+
+**V2.M7 stops here for review.** v2's build programme is fully built;
+nothing starts until Max passes the Rust proof.

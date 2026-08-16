@@ -158,3 +158,31 @@ C-30 on a cold registry.
 - Macro-generated definitions (`criterion_group!` emitting a function)
   anchor at the invocation site; lane A has no symbol starting there, so
   they contribute module-level edges at most. Accepted, not hidden.
+
+## What verification added (2026-08-15, same day)
+
+Three things the real repos taught that the spike had not:
+
+1. **`terminalName` lost every Rust method.** rust-analyzer scopes impl
+   methods as `impl#[Counter]new().`; the bracketed self type rode the
+   final segment, so a method reference's name never matched its call
+   site and every in-repo method edge silently fell out of the join —
+   observed as `unwrap` counting *unresolved* in rust_proj's coverage.
+   Fixed (strip the leading bracket group), pinned with real monikers,
+   and re-verified: `c.incr()` — a value-method call lane A's fallback
+   deliberately refuses — now carries a semantic `calls` edge, which is
+   lane B doing exactly the job it exists for.
+2. **The ambiguous-definition drop is not a cargo story — C-28
+   generalised the day it was written.** scip-go declares a package's
+   namespace in every file of the package, and the controlled dogfood
+   re-ingest (old helper vs new, same tree) showed the drop removing two
+   Go module edges that had been **false since V2.M5**, semantic tier,
+   pointing at same-named files in the wrong package. Zero symbol edges
+   changed for any language. The ADR-037 lesson — a register entry can
+   be wrong by being too specific — caught in hours rather than a
+   milestone.
+3. **I-4 turned red on cue.** The first `hobbes review` after
+   `rustsource` landed failed I-4 citing its `tree_sitter` import —
+   the unified checker forcing the roster amendment ADR-039 promised it
+   would. The rule block now names `rustsource` and
+   `ext:tree_sitter_rust`; the statement needed no edit.

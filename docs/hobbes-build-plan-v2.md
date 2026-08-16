@@ -328,7 +328,7 @@ literally sufficient, and the diff proves it.
 
 ---
 
-## V2.M6 — Unified invariant checker (4–6)
+## V2.M6 — Unified invariant checker (4–6) — **DONE (reviewed, passed 2026-08-15)**
 
 Work:
 
@@ -357,11 +357,18 @@ and agree with the emitted-tool verdicts wherever both exist.
 
 ---
 
-## V2.M7 — Rust proof (1–2)
+## V2.M7 — Rust proof (1–2) — **BUILT, awaiting review**
 
 rust-analyzer's native `scip` output on any Rust repo. **Exit:** ingestion
 with zero new builder code — P7 demonstrated on a language nobody planned
 for.
+
+*(Built 2026-08-15, ADR-040, verified on `~/rust_proj`: zero lines in the
+graph builder, the join, or the schema — the diff is one syntax provider,
+one `INDEXERS` entry, one staging function, and Go's four orchestration
+touches repeated. The mandatory syntax provider (ADR-037 step 2) was
+confirmed a third time — rust-analyzer populates `syntax_kind` for 0 of
+169 occurrences.)*
 
 ---
 
