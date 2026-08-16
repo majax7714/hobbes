@@ -178,10 +178,12 @@ func TestApprovingWritesARealRecordAndClearsTheQueue(t *testing.T) {
 		t.Errorf("scope = %v", record["scope"])
 	}
 	// Soft is the honest default for an inferred record: it carries no
-	// structured rule.
-	compile, _ := record["compile"].(map[string]any)
-	if compile["target"] != "soft" {
-		t.Errorf("target = %v, want soft", compile["target"])
+	// structured rule (check: soft, no compile block — ADR-039).
+	if record["check"] != "soft" {
+		t.Errorf("check = %v, want soft", record["check"])
+	}
+	if _, has := record["compile"]; has {
+		t.Errorf("a soft record must carry no compile block: %v", record["compile"])
 	}
 	if !strings.Contains(record["statement"].(string), "only core mints tokens") {
 		t.Errorf("statement = %v", record["statement"])
@@ -244,13 +246,18 @@ func TestEditingWritesTheHumansWordsNotTheModels(t *testing.T) {
 	if record["scope"] != "src/app" {
 		t.Errorf("scope = %v", record["scope"])
 	}
+	// ADR-039 shape: check: emit, rule at the top level, compile holding
+	// only the target.
+	if record["check"] != "emit" {
+		t.Errorf("check = %v", record["check"])
+	}
 	compile, _ := record["compile"].(map[string]any)
 	if compile["target"] != "import-linter" {
 		t.Errorf("target = %v", compile["target"])
 	}
-	rule, _ := compile["rule"].(map[string]any)
+	rule, _ := record["rule"].(map[string]any)
 	if rule["kind"] != "forbidden-import" {
-		t.Errorf("the typed rule did not survive: %v", compile)
+		t.Errorf("the typed rule did not survive: %v", record)
 	}
 
 	// The ledger keys on what was *proposed*, so the same proposal is

@@ -545,7 +545,10 @@ type invariantRecord struct {
 	Scope     string   `yaml:"scope"`
 	Status    string   `yaml:"status"`
 	GuardedBy []string `yaml:"guarded_by"`
-	Compile   struct {
+	// Check is how the record is held (graph | emit | soft, ADR-039);
+	// Compile.Target names the CI tool for emit records.
+	Check   string `yaml:"check"`
+	Compile struct {
 		Target string `yaml:"target"`
 	} `yaml:"compile"`
 }
@@ -604,9 +607,21 @@ func (s *Store) ListInvariants(scope string) (string, error) {
 		b.WriteString("  none — nothing has been confirmed for this scope\n")
 	}
 	for _, record := range records {
-		how := record.Compile.Target
-		if how == "soft" {
+		var how string
+		switch record.Check {
+		case "soft":
 			how = "soft (a reviewer judges it; cite evidence)"
+		case "graph":
+			how = "graph (the unified checker judges it on every review)"
+		case "emit":
+			how = "emit:" + record.Compile.Target
+		default:
+			// A pre-ADR-039 record; show what it carries rather than
+			// guessing what it meant.
+			how = record.Compile.Target
+			if how == "soft" {
+				how = "soft (a reviewer judges it; cite evidence)"
+			}
 		}
 		fmt.Fprintf(&b, "%s [scope %s, checked by %s]\n  %s\n",
 			record.ID, record.Scope, how, record.Statement)

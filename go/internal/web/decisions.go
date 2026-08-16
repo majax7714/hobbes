@@ -222,8 +222,9 @@ type verdictRequest struct {
 	Statement string `json:"statement"`
 	Scope     string `json:"scope"`
 	Target    string `json:"target"`
-	// RuleYAML is the compile.rule block for a structured target, as
-	// typed. Left to the ADR-024 validator rather than parsed here.
+	// RuleYAML is the record's rule block for a structured target, as
+	// typed (top-level since ADR-039). Left to the schema validator
+	// rather than parsed here.
 	RuleYAML string `json:"rule_yaml"`
 }
 
@@ -362,12 +363,18 @@ func (s *Server) writeInvariantRecord(
 	}
 	fmt.Fprintf(&b, "scope: %s\n", yamlScalar(scope))
 	fmt.Fprintf(&b, "status: confirmed\n")
-	fmt.Fprintf(&b, "compile:\n  target: %s\n", target)
-	if target != "soft" && strings.TrimSpace(ruleYAML) != "" {
-		fmt.Fprintf(&b, "  rule:\n")
+	// ADR-039 shape: check decides the rest. An approval with no
+	// structured rule is check: soft; one with a rule and a CI target is
+	// check: emit, rule at the top level, compile holding only the target.
+	if target == "soft" || strings.TrimSpace(ruleYAML) == "" {
+		fmt.Fprintf(&b, "check: soft\n")
+	} else {
+		fmt.Fprintf(&b, "check: emit\n")
+		fmt.Fprintf(&b, "rule:\n")
 		for _, line := range strings.Split(strings.TrimRight(ruleYAML, "\n"), "\n") {
-			fmt.Fprintf(&b, "    %s\n", line)
+			fmt.Fprintf(&b, "  %s\n", line)
 		}
+		fmt.Fprintf(&b, "compile:\n  target: %s\n", target)
 	}
 	if len(guardedBy) == 0 {
 		fmt.Fprintf(&b, "guarded_by: []\n")
