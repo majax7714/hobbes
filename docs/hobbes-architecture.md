@@ -362,6 +362,26 @@ treat tier as trust: an invariant violation proven on semantic edges is a
 finding; on syntactic edges it is a suspicion, and the reviewer flow says
 which.
 
+**The tail view (ADR-045).** Resolution coverage counts the detected call
+sites with no known destination (C-2); the tail view says what that
+remainder *is* — per file, in `resolution_coverage.tail` — **by
+observation only, never inference**: checker origins for TS/JS (a binding
+declared below the modelled vocabulary is `local-binding` — seen and
+deliberately not modelled, C-9, which is knowledge rather than ignorance),
+pinned builtin-name matches, and text shape (`attr-call`), with
+`unclassified` as the honest residue. A class states a checkable fact or
+it abstains; a class that rationalised the unknown from a checklist of
+potentials would be the fake-honest shape P8 forbids. The ingest summary
+prints the per-language capture line on every run, always against the
+honest denominator — a share **of detected call sites**, never "of the
+repo", because the undetectable classes (C-1/C-4/C-5) are in no
+denominator here — split into *seen, not modelled by design* versus
+*cannot resolve*. That second group is the guaranteed fraction's boundary
+made legible per repo ("Where this is going"): what falls there is
+pointed at, never model-filled, and it is where a register entry belongs
+when something in it turns out to be *needed*. The classifier's own
+boundaries are C-32.
+
 ### 3.5 Enrichment packs
 SCIP supplies symbols and references — not typed architectural edges. Packs are
 a plugin surface symmetric with indexers: framework-aware passes that promote

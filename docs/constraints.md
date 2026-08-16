@@ -115,11 +115,25 @@ information appears in both, and the entries cross-reference.
 - **Bites at:** trust in any one module's call graph. `review.py` is 56%
   accounted; `policy.py` is 100%.
 - **You find out:** **surfaced** — `graph.json.resolution_coverage`, per
-  file: sites, resolved, external, unresolved.
+  file: sites, resolved, external, unresolved — and since ADR-045 each
+  row's `tail` object classifies the unresolved remainder by
+  observation, so the composition this entry asserted from one
+  measurement is measured on every ingest instead of remembered. The
+  ingest summary prints the per-language rollup: *seen, not modelled by
+  design* (builtin-named calls, below-floor local bindings) versus
+  *cannot resolve* — always as a share **of detected sites**, never "of
+  the repo". On this repo's 2026-08-16 measurement the fixture claim
+  held: 45.5% of the Python tail is builtin-named, 44.4% attribute
+  calls on untypable receivers. One ledger subtlety the tail makes
+  visible: a site lane A's *fallback* resolved still counts as
+  unresolved here (the count is the semantic ledger) and carries class
+  `fallback-resolved` — it has an edge, at syntactic tier.
 - **Note:** deliberately counts, never a confidence score. An edge with no
   named target cannot be drawn, checked, or cited — it is C-1's false edge
-  wearing a probability.
-- **Source:** ADR-029.
+  wearing a probability. The tail classes keep that rule: each is an
+  observation about the site, never a probability about the edge
+  (ADR-045; their boundaries are C-32).
+- **Source:** ADR-029; tail classification added by ADR-045.
 
 ### C-4 — Pytest fixtures do not appear in test reach
 - **Cannot tell you:** that a test exercises code reached only through a
@@ -252,6 +266,37 @@ information appears in both, and the entries cross-reference.
 - **You find out:** **n/a — no user-visible effect yet.** Registered
   because it is a paid cost with a deferred bill.
 - **Source:** ADR-027, Decision 1.
+
+### C-32 — The tail view's classes are observations with boundaries
+- **Cannot tell you:** *why* a call is unresolved beyond what its class
+  observes — and three boundaries shape what the classes can say.
+  **Checker-origin classes** (`local-binding` / `nested-decl` /
+  `external-origin`) exist **for TS/JS only**: no other syntax provider
+  resolves declarations, so a Python local's call lands in
+  `unclassified` or `attr-call`, and an absent `local-binding` count for
+  Python means *not asked*, never "no locals". **Builtin lists are
+  pinned literals**, not the running interpreter's — a builtin the
+  language adds later classifies `unclassified` until the pin moves.
+  **Shape is read from the terminal's source line** — a wrapped chain
+  whose terminal the recorded line does not contain declines to
+  `unclassified` rather than guessing, the C-5 rule applied to
+  classification.
+- **Because:** a class must be an observation or abstain (ADR-045's
+  standing rule) — inferring what a site "probably is" from a checklist
+  of potentials is the fake-honest shape P8 exists to prevent. The
+  boundaries are the price of that rule, and the measured tails say the
+  asymmetry costs little today (Python's declared-in-file share was
+  6.8% where TS's was 61–73%).
+- **Bites at:** cross-language comparison of tail compositions — a TS
+  tail reads richer than a Python one partly because TS is the only
+  lane whose checker reports origins.
+- **You find out:** **partial** — abstention is visible in every
+  artifact (`unclassified` counts), and this entry plus ADR-045 name
+  the asymmetry, but nothing in the artifact says which classes a given
+  language *could* have produced.
+- **Candidate fix:** a per-language `classes_available` note in the
+  rollup, or origin support from the other syntax providers.
+- **Source:** ADR-045.
 
 ## Extraction — TypeScript and JavaScript
 
@@ -818,7 +863,7 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Four of **thirty-one** entries are **unsurfaced** (C-4, C-19 — narrowed
+Four of **thirty-two** entries are **unsurfaced** (C-4, C-19 — narrowed
 to two tools — C-20, and C-31). Six are **lifted** and live in the Lifted part
 above with their techniques and residual edge cases documented —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
@@ -918,6 +963,19 @@ order of magnitude. Architecture §3.8 now scopes the claim; the entry
 holds the unsurfaced remainder, deliberately taken as debt with its
 candidate surfacing named, rather than pretending a table in a document
 reaches a user at ingest.
+
+**The tail view landed the same day** (ADR-045, C-2 amended, C-32
+added): the unresolved count now decomposes on every ingest into
+observation-based classes, and the 2026-08-16 measurement that
+motivated it showed the tails were never uniformly dark — kbet's
+worst-looking number (72.1% accounted) hid a tail that is 61%
+below-the-floor local bindings the checker could name all along, with
+**9 sites of 1,339** fitting no observation at all. The measurement
+also produced the session's working vocabulary: *seen and not modelled
+by design* is knowledge; *cannot resolve* is the concentrated remainder
+this register exists to track; and any of it that turns out to be
+**needed** for derived context is a direct entry here, never a
+percentage's rounding error.
 
 **Track record so far:** three of the four entries touched at V2.M3 were
 *already true and already invisible* before the register existed — C-23 in

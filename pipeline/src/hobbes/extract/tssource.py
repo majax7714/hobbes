@@ -37,7 +37,10 @@ TSEXTRACT_CMD_ENV = "HOBBES_TSEXTRACT_CMD"
 #: ``end_line``.
 #: v3 (C-5 surfacing): files carry ``routes_declined`` — registrations
 #: seen and declined for a computed path, reported by the http-ts pack.
-HELPER_VERSION = 3
+#: v4 (ADR-045): calls carry ``origin`` — where an *unresolved* callee's
+#: declarations live (``local`` | ``nested`` | ``external`` | null), the
+#: checker knowledge the tail view classifies instead of discarding.
+HELPER_VERSION = 4
 
 #: Extensions the helper extracts; used only for the cheap "does this repo
 #: have TS/JS at all" scan that decides whether the helper must run.
@@ -235,6 +238,19 @@ def _call_sites(files: list[dict]) -> list:
         for f in files
         for call in f["calls"]
     ]
+
+
+def call_origins(files: list[dict]) -> dict[tuple[str, int, str], str]:
+    """Checker origins for unresolved TS/JS callees, keyed like the
+    fallback dict (ADR-045). Only sites the checker could place — a null
+    origin stays absent, so the tail view falls through to its
+    text-shape classes rather than trusting an empty answer."""
+    return {
+        (f["path"], call["line"], call["name"]): call["origin"]
+        for f in files
+        for call in f["calls"]
+        if call.get("origin")
+    }
 
 
 def _call_fallback(

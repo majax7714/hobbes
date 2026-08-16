@@ -26,7 +26,7 @@ import { Node, Project, ts } from "ts-morph";
 // v3 (C-5 surfacing): every file carries `routes_declined` — route
 // registrations seen and declined because their path is computed, so the
 // http-ts pack can report the absence instead of leaving it silent.
-export const HELPER_VERSION = 3;
+export const HELPER_VERSION = 4;
 
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
@@ -422,6 +422,38 @@ function resolveExpressionTarget(expr, repoRoot, fileSet) {
   return null;
 }
 
+/** Where an *unresolved* callee's declarations live — the tail view's
+ * checker-grade origin (ADR-045, helper v4). Runs only when
+ * resolveExpressionTarget returned null, and states which of its two
+ * gates failed: every declaration outside the repo's file set is
+ * `external` (a dependency or ambient lib); a declaration inside the
+ * repo that declQualname does not model is `local` (same file) or
+ * `nested` (another file) — a binding below the graph's vocabulary,
+ * seen and deliberately not modelled (C-9), which is knowledge the
+ * pipeline was previously discarding. Null when the checker has no
+ * symbol or no declarations at all. */
+function calleeOrigin(expr, repoRoot, fileSet, sourceFile) {
+  if (!Node.isIdentifier(expr) && !Node.isPropertyAccessExpression(expr)) {
+    return null;
+  }
+  let symbol = expr.getSymbol();
+  if (!symbol) return null;
+  const aliased = symbol.getAliasedSymbol();
+  if (aliased) symbol = aliased;
+  const decls = symbol.getDeclarations();
+  if (!decls.length) return null;
+  const here = relPath(repoRoot, sourceFile);
+  let sawInRepo = null;
+  for (const decl of decls) {
+    const target = relPath(repoRoot, decl.getSourceFile());
+    if (fileSet.has(target)) {
+      sawInRepo = target === here ? "local" : sawInRepo ?? "nested";
+      if (sawInRepo === "local") break;
+    }
+  }
+  return sawInRepo ?? "external";
+}
+
 /** The identifier that names the callee — what a reader would point at,
  * and what SCIP puts its occurrence on. `f()` -> `f`; `a.b.c()` -> `c`. */
 function terminalIdentifier(expr) {
@@ -477,6 +509,12 @@ function extractCalls(sourceFile, repoRoot, fileSet) {
       line,
       col: column - 1,
       name: terminal.getText(),
+      // v4: where an unresolved callee's declarations live (ADR-045) —
+      // `local` | `nested` | `external` | null; null too when the
+      // checker resolved it, because then callee/callee_path answer.
+      origin: target
+        ? null
+        : calleeOrigin(resolveFrom, repoRoot, fileSet, sourceFile),
       scope: enclosingScope(scopeNode),
     });
   };

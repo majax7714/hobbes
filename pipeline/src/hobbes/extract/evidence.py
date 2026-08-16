@@ -281,28 +281,55 @@ class Coverage:
         return round((self.resolved + self.external) / self.sites, 3)
 
 
+def _dispositions(
+    syntax: list[Site],
+    semantic: list[Site],
+    external: list[dict] | None,
+):
+    """Each call site with its fate: ``resolved`` | ``external`` |
+    ``unresolved``. The one walk both :func:`coverage` and
+    :func:`unresolved_sites` derive from, so the counted set and the
+    classified set (ADR-045's tail view) cannot drift apart."""
+    buckets = index_resolutions(semantic)
+    outside = {
+        (e["file"], e["line"], e.get("name", "")) for e in (external or [])
+    }
+    for site in syntax:
+        if site.kind != CALL_SITE:
+            continue
+        if match_resolution(site, buckets) is not None:
+            yield site, "resolved"
+        elif (site.file, site.line, site.name) in outside:
+            yield site, "external"
+        else:
+            yield site, "unresolved"
+
+
 def coverage(
     syntax: list[Site],
     semantic: list[Site],
     external: list[dict] | None = None,
 ) -> list[Coverage]:
     """Per-file resolution coverage over the call sites in *syntax*."""
-    buckets = index_resolutions(semantic)
-    outside = {
-        (e["file"], e["line"], e.get("name", "")) for e in (external or [])
-    }
     counts: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
-    for site in syntax:
-        if site.kind != CALL_SITE:
-            continue
-        row = counts[site.file]
-        if match_resolution(site, buckets) is not None:
-            row[0] += 1
-        elif (site.file, site.line, site.name) in outside:
-            row[1] += 1
-        else:
-            row[2] += 1
+    slot = {"resolved": 0, "external": 1, "unresolved": 2}
+    for site, fate in _dispositions(syntax, semantic, external):
+        counts[site.file][slot[fate]] += 1
     return [
         Coverage(file, resolved + ext + un, resolved, ext, un)
         for file, (resolved, ext, un) in sorted(counts.items())
+    ]
+
+
+def unresolved_sites(
+    syntax: list[Site],
+    semantic: list[Site],
+    external: list[dict] | None = None,
+) -> list[Site]:
+    """The call sites :func:`coverage` counts as ``unresolved`` — the
+    tail view's input (ADR-045)."""
+    return [
+        site
+        for site, fate in _dispositions(syntax, semantic, external)
+        if fate == "unresolved"
     ]

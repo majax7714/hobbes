@@ -108,9 +108,42 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         f"  interfaces.json: {len(interfaces['routes'])} routes, "
         f"{len(interfaces['cli_entry_points'])} CLI entry points"
     )
+    _print_tail_view(graph.get("resolution_coverage", []))
     for path in sorted(paths):
         print(f"  wrote {path}")
     return 0
+
+
+def _print_tail_view(coverage_rows: list[dict]) -> None:
+    """The per-language capture line (ADR-045): accounted share of the
+    *detected* call sites — always stated with that denominator — and
+    the unresolved tail split into what the graph sees and does not
+    model versus what it cannot resolve. This is the honesty line: it
+    runs on every ingest, not only during development."""
+    from hobbes.extract.tail import NOT_MODELLED, rollup
+
+    for lang, agg in sorted(rollup(coverage_rows).items()):
+        sites, unresolved = agg["sites"], agg["unresolved"]
+        if not sites:
+            continue
+        accounted = (sites - unresolved) / sites * 100
+        not_modelled = {
+            c: n for c, n in agg["tail"].items() if c in NOT_MODELLED
+        }
+        cannot = {
+            c: n for c, n in agg["tail"].items() if c not in NOT_MODELLED
+        }
+        print(
+            f"  capture [{lang}]: {accounted:.1f}% of {sites} detected "
+            f"call sites accounted"
+        )
+        if not_modelled:
+            named = ", ".join(f"{c} {n}" for c, n in sorted(not_modelled.items()))
+            print(f"    seen, not modelled by design: "
+                  f"{sum(not_modelled.values())} ({named})")
+        if cannot:
+            named = ", ".join(f"{c} {n}" for c, n in sorted(cannot.items()))
+            print(f"    cannot resolve: {sum(cannot.values())} ({named})")
 
 
 def _cmd_init(args: argparse.Namespace) -> int:

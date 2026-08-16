@@ -587,3 +587,46 @@ test("asset imports are not reported as resolution failures", () => {
   const facts = extractRepo(root);
   assert.equal(facts.errors.filter((e) => e.stage === "imports-unresolved").length, 0);
 });
+
+test("origins: unresolved callees say where their declarations live (v4)", () => {
+  const root = makeRepo({
+    "src/state.ts": [
+      "export function makePair() { return [1, (v: number) => v] as const; }",
+    ].join("\n"),
+    "src/app.tsx": [
+      "import { makePair } from './state';",
+      "export function App() {",
+      "  const [count, setCount] = makePair();", // local destructured binding
+      "  const bump = () => setCount(1);",       // -> origin local
+      "  const big = Math.max(1, 2);",           // ambient lib -> external
+      "  return bump() + big + undeclared();",   // no symbol -> origin null
+      "}",
+    ].join("\n"),
+  });
+  const calls = byPath(extractRepo(root), "src/app.tsx").calls;
+  const by = (name) => calls.find((c) => c.name === name);
+  assert.equal(by("setCount").origin, "local");
+  assert.equal(by("setCount").callee, null);
+  assert.equal(by("max").origin, "external");
+  assert.equal(by("undeclared").origin, null);
+  // a resolved callee answers through callee/callee_path, never origin
+  assert.equal(by("makePair").origin, null);
+  assert.equal(by("makePair").callee, "makePair");
+});
+
+test("origins: a binding below the modelled vocabulary is `local`", () => {
+  const root = makeRepo({
+    "src/lib.ts": [
+      "function helper() { return 1; }",
+      "export const use = () => helper();", // module-level fn -> resolves
+      "export function wrap() {",
+      "  const inner = () => 2;",
+      "  return inner();",                  // local binding -> origin local
+      "}",
+    ].join("\n"),
+  });
+  const calls = byPath(extractRepo(root), "src/lib.ts").calls;
+  const inner = calls.find((c) => c.name === "inner");
+  assert.equal(inner.origin, "local");
+  assert.equal(inner.callee, null);
+});

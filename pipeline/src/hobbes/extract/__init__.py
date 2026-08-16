@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hobbes.extract import evidence as ev
-from hobbes.extract import scipsource, staging
+from hobbes.extract import scipsource, staging, tail, tssource
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
 from hobbes.extract.gosource import collect_go_tests, extract_go
@@ -259,6 +259,19 @@ def _build_symbol_layer(
     graph["module_edges"] = _merge_module_edges(
         graph["module_edges"], projected["module_edges"]
     )
+    # The tail view (ADR-045): the unresolved remainder, classified by
+    # observation — checker origins for TS/JS (facts v4), pinned builtin
+    # names, text shape — so "13% unaccounted" decomposes into what the
+    # graph sees and does not model versus what it cannot resolve. The
+    # classified set is derived from the same disposition walk as the
+    # counts, so per file the tail sums to `unresolved` by construction.
+    origins = tssource.call_origins(ts["files"]) if ts else {}
+    tails = tail.classify(
+        ev.unresolved_sites(syntax, resolutions, external),
+        repo_root,
+        origins=origins,
+        fallback=fallback,
+    )
     graph["resolution_coverage"] = [
         {
             "file": row.file,
@@ -266,6 +279,11 @@ def _build_symbol_layer(
             "resolved": row.resolved,
             "external": row.external,
             "unresolved": row.unresolved,
+            **(
+                {"tail": dict(sorted(tails[row.file].items()))}
+                if row.file in tails
+                else {}
+            ),
         }
         for row in ev.coverage(syntax, resolutions, external)
     ]
