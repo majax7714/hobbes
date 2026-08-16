@@ -611,6 +611,209 @@ def extract_scip_go(
     return merged
 
 
+def cargo_crates(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
+    """Group Rust *files* by the manifest root that indexes them.
+
+    The go.mod/tsconfig lesson, third spelling: the unit rust-analyzer's
+    loader understands is a cargo package — or a **workspace**, whose root
+    manifest carries the members' lock and patch tables — so files group
+    by their nearest ``Cargo.toml`` and then collapse to the nearest
+    ``[workspace]`` manifest above it, one index run per root. Files under
+    no manifest group under nothing and are skipped rather than guessed
+    at (the C-26 pattern): inventing a manifest would invent the
+    dependency versions with it.
+    """
+    grouped: dict[str, list[str]] = {}
+    cache: dict[str, str | None] = {}
+    for rel in files:
+        directory = str(PurePosixPath(rel).parent)
+        if directory not in cache:
+            crate = _nearest_manifest(repo_root, directory, "Cargo.toml")
+            cache[directory] = _workspace_root(repo_root, crate) if crate is not None else None
+        root = cache[directory]
+        if root is None:
+            continue
+        grouped.setdefault(root, []).append(rel)
+    return {root: sorted(paths) for root, paths in sorted(grouped.items())}
+
+
+def _nearest_manifest(repo_root: Path, directory: str, name: str) -> str | None:
+    """Directory of the nearest *name* at or above *directory*."""
+    current = PurePosixPath(directory)
+    while True:
+        if (repo_root / current / name).is_file():
+            return "" if str(current) == "." else str(current)
+        if str(current) == ".":
+            return None
+        current = current.parent
+
+
+def _workspace_root(repo_root: Path, crate_root: str) -> str:
+    """The nearest ``[workspace]`` manifest at or above *crate_root*.
+
+    A member crate's manifest can lean on the workspace root's
+    (``version.workspace = true``), so indexing the member alone fails on
+    a repo that builds fine. Detection reads the manifest rather than
+    trusting directory shape; a parse error just means "not a workspace",
+    which degrades to per-crate indexing, visibly if the load then fails.
+    """
+    import tomllib
+
+    current = PurePosixPath(crate_root) if crate_root else PurePosixPath(".")
+    found = crate_root
+    while True:
+        manifest = repo_root / current / "Cargo.toml"
+        if manifest.is_file():
+            try:
+                if "workspace" in tomllib.loads(manifest.read_text()):
+                    found = "" if str(current) == "." else str(current)
+            except (OSError, ValueError):
+                pass
+        if str(current) == ".":
+            return found
+        current = current.parent
+
+
+def declared_cargo_dependencies(manifest: Path) -> list[str]:
+    """Third-party crates one ``Cargo.toml`` says it needs.
+
+    The Rust arm of Decision 4's degradation input: an index that resolved
+    none of these is describing a repo whose crate registry was never
+    fetched (C-30), and its missing third-party edges are absent rather
+    than nonexistent.
+    """
+    import tomllib
+
+    try:
+        data = tomllib.loads(manifest.read_text())
+    except (OSError, ValueError):
+        return []
+    names: set[str] = set()
+    sections = [
+        data.get("dependencies"),
+        data.get("dev-dependencies"),
+        data.get("build-dependencies"),
+        (data.get("workspace") or {}).get("dependencies"),
+    ]
+    for section in sections:
+        if isinstance(section, dict):
+            names.update(k for k in section if isinstance(k, str))
+    return sorted(names)
+
+
+def extract_scip_rust(
+    repo_root: Path, files: list[str], sha: str = ""
+) -> dict | None:
+    """Index every cargo root and return one merged facts document.
+
+    **Indexing Rust executes the repo's code** (C-29): rust-analyzer runs
+    cargo's loader with build-script and proc-macro support, so a
+    ``build.rs`` runs on this machine during ingest — no other lane B
+    provider executes repo-authored code. The notice below is the
+    surfacing; it prints every time, not only the first, because the
+    posture fact does not wear off.
+    """
+    if not enabled() or not files:
+        return None
+    repo_root = Path(repo_root).resolve()
+    merged: dict = {
+        "definitions": [],
+        "references": [],
+        "external_refs": [],
+        "packages": {},
+        "degraded": [],
+        "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
+    }
+    grouped = cargo_crates(repo_root, files)
+    for directory, orphans in go_orphans(files, grouped).items():
+        # The C-26 pattern, one language over: the skip is visible where a
+        # user meets it, with the fix named.
+        merged["degraded"].append(
+            {
+                "path": directory,
+                "stage": "scip-rust",
+                "message": (
+                    f"{len(orphans)} Rust file(s) under {directory!r} sit below no "
+                    "Cargo.toml, so rust-analyzer cannot load them; their call "
+                    "edges fall to lane A's fallback (syntactic tier). Add a "
+                    "Cargo.toml to give them semantics."
+                ),
+            }
+        )
+    if grouped:
+        import sys
+
+        print(
+            "NOTE: rust semantics: rust-analyzer executes the repo's build "
+            "scripts and proc macros during indexing (C-29)",
+            file=sys.stderr,
+        )
+    for root, root_files in grouped.items():
+        facts = _index_cargo_root(repo_root, root, root_files, sha)
+        if facts is None:
+            continue
+        for key in ("definitions", "references", "external_refs", "degraded"):
+            merged[key].extend(facts.get(key, []))
+        for name, count in (facts.get("packages") or {}).items():
+            merged["packages"][name] = merged["packages"].get(name, 0) + count
+        coverage = facts.get("dependency_coverage") or {}
+        merged["dependency_coverage"]["declared"] += coverage.get("declared", 0)
+        merged["dependency_coverage"]["resolved"] += coverage.get("resolved", 0)
+        merged["dependency_coverage"]["missing"].extend(coverage.get("missing", []))
+    merged["dependency_coverage"]["missing"] = sorted(
+        set(merged["dependency_coverage"]["missing"])
+    )
+    return merged
+
+
+def _index_cargo_root(
+    repo_root: Path, root: str, root_files: list[str], sha: str
+) -> dict | None:
+    """Stage and index one cargo package or workspace.
+
+    Staged beside the sources: every manifest on a staged file's path (a
+    member leans on the workspace root's), ``Cargo.lock`` so resolution
+    matches the repo's, and ``.cargo/config.toml`` when present. The
+    dependency tree needs no symlink — cargo's registry is user-global,
+    which is where ADR-032's problem dissolves for Rust and C-30 begins.
+    """
+    staged = set(root_files)
+    manifests: set[str] = set()
+    for rel in root_files:
+        nearest = _nearest_manifest(repo_root, str(PurePosixPath(rel).parent), "Cargo.toml")
+        if nearest is not None:
+            manifests.add(f"{nearest}/Cargo.toml" if nearest else "Cargo.toml")
+    manifests.add(f"{root}/Cargo.toml" if root else "Cargo.toml")
+    staged |= {m for m in manifests if (repo_root / m).is_file()}
+    for extra in ("Cargo.lock", ".cargo/config.toml"):
+        candidate = f"{root}/{extra}" if root else extra
+        if (repo_root / candidate).is_file():
+            staged.add(candidate)
+
+    declared: set[str] = set()
+    for manifest in manifests:
+        if (repo_root / manifest).is_file():
+            declared.update(declared_cargo_dependencies(repo_root / manifest))
+
+    stage = staging.build_stage(repo_root, sorted(staged), sha=sha)
+    try:
+        facts = run_helper(
+            {
+                "stage": str(stage / root if root else stage),
+                "language": "rust",
+                "projectName": repo_root.name,
+                # Unused by the rust argv — the moniker version is the
+                # crate's own (ADR-040) — carried for config uniformity.
+                "projectVersion": "0",
+                "output": str(stage.parent / f"{stage.name}.scip"),
+                "declaredDeps": sorted(declared),
+            }
+        )
+    finally:
+        staging.remove_stage(stage)
+    return _rebase(facts, root)
+
+
 def _index_go_module(
     repo_root: Path, module_root: str, module_files: list[str], sha: str
 ) -> dict | None:

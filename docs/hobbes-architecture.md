@@ -248,9 +248,13 @@ exchange it inherits that indexer's blind spots and owns them in public. The
 inherited limits so far are registered as C-6 (SCIP cannot say what a
 reference syntactically *was*), C-9 (only five descriptor kinds become graph
 symbols), C-23 (TypeScript semantics need the target repo's dependency
-tree installed), and C-28 (a symbol two cargo targets both define is
-unattributed rather than guessed). Each names its provider and version,
-because unlike our own concessions these can end on an upstream release.
+tree installed), C-28 (a symbol two cargo targets both define is
+unattributed rather than guessed), C-29 (indexing a Rust repo executes
+its build scripts and proc macros — the one provider that runs
+repo-authored code, disclosed at every ingest), and C-30 (Rust
+third-party resolution needs a fetchable crate registry). Each names its
+provider and version, because unlike our own concessions these can end
+on an upstream release.
 
 **Lane B never writes to the target repo.** Indexers want to run inside the
 tree they index, so Hobbes stages a copy under `~/.hobbes/cache` and runs

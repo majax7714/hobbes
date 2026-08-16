@@ -29,6 +29,7 @@ from hobbes.extract.graph import build_graph, resolve_call_sites
 from hobbes.extract.packs import REGISTRY as PACK_REGISTRY
 from hobbes.extract.packs import Pack, PackContext, run_packs
 from hobbes.extract.pysource import parse_source
+from hobbes.extract.rustsource import collect_rust_tests, extract_rust
 from hobbes.extract.testmap import collect_tests
 from hobbes.extract.tssource import collect_ts_tests, extract_ts
 
@@ -104,6 +105,13 @@ def extract_repo(
         degraded += _merge_layer(graph, go["nodes"], go["module_edges"])
         graph["symbols"] = _merge_symbols(graph["symbols"], go["symbols"])
 
+    rust = extract_rust(repo_root)
+    if rust:
+        languages += rust["languages"]
+        degraded += list(rust["errors"])
+        degraded += _merge_layer(graph, rust["nodes"], rust["module_edges"])
+        graph["symbols"] = _merge_symbols(graph["symbols"], rust["symbols"])
+
     # Lane A is complete. Packs read it and add framework knowledge; the
     # graph builder itself knows nothing about FastAPI, Express or HCL.
     enriched = run_packs(
@@ -122,13 +130,15 @@ def extract_repo(
     degraded += _merge_layer(graph, enriched.nodes, enriched.module_edges)
     graph["packs"] = enriched.ran
 
-    degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts, go)
+    degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts, go, rust)
 
     tests = collect_tests(modules, parsed, graph["symbol_edges"])
     if ts:
         tests += collect_ts_tests(ts["files"], ts["symbols"], graph["symbol_edges"])
     if go:
         tests += collect_go_tests(go["files"], graph["symbol_edges"])
+    if rust:
+        tests += collect_rust_tests(rust["files"], graph["symbol_edges"])
     tests = sorted(tests, key=lambda t: t["id"])
     if degraded:
         # Sorted, not append-ordered: which pass reported first is an
@@ -168,7 +178,13 @@ def _syntax_sites(modules, parsed) -> list:
 
 
 def _build_symbol_layer(
-    repo_root: Path, graph: dict, modules, parsed, ts: dict | None, go: dict | None = None
+    repo_root: Path,
+    graph: dict,
+    modules,
+    parsed,
+    ts: dict | None,
+    go: dict | None = None,
+    rust: dict | None = None,
 ) -> list[dict]:
     """Join every lane's evidence and project it onto the graph's ids.
 
@@ -200,8 +216,11 @@ def _build_symbol_layer(
     if go:
         syntax += go["call_sites"]
         fallback.update(go["call_fallback"])
+    if rust:
+        syntax += rust["call_sites"]
+        fallback.update(rust["call_fallback"])
 
-    for facts in _lane_b_facts(repo_root, modules, ts, go, degraded):
+    for facts in _lane_b_facts(repo_root, modules, ts, go, rust, degraded):
         resolutions += scipsource.resolution_sites(facts)
         external += facts.get("external_refs") or []
         for record in facts.get("degraded", []):
@@ -224,7 +243,16 @@ def _build_symbol_layer(
         fallback,
         graph["module_edges"],
         projected["module_edges"],
-        lane_b_only_modules={n["id"] for n in (go["nodes"] if go else []) if "path" in n},
+        # Go and Rust both leave in-repo import edges to the join (a Go
+        # import names a package, a Rust `use` names an item path), so
+        # their lane-B-only module edges are exclusions, not findings.
+        lane_b_only_modules={
+            n["id"]
+            for layer in (go, rust)
+            if layer
+            for n in layer["nodes"]
+            if "path" in n
+        },
     )
     graph["symbol_edges"] = projected["symbol_edges"]
     graph["module_edges"] = _merge_module_edges(
@@ -325,7 +353,12 @@ def _lane_agreement(
 
 
 def _lane_b_facts(
-    repo_root: Path, modules, ts: dict | None, go: dict | None, degraded: list[dict]
+    repo_root: Path,
+    modules,
+    ts: dict | None,
+    go: dict | None,
+    rust: dict | None,
+    degraded: list[dict],
 ):
     """Every semantic provider's facts, skipping the ones that cannot run."""
     if not scipsource.enabled():
@@ -355,6 +388,9 @@ def _lane_b_facts(
     if go:
         go_files = sorted({f.path for f in go["files"]})
         runs.append(("go", lambda: scipsource.extract_scip_go(repo_root, go_files)))
+    if rust:
+        rust_files = sorted({f.path for f in rust["files"]})
+        runs.append(("rust", lambda: scipsource.extract_scip_rust(repo_root, rust_files)))
 
     for language, run in runs:
         try:

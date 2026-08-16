@@ -201,3 +201,151 @@ class TestTests:
         integration = by_id["tests/integration.rs::integration_works"]
         assert integration["reaches"] == ["src/lib.compute", "src/lib.twice"]
         assert integration["reaches_modules"] == ["src/lib"]
+
+
+class TestCargoGrouping:
+    def test_groups_files_by_their_nearest_manifest(self, tmp_path):
+        from hobbes.extract.scipsource import cargo_crates
+
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "root"\n')
+        nested = tmp_path / "svc"
+        nested.mkdir()
+        (nested / "Cargo.toml").write_text('[package]\nname = "svc"\n')
+        (tmp_path / "lib.rs").write_text("pub fn a() {}\n")
+        (nested / "svc.rs").write_text("pub fn b() {}\n")
+
+        assert cargo_crates(tmp_path, ["lib.rs", "svc/svc.rs"]) == {
+            "": ["lib.rs"],
+            "svc": ["svc/svc.rs"],
+        }
+
+    def test_member_crates_collapse_to_their_workspace_root(self, tmp_path):
+        # A member manifest can lean on the workspace root's
+        # (`version.workspace = true`), so indexing the member alone fails
+        # on a repo that builds fine — one run per workspace.
+        from hobbes.extract.scipsource import cargo_crates
+
+        (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["a", "b"]\n')
+        for member in ("a", "b"):
+            crate = tmp_path / member
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(f'[package]\nname = "{member}"\n')
+            (crate / "src" / "lib.rs").write_text("pub fn f() {}\n")
+
+        assert cargo_crates(tmp_path, ["a/src/lib.rs", "b/src/lib.rs"]) == {
+            "": ["a/src/lib.rs", "b/src/lib.rs"],
+        }
+
+    def test_files_under_no_manifest_are_skipped_not_guessed(self, tmp_path):
+        # Inventing a Cargo.toml would invent the dependency versions too
+        # (the C-26 pattern, one language over).
+        from hobbes.extract.scipsource import cargo_crates
+
+        (tmp_path / "stray.rs").write_text("fn main() {}\n")
+        assert cargo_crates(tmp_path, ["stray.rs"]) == {}
+
+    def test_orphan_directories_get_a_degradation_record(self, tmp_path, monkeypatch, capsys):
+        from hobbes.extract import scipsource
+
+        monkeypatch.setenv(scipsource.SCIP_ENABLE_ENV, "1")
+        monkeypatch.setattr(scipsource, "_index_cargo_root", lambda *a, **k: None)
+        crate = tmp_path / "svc"
+        (crate / "src").mkdir(parents=True)
+        (crate / "Cargo.toml").write_text('[package]\nname = "svc"\n')
+        (crate / "src" / "main.rs").write_text("fn main() {}\n")
+        (tmp_path / "scratch").mkdir()
+        (tmp_path / "scratch" / "snippet.rs").write_text("fn f() {}\n")
+
+        facts = scipsource.extract_scip_rust(
+            tmp_path, ["svc/src/main.rs", "scratch/snippet.rs"]
+        )
+        assert facts is not None
+        records = [d for d in facts["degraded"] if d["stage"] == "scip-rust"]
+        assert len(records) == 1
+        assert records[0]["path"] == "scratch"
+        assert "Cargo.toml" in records[0]["message"]
+        assert "syntactic" in records[0]["message"]
+        # C-29's surfacing: the execution disclosure prints whenever the
+        # rust lane runs, not only when something goes wrong.
+        assert "build scripts" in capsys.readouterr().err
+
+    def test_declared_cargo_dependencies_read_every_dependency_table(self, tmp_path):
+        from hobbes.extract.scipsource import declared_cargo_dependencies
+
+        manifest = tmp_path / "Cargo.toml"
+        manifest.write_text(
+            "[package]\n"
+            'name = "x"\n'
+            "[dependencies]\n"
+            'serde = "1"\n'
+            "[dev-dependencies]\n"
+            'criterion = "0.3"\n'
+            "[build-dependencies]\n"
+            'cc = "1"\n'
+        )
+        assert declared_cargo_dependencies(manifest) == ["cc", "criterion", "serde"]
+
+
+class TestDegradation:
+    def test_an_unparseable_file_does_not_take_the_layer_down(self, tmp_path):
+        (tmp_path / "good.rs").write_text("pub fn good() -> i64 { 1 }\n")
+        (tmp_path / "broken.rs").write_text("fn (((\n")
+        layer = extract_rust(tmp_path)
+        # tree-sitter is error-tolerant by design (§3.1): the good file is
+        # complete and the broken one contributes what could be read.
+        assert any(s["id"] == "good.good" for s in layer["symbols"])
+
+
+@pytest.fixture(scope="module")
+def extraction():
+    from hobbes.extract import extract_repo
+
+    return extract_repo(FIXTURE)
+
+
+class TestExtractRepo:
+    """The whole pipeline over minirust, lane B off (the suite default) —
+    the degraded path is the one under test on every run (§3.4)."""
+
+    def test_languages_report_rust(self, extraction):
+        assert extraction.graph["languages"] == ["rust"]
+
+    def test_fallback_resolutions_become_syntactic_calls_edges(self, extraction):
+        edges = {
+            (e["from"], e["to"], e["type"], e["tier"])
+            for e in extraction.graph["symbol_edges"]
+        }
+        assert (
+            "src/main.tests.test_double",
+            "src/main.double",
+            "calls",
+            "syntactic",
+        ) in edges
+        # Through a token tree and a use-list alias, from an integration
+        # test file — the case that would be empty without call-shape
+        # detection.
+        assert (
+            "tests/integration.integration_works",
+            "src/lib.compute",
+            "calls",
+            "syntactic",
+        ) in edges
+
+    def test_the_join_raises_in_repo_module_edges(self, extraction):
+        edges = {
+            (e["from"], e["to"], e["type"]) for e in extraction.graph["module_edges"]
+        }
+        assert ("src/main", "src/helpers", "imports") in edges
+        assert ("tests/integration", "src/lib", "imports") in edges
+
+    def test_rust_tests_reach_what_they_call(self, extraction):
+        rows = {t["id"]: t for t in extraction.tests["tests"]}
+        assert rows["src/main.rs::test_double"]["reaches"] == ["src/main.double"]
+        integration = rows["tests/integration.rs::integration_works"]
+        assert "src/lib.compute" in integration["reaches"]
+        assert integration["reaches_modules"] == ["src/lib"]
+
+    def test_lane_agreement_stays_quiet_with_lane_b_off(self, extraction):
+        agreement = extraction.graph["lane_agreement"]
+        assert agreement["site_disagreements"] == []
+        assert agreement["module_edges_lane_a_only"] == []

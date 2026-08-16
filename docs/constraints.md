@@ -579,6 +579,49 @@ information appears in both, and the entries cross-reference.
   no-op and lift this entry.
 - **Source:** ADR-040, V2.M7 spike.
 
+### C-29 — Ingesting a Rust repo executes that repo's code
+- **Cannot tell you:** nothing — this entry registers something Hobbes
+  *does*, not something it misses: `hobbes ingest` on a Rust repo runs
+  that repo's `build.rs` and proc macros **on this machine**, because
+  rust-analyzer's loader compiles and executes them to expand the code it
+  indexes. No other lane B provider executes repo-authored code.
+- **Because:** running the indexer as its ecosystem ships it is the §3.2
+  trade, and rust-analyzer without build scripts and proc-macro expansion
+  cannot resolve the derive- and macro-generated code that real Rust is
+  made of. All writes stay in the staging tree and the user-global cargo
+  registry (verified on the spike); the execution itself is the fact.
+- **Bites at:** security posture. Ingesting an untrusted Rust repo is
+  running it — the same trust decision as opening it in any
+  rust-analyzer-backed editor, but Hobbes makes it during a command whose
+  name says "read".
+- **You find out:** **surfaced** — a `NOTE:` line on stderr every time
+  the rust lane runs, not only the first: the posture fact does not wear
+  off. (`extract_scip_rust`, printed before the indexer starts.)
+- **Provider (P9):** inherited from `rust-analyzer` **1.97.1**. Upstream
+  knobs exist to disable build scripts and proc macros, at the price of
+  gutting resolution for macro-heavy code; a future release that
+  sandboxes expansion would soften this entry without Hobbes changing.
+- **Source:** ADR-040, finding 6.
+
+### C-30 — Rust third-party semantics need a fetchable crate registry
+- **Cannot tell you:** where a call into a third-party crate goes, when
+  the crate's sources are not already in `~/.cargo/registry` and the box
+  cannot fetch them — the first ingest of a dependency-heavy repo
+  downloads its tree (51 MB for the spike repo's single dev-dependency).
+- **Because:** cargo resolves and fetches dependency sources at index
+  time. The registry is user-global, which is why Rust needs none of
+  ADR-032's symlink machinery — and why an offline box or a cold cache
+  degrades resolution instead of erroring.
+- **Bites at:** third-party `uses`/`calls` edges, and ingest latency on
+  first contact with a new dependency set. In-repo edges survive: they
+  resolve from the staged sources alone.
+- **You find out:** **surfaced** — `dependency_coverage` counts plus the
+  ingest WARNING below the resolve floor, the same mechanism as C-23 and
+  C-27, now covering its fourth language.
+- **Provider (P9):** inherited from `rust-analyzer` **1.97.1** and the
+  cargo toolchain it drives.
+- **Source:** ADR-040, finding 6. The Rust sibling of C-23/C-27.
+
 ## Extraction — enrichment packs
 
 ### C-25 — A pack cannot be turned off for a repo where it misfires
