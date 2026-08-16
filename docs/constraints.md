@@ -288,15 +288,34 @@ information appears in both, and the entries cross-reference.
   indirection), not this entry's subject.
 - **Source:** V2.M3; lifted 2026-08-15, after V2.M6 and before V2.M7.
 
-### C-12 — Imports across tsconfig zones do not resolve
-- **Cannot tell you:** that package A imports package B in a monorepo,
-  when each has its own `tsconfig.json`.
+### C-12 — Imports across tsconfig zones do not resolve — **narrowed and surfaced 2026-08-16**
+- **Cannot tell you:** that package A imports package B through a **path
+  alias defined in B's zone** (or any custom resolver) — the alias map is
+  another program's compiler config, which this walk does not interpret.
+  The common monorepo forms resolve since ADR-041: a **relative**
+  specifier resolves against the repo's own file set (zones
+  notwithstanding — a path is not a compiler configuration), and a bare
+  specifier matching one of the repo's **own package names** resolves to
+  that package's entry or subpath, read from `package.json` like every
+  other manifest fact. Both arms are lane A's alone, so cross-zone edges
+  carry `syntactic` tier — the honest description of their evidence,
+  since each zone's indexer still cannot see out.
 - **Because:** each zone is a separate ts-morph Project (and a separate
-  indexer run), and cross-program resolution is not attempted.
-- **Bites at:** monorepo module edges — the highest-level architectural
-  fact, missing exactly where the architecture is most interesting.
-- **You find out:** **unsurfaced.** The edge is simply absent.
-- **Source:** M6, `future_additions.md` → per-package tsconfigs.
+  indexer run), and cross-program resolution through another zone's
+  compiler options is still not attempted — only the two
+  configuration-free forms are.
+- **Bites at:** monorepo module edges behind aliases or custom
+  resolvers; previously *all* cross-zone edges, ranked #1 in this
+  register ("missing exactly where the architecture is most
+  interesting").
+- **You find out:** **surfaced** — a specifier that resolves nowhere and
+  names no plausible package becomes one `imports-unresolved` record per
+  file, specifiers named, in `extraction_errors` and the ingest WARNING.
+  Asset imports (`./index.css`) are excluded from the records: a file
+  the graph deliberately does not model is not a resolution failure, and
+  the first run of the floor proved they would bury the real records.
+- **Source:** M6, `future_additions.md` → per-package tsconfigs;
+  narrowed and surfaced by ADR-041 (2026-08-16).
 
 ### C-13 — Test files using injected globals report framework `unknown`
 - **Cannot tell you:** whether a test file with no framework import is
@@ -674,8 +693,8 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Four of **thirty** entries are **unsurfaced** (C-4, C-12, C-19 —
-narrowed to three tools at V2.M6 — and C-20). Six have been **lifted** —
+Three of **thirty** entries are **unsurfaced** (C-4, C-19 — narrowed to
+three tools at V2.M6 — and C-20). Six have been **lifted** —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
@@ -743,13 +762,12 @@ see — the honesty discipline pointed at a capability instead of a gap.
 
 Ranked by how badly each remaining entry misleads, worst first:
 
-1. **C-12** — a monorepo's cross-zone import edge is simply absent, at
-   exactly the altitude the graph exists to show.
-
-*(C-14 held the #2 slot — "an empty CLI list reads as 'no CLI'" — until
-the 2026-08-16 paydown lifted it.)*
-
-The rest stay quiet rather than lying, which is a real difference.
+*(The two entries that held this list are gone as of the 2026-08-16
+paydown: C-12 — cross-zone edges simply absent — is narrowed to
+alias-only cases and surfaced (ADR-041), and C-14 — "an empty CLI list
+reads as 'no CLI'" — is lifted outright. What remains stays quiet
+rather than lying, which is a real difference; the worst residue is
+C-4's fixture-thin test reach and C-19's still-unexecuted emitters.)*
 
 **Nothing left in the register inflates a number.** C-11 was the only
 entry that made a claim larger than the truth, and V2.M3 lifted it; C-24,

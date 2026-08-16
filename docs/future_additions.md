@@ -24,7 +24,10 @@ does not.
 **Also changed by v2:** *per-package tsconfigs / cross-zone imports* now
 applies to **both** lanes — `scip-typescript` is run once per zone for the
 same reason `ts-morph` is (V2.M3, ADR-032), so an import across two zones
-resolves in neither. Registered as **C-12**.
+resolves in neither. Registered as **C-12**. *(Narrowed 2026-08-16,
+ADR-041: relative and workspace-package-name imports now resolve at
+syntactic tier; what remains — aliases into another zone's config — is
+surfaced per file rather than silent.)*
 
 - **Graph-diff rename detection** (from M2, deferred 2026-08-10).
   Node identity is by id (ADR-009), so a package rename — or an id

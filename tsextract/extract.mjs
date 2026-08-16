@@ -102,10 +102,92 @@ export function resolveRelative(fromFile, specifier, fileSet) {
   const base = path.posix.normalize(
     path.posix.join(path.posix.dirname(fromFile), specifier)
   );
+  return resolveAsFile(base, fileSet);
+}
+
+/** A specifier whose extension marks a non-code asset (css, images,
+ * fonts…): a real import of a file the graph deliberately does not
+ * model, which is not a resolution failure and must not be reported as
+ * one. Code extensions and extensionless specifiers are never assets. */
+export function isAssetSpecifier(specifier) {
+  const ext = path.posix.extname(specifier);
+  return ext !== "" && !EXTENSIONS.has(ext) && ext !== ".json";
+}
+
+/** A repo path with the extension/index candidates tried, or null. */
+function resolveAsFile(base, fileSet) {
   const candidates = [base];
   for (const ext of EXTENSIONS) candidates.push(base + ext);
   for (const ext of EXTENSIONS) candidates.push(`${base}/index${ext}`);
   return candidates.find((c) => fileSet.has(c)) ?? null;
+}
+
+/** Workspace packages: `{name -> {dir, main}}` from every package.json in
+ * the repo (C-12). A monorepo imports its own packages by *name*
+ * (`import "@app/ui"`), each zone is a separate program, and the checker
+ * resolves the name into node_modules or nowhere — so the edge between
+ * two of the repo's own packages was silently absent. The names are the
+ * repo's to declare, read the same way every other manifest fact is. */
+export function discoverWorkspacePackages(repoRoot) {
+  const packages = new Map();
+  const stack = [repoRoot];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) stack.push(full);
+      } else if (entry.name === "package.json") {
+        try {
+          const data = JSON.parse(fs.readFileSync(full, "utf8"));
+          if (data && typeof data.name === "string" && data.name) {
+            const rel = path.relative(repoRoot, dir).split(path.sep).join("/");
+            packages.set(data.name, {
+              dir: rel === "" ? "." : rel,
+              main: typeof data.main === "string" ? data.main : null,
+            });
+          }
+        } catch {
+          // a broken manifest is not the extractor's problem
+        }
+      }
+    }
+  }
+  return packages;
+}
+
+/** Resolve a bare specifier against the repo's own package names (C-12).
+ * `@app/ui` -> the package's entry file; `@app/ui/button` -> the file
+ * under its directory. Repo-relative result or null — never a guess: a
+ * name that matches no discovered file resolves to nothing. */
+export function resolveWorkspace(specifier, packages, fileSet) {
+  if (specifier.startsWith(".") || specifier.startsWith("/")) return null;
+  for (const [name, pkg] of packages) {
+    if (specifier !== name && !specifier.startsWith(name + "/")) continue;
+    const prefix = pkg.dir === "." ? "" : pkg.dir + "/";
+    if (specifier === name) {
+      const candidates = [];
+      if (pkg.main) {
+        candidates.push(path.posix.normalize(prefix + pkg.main));
+      }
+      candidates.push(`${prefix}index`, `${prefix}src/index`);
+      for (const base of candidates) {
+        const hit = fileSet.has(base) ? base : resolveAsFile(base, fileSet);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    const sub = specifier.slice(name.length + 1);
+    return resolveAsFile(path.posix.normalize(prefix + sub), fileSet);
+  }
+  return null;
 }
 
 function firstStringArg(call) {
@@ -174,7 +256,7 @@ function enclosingScope(node) {
 
 // --- per-file extraction ---------------------------------------------------
 
-function extractImports(sourceFile, repoRoot, fileSet, filePath, project) {
+function extractImports(sourceFile, repoRoot, fileSet, filePath, project, packages, unresolved) {
   const imports = [];
   const push = (specifier, resolvedFile, names, line) => {
     if (resolvedFile) {
@@ -184,10 +266,31 @@ function extractImports(sourceFile, repoRoot, fileSet, filePath, project) {
         return;
       }
     }
+    // The checker resolves within its own zone (one Project per
+    // tsconfig), so a cross-zone import lands here — and used to vanish
+    // (C-12). Two deterministic fallbacks before giving up: a relative
+    // path is unambiguous regardless of zones, and a bare specifier
+    // matching one of the repo's own package names is the monorepo's own
+    // declaration of the target.
+    const crossZone =
+      resolveRelative(filePath, specifier, fileSet) ??
+      resolveWorkspace(specifier, packages, fileSet);
+    if (crossZone && crossZone !== filePath) {
+      imports.push({ external: null, line, names, resolved: crossZone, specifier });
+      return;
+    }
     const external = externalName(specifier);
     if (external) {
       imports.push({ external, line, names, resolved: null, specifier });
+      return;
     }
+    // Resolved nowhere and names no package: an alias into a zone this
+    // walk cannot read, or a path that is not there. The edge is absent
+    // rather than guessed, and the absence is recorded (C-12's floor) —
+    // except for asset imports (`./index.css`, `./logo.svg`): those name
+    // files the graph deliberately does not model, and reporting them as
+    // failures every ingest would bury the real records under noise.
+    if (!isAssetSpecifier(specifier)) unresolved.push({ line, specifier });
   };
 
   for (const imp of sourceFile.getImportDeclarations()) {
@@ -229,7 +332,10 @@ function extractImports(sourceFile, repoRoot, fileSet, filePath, project) {
       const target = path.relative(repoRoot, resolvedFile).split(path.sep).join("/");
       if (fileSet.has(target)) return target;
     }
-    return resolveRelative(filePath, specifier, fileSet);
+    return (
+      resolveRelative(filePath, specifier, fileSet) ??
+      resolveWorkspace(specifier, packages, fileSet)
+    );
   };
   sourceFile.forEachDescendant((node) => {
     if (!Node.isCallExpression(node)) return;
@@ -247,6 +353,8 @@ function extractImports(sourceFile, repoRoot, fileSet, filePath, project) {
       const external = externalName(specifier);
       if (external) {
         imports.push({ external, line, names: [], resolved: null, specifier });
+      } else if (!isAssetSpecifier(specifier)) {
+        unresolved.push({ line, specifier });
       }
     }
   });
@@ -613,6 +721,7 @@ export function extractRepo(repoRoot) {
   const root = path.resolve(repoRoot);
   const files = discoverFiles(root);
   const fileSet = new Set(files);
+  const packages = discoverWorkspacePackages(root);
 
   // Files group by their nearest tsconfig.json ("zones"), one ts-morph
   // Project per zone, so per-package compiler options — path aliases
@@ -663,9 +772,22 @@ export function extractRepo(repoRoot) {
           return fallback;
         }
       };
+      const unresolved = [];
       const imports = attempt("imports", [], () =>
-        extractImports(sourceFile, root, fileSet, file, project)
+        extractImports(sourceFile, root, fileSet, file, project, packages, unresolved)
       );
+      if (unresolved.length) {
+        // C-12's surfacing floor: the edges that still cannot be drawn
+        // stop being silent. One record per file, specifiers named.
+        const sample = unresolved.slice(0, 4).map((u) => u.specifier).join(", ");
+        errors.push({
+          message:
+            `${unresolved.length} import(s) resolved nowhere (${sample}) — ` +
+            "edges absent rather than guessed",
+          path: file,
+          stage: "imports-unresolved",
+        });
+      }
       const tests = attempt("tests", { framework: null, cases: [] }, () =>
         extractTests(sourceFile, file, imports)
       );

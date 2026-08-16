@@ -502,3 +502,88 @@ test("call-initialized consts are symbols; calls to them stay consistent", () =>
     [["Page", "src/store.ts", "useStore"]]
   );
 });
+
+test("cross-zone relative imports resolve against the repo file set (C-12)", () => {
+  // Two zones, each its own tsconfig — separate programs, so the
+  // checker cannot see across. A relative path is unambiguous anyway.
+  const root = makeRepo({
+    "packages/a/tsconfig.json": "{}",
+    "packages/a/src/main.ts": 'import { util } from "../../b/src/util";\nutil();\n',
+    "packages/b/tsconfig.json": "{}",
+    "packages/b/src/util.ts": "export function util() { return 1; }\n",
+  });
+  const facts = extractRepo(root);
+  const main = byPath(facts, "packages/a/src/main.ts");
+  assert.deepEqual(
+    main.imports.map((i) => [i.specifier, i.resolved]),
+    [["../../b/src/util", "packages/b/src/util.ts"]]
+  );
+});
+
+test("workspace package names resolve to the owning zone's entry (C-12)", () => {
+  const root = makeRepo({
+    "packages/ui/package.json": '{"name": "@app/ui", "main": "src/index.ts"}',
+    "packages/ui/tsconfig.json": "{}",
+    "packages/ui/src/index.ts": "export function Button() { return 1; }\n",
+    "packages/ui/src/card.ts": "export function Card() { return 2; }\n",
+    "packages/app/tsconfig.json": "{}",
+    "packages/app/src/main.ts": [
+      'import { Button } from "@app/ui";',
+      'import { Card } from "@app/ui/src/card";',
+      "Button(); Card();",
+    ].join("\n"),
+  });
+  const facts = extractRepo(root);
+  const main = byPath(facts, "packages/app/src/main.ts");
+  assert.deepEqual(
+    main.imports.map((i) => [i.specifier, i.resolved]),
+    [
+      ["@app/ui", "packages/ui/src/index.ts"],
+      ["@app/ui/src/card", "packages/ui/src/card.ts"],
+    ]
+  );
+});
+
+test("imports that resolve nowhere are surfaced, never guessed (C-12 floor)", () => {
+  const root = makeRepo({
+    "tsconfig.json": "{}",
+    "src/main.ts": 'import { x } from "@/nowhere";\nimport { y } from "./missing";\nx(); y();\n',
+  });
+  const facts = extractRepo(root);
+  assert.deepEqual(byPath(facts, "src/main.ts").imports, []);
+  const record = facts.errors.find((e) => e.stage === "imports-unresolved");
+  assert.ok(record, "the absence must be recorded");
+  assert.equal(record.path, "src/main.ts");
+  assert.match(record.message, /2 import\(s\) resolved nowhere/);
+  assert.match(record.message, /@\/nowhere/);
+});
+
+test("a workspace name that matches no file resolves to nothing", () => {
+  // resolveWorkspace never invents: the package exists but its entry
+  // does not, so the import surfaces as unresolved instead of pointing
+  // at a directory.
+  const root = makeRepo({
+    "packages/ghost/package.json": '{"name": "ghost", "main": "dist/out.js"}',
+    "src/main.ts": 'import g from "ghost";\ng();\n',
+  });
+  const facts = extractRepo(root);
+  const main = byPath(facts, "src/main.ts");
+  // Falls through to externalName — "ghost" is a plausible npm package,
+  // which is the honest classification when its source is not here.
+  assert.deepEqual(
+    main.imports.map((i) => [i.specifier, i.external]),
+    [["ghost", "ghost"]]
+  );
+});
+
+test("asset imports are not reported as resolution failures", () => {
+  // `./index.css` is a real import of a file the graph deliberately
+  // does not model — reporting it as "resolved nowhere" on every ingest
+  // would bury the real C-12 records under noise.
+  const root = makeRepo({
+    "tsconfig.json": "{}",
+    "src/main.ts": 'import "./index.css";\nimport logo from "./logo.svg";\nexport const x = logo;\n',
+  });
+  const facts = extractRepo(root);
+  assert.equal(facts.errors.filter((e) => e.stage === "imports-unresolved").length, 0);
+});
