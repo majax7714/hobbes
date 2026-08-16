@@ -458,6 +458,22 @@ def go_modules(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
     return {root: sorted(paths) for root, paths in sorted(modules.items())}
 
 
+def go_orphans(files: list[str], grouped: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Go files *grouped* left out, by directory — the C-26 denominator.
+
+    Public and pure so the surfacing has a test that runs without an
+    indexer installed: the skip itself lives in :func:`go_modules`, and a
+    skip nobody can see is how a lane quietly stops covering (the
+    lane-agreement lesson, applied to degradation).
+    """
+    covered = {path for paths in grouped.values() for path in paths}
+    orphans: dict[str, list[str]] = {}
+    for rel in files:
+        if rel not in covered:
+            orphans.setdefault(str(PurePosixPath(rel).parent), []).append(rel)
+    return {directory: sorted(paths) for directory, paths in sorted(orphans.items())}
+
+
 def _nearest_go_module(repo_root: Path, directory: str) -> str | None:
     """Directory of the nearest ``go.mod`` at or above *directory*."""
     current = PurePosixPath(directory)
@@ -490,7 +506,24 @@ def extract_scip_go(
         "degraded": [],
         "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
     }
-    for module_root, module_files in go_modules(repo_root, files).items():
+    grouped = go_modules(repo_root, files)
+    for directory, orphans in go_orphans(files, grouped).items():
+        # C-26 (surfaced): the tier already says these files' edges are lane
+        # A's; this record says *why* this file in particular got no
+        # semantics, which the tier cannot.
+        merged["degraded"].append(
+            {
+                "path": directory,
+                "stage": "scip-go",
+                "message": (
+                    f"{len(orphans)} Go file(s) under {directory!r} sit below no "
+                    "go.mod, so scip-go cannot type-check them; their call edges "
+                    "fall to lane A's fallback (syntactic tier). Add a go.mod to "
+                    "give them semantics."
+                ),
+            }
+        )
+    for module_root, module_files in grouped.items():
         facts = _index_go_module(repo_root, module_root, module_files, sha)
         if facts is None:
             continue

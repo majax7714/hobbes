@@ -264,6 +264,41 @@ class TestGoModuleZoning:
         (tmp_path / "stray.go").write_text("package stray\n")
         assert go_modules(tmp_path, ["stray.go"]) == {}
 
+    def test_orphans_are_named_per_directory(self):
+        # C-26 (surfaced): the skip above must be visible. Pure over the
+        # grouping so it runs with no indexer installed.
+        from hobbes.extract.scipsource import go_orphans
+
+        grouped = {"svc": ["svc/main.go"]}
+        files = ["svc/main.go", "scratch/a.go", "scratch/b.go", "top.go"]
+        assert go_orphans(files, grouped) == {
+            "scratch": ["scratch/a.go", "scratch/b.go"],
+            ".": ["top.go"],
+        }
+
+    def test_orphan_directories_get_a_degradation_record(self, tmp_path, monkeypatch):
+        # The record a user meets: extract_scip_go names the directory and
+        # the missing go.mod instead of skipping in silence (C-26).
+        from hobbes.extract import scipsource
+
+        monkeypatch.setenv(scipsource.SCIP_ENABLE_ENV, "1")
+        monkeypatch.setattr(scipsource, "_index_go_module", lambda *a, **k: None)
+        (tmp_path / "svc").mkdir()
+        (tmp_path / "svc" / "go.mod").write_text("module example.com/svc\n")
+        (tmp_path / "svc" / "main.go").write_text("package main\n")
+        (tmp_path / "scratch").mkdir()
+        (tmp_path / "scratch" / "snippet.go").write_text("package scratch\n")
+
+        facts = scipsource.extract_scip_go(
+            tmp_path, ["svc/main.go", "scratch/snippet.go"]
+        )
+        assert facts is not None
+        records = [d for d in facts["degraded"] if d["stage"] == "scip-go"]
+        assert len(records) == 1
+        assert records[0]["path"] == "scratch"
+        assert "go.mod" in records[0]["message"]
+        assert "syntactic" in records[0]["message"]
+
 
 class TestDegradation:
     def test_an_unparseable_file_does_not_take_the_layer_down(self, tmp_path):

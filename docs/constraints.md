@@ -476,14 +476,15 @@ information appears in both, and the entries cross-reference.
   exist.
 - **Bites at:** those files' call edges, which fall to lane A's fallback —
   correct within their own directory, and blind to anything imported.
-- **You find out:** **partial** — the edges that do exist are stamped
-  `syntactic` rather than `semantic`, so the tier says the answer is lane
-  A's; but nothing says *why* this file in particular got no semantics,
-  where a missing `go.mod` would be the one-line explanation.
-- **Candidate fix:** an `extraction_errors` record naming the directory and
-  the missing `go.mod`, which would move this to surfaced for the cost of
-  one degradation record.
-- **Source:** ADR-037, V2.M5.
+- **You find out:** **surfaced** (2026-08-15, the pre-M6 register sweep) —
+  one `extraction_errors` record per orphan directory names the files, the
+  missing `go.mod`, and the tier their edges fall to. Before that it was
+  *partial*: the `syntactic` tier said the answer was lane A's, but nothing
+  said why this file in particular got no semantics. The constraint itself
+  stands — the files still have no semantics, and inventing a `go.mod`
+  would still invent their dependencies — what changed is that the skip is
+  visible where a user meets it.
+- **Source:** ADR-037, V2.M5; surfaced 2026-08-15.
 
 ## Extraction — enrichment packs
 

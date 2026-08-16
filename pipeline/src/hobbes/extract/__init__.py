@@ -206,7 +206,11 @@ def _build_symbol_layer(
         external += facts.get("external_refs") or []
         for record in facts.get("degraded", []):
             degraded.append(
-                {"path": ".", "stage": record["stage"], "message": record["message"]}
+                {
+                    "path": record.get("path", "."),
+                    "stage": record["stage"],
+                    "message": record["message"],
+                }
             )
         coverage = facts.get("dependency_coverage") or {}
         if coverage.get("declared"):
