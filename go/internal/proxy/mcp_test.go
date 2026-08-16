@@ -42,11 +42,14 @@ func TestSessionToolSurface(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names[tool.Name] = tool.Description
 	}
-	// exec plus the five knowledge tools architecture §6 names —
-	// list_invariants completes the set at M8, when its data arrived.
+	// exec plus the knowledge tools architecture §6 names —
+	// list_invariants joined at M8, when its data arrived, and
+	// list_blind_spots at ADR-047, when the tail view gave it data:
+	// the captured fraction's tools plus the one that serves its
+	// boundary.
 	want := []string{
 		"exec", "graph_neighborhood", "who_calls", "tests_guarding",
-		"get_module_doc", "list_invariants",
+		"get_module_doc", "list_invariants", "list_blind_spots",
 	}
 	for _, name := range want {
 		if _, ok := names[name]; !ok {

@@ -323,3 +323,23 @@ surfaced per file rather than silent.)*
   compile again. §3.6's content-hash cache is the natural shape; the
   crate registry is already user-global and survives. Worth doing when a
   real Rust repo makes ingest latency hurt; not before.
+
+- **Blind spots into review verdicts and the surface** (from ADR-047,
+  2026-08-16). `list_blind_spots` serves agents in sessions; two
+  consumers do not read it yet. `hobbes review` could weigh a change
+  that lands entirely inside a low-capture region — a diff whose files
+  sit at 50% resolution deserves a louder verdict than one in a fully
+  accounted module, and today nothing connects the two. The web surface
+  has no blind-spot rendering: a reviewer reading the graph tab sees
+  the captured fraction with nothing marking where the graph goes
+  quiet. Parked until either consumer's shape is decided, not because
+  the data is missing — both would read the same
+  `resolution_coverage.tail` the tool reads.
+
+- **The derivation carries the complement** (the ADR-047 contract,
+  recorded here so the milestone inherits it). When per-task derivation
+  is built, derived context must include the task-scoped blind-spot
+  statement and derived policy must treat unseen regions as
+  low-evidence (narrow or escalate, never widen). This is a
+  requirement on the milestone, written down before the milestone
+  exists — see architecture "Where this is going".

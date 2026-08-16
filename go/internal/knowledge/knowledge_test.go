@@ -577,3 +577,114 @@ func TestUnknownSchemaVersionIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// blindSpotRepo writes a graph carrying the ADR-045 honesty surface.
+func blindSpotRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		full := append([]string{"-C", repo}, args...)
+		out, err := exec.Command("git", full...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("commit", "-qm", "base", "--allow-empty")
+	sha := git("rev-parse", "HEAD")
+	graph := map[string]any{
+		"schema_version": derived.Current,
+		"sha":            sha, "dirty": false,
+		"nodes": []map[string]any{}, "module_edges": []map[string]any{},
+		"symbols": []map[string]any{}, "symbol_edges": []map[string]any{},
+		"resolution_coverage": []map[string]any{
+			{"file": "src/app/core.py", "sites": 20, "resolved": 12, "external": 3,
+				"unresolved": 5, "tail": map[string]int{"builtin-name": 3, "attr-call": 2}},
+			{"file": "src/app/api.py", "sites": 10, "resolved": 10, "external": 0,
+				"unresolved": 0},
+			{"file": "web/main.ts", "sites": 8, "resolved": 2, "external": 0,
+				"unresolved": 6, "tail": map[string]int{"local-binding": 4, "unclassified": 2}},
+		},
+		"dependency_coverage": []map[string]any{
+			{"declared": 6, "resolved": 4, "missing": []string{"boto3", "psycopg"}},
+		},
+		"extraction_errors": []map[string]any{
+			{"path": "scripts", "stage": "go-modules", "message": "orphan directory"},
+		},
+	}
+	derivedDir := filepath.Join(repo, ".hobbes", "derived")
+	if err := os.MkdirAll(derivedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(derivedDir, "graph.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+func TestBlindSpotsWholeRepoRollsUpPerLanguage(t *testing.T) {
+	s := Open(blindSpotRepo(t))
+	out, err := s.ListBlindSpots(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"capture [python]: 83.3% of 30 detected call sites accounted",
+		"capture [ts/js]: 25.0% of 8 detected call sites accounted",
+		"seen, not modelled by design: 3 (builtin-name 3)",
+		"cannot resolve: 2 (attr-call 2)",
+		"environment gap: 4/6 declared packages resolved; missing: boto3, psycopg",
+		"degraded: scripts: go-modules: orphan directory",
+		"src/app/core.py — 5 of 20 sites unresolved (builtin-name 3, attr-call 2)",
+		// the always-on denominator honesty, C-1/C-4/C-5:
+		"not over the repo",
+		// meanings appear only for classes present, with their C-refs:
+		"attr-call — an attribute call whose receiver no static provider could type",
+		"unclassified — no observation applies",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "path-call —") {
+		t.Fatalf("meaning printed for a class not present:\n%s", out)
+	}
+}
+
+func TestBlindSpotsScopeFiltersByPathPrefix(t *testing.T) {
+	s := Open(blindSpotRepo(t))
+	out, err := s.ListBlindSpots("web/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "python") {
+		t.Fatalf("python rows leaked into web/ scope:\n%s", out)
+	}
+	if !strings.Contains(out, "capture [ts/js]") {
+		t.Fatalf("ts rows missing under web/ scope:\n%s", out)
+	}
+}
+
+func TestBlindSpotsUnknownScopeSaysHow(t *testing.T) {
+	s := Open(blindSpotRepo(t))
+	if _, err := s.ListBlindSpots("nope/"); err == nil ||
+		!strings.Contains(err.Error(), "repo-relative path prefix") {
+		t.Fatalf("want scope guidance, got %v", err)
+	}
+}
+
+func TestBlindSpotsCleanScopeSaysAccounted(t *testing.T) {
+	s := Open(blindSpotRepo(t))
+	out, err := s.ListBlindSpots("src/app/api.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "every detected call site under this scope is accounted for") {
+		t.Fatalf("clean scope should say so:\n%s", out)
+	}
+}

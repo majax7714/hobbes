@@ -90,6 +90,34 @@ type graphDoc struct {
 	ModuleEdges []edge   `json:"module_edges"`
 	Symbols     []symbol `json:"symbols"`
 	SymbolEdges []edge   `json:"symbol_edges"`
+
+	// The honesty surface (ADR-045/047): what the extraction could not
+	// account for, classified, plus the environment and degradation
+	// records — the inputs list_blind_spots reads.
+	ResolutionCoverage []coverageRow     `json:"resolution_coverage"`
+	DependencyCoverage []depCoverage     `json:"dependency_coverage"`
+	ExtractionErrors   []extractionError `json:"extraction_errors"`
+}
+
+type coverageRow struct {
+	File       string         `json:"file"`
+	Sites      int            `json:"sites"`
+	Resolved   int            `json:"resolved"`
+	External   int            `json:"external"`
+	Unresolved int            `json:"unresolved"`
+	Tail       map[string]int `json:"tail"`
+}
+
+type depCoverage struct {
+	Declared int      `json:"declared"`
+	Resolved int      `json:"resolved"`
+	Missing  []string `json:"missing"`
+}
+
+type extractionError struct {
+	Path    string `json:"path"`
+	Stage   string `json:"stage"`
+	Message string `json:"message"`
 }
 
 type test struct {
@@ -637,6 +665,200 @@ func (s *Store) ListInvariants(scope string) (string, error) {
 
 // scopeOverlaps reports whether a record's scope and a queried scope
 // touch the same tree in either direction.
+// tailMeanings explains each ADR-045 tail class in an agent's terms and
+// names the register entry it points to. Mirrors pipeline tail.py — the
+// class vocabulary is shared, and each meaning is an observation, never
+// a probability about a hypothetical edge (C-2's rule).
+var tailMeanings = []struct{ class, meaning string }{
+	{"fallback-resolved", "has a syntactic-tier edge from lane A's own resolver; semantics could not confirm it (C-7) — trust it less"},
+	{"local-binding", "bound below the modelled vocabulary in its own file — a parameter, local, or nested def (C-9); seen and deliberately not modelled, the call stays inside that file"},
+	{"nested-decl", "declared in another repo file below the modelled vocabulary (C-9)"},
+	{"external-origin", "every declaration lives outside the repo — a dependency or ambient lib; often an environment gap (C-23/C-27/C-30)"},
+	{"import-binding", "bound by a same-file import; where the call lands is unresolved — usually a missing environment (C-23/C-27/C-30)"},
+	{"builtin-name", "the name matches the language's builtin list — language machinery, not architecture"},
+	{"attr-call", "an attribute call whose receiver no static provider could type — the genuine limit (C-2); verify these targets yourself where they matter"},
+	{"path-call", "a ::-qualified call the index left dark"},
+	{"unclassified", "no observation applies — genuinely unknown; read this code yourself"},
+}
+
+// notModelled marks the classes the graph sees and deliberately
+// abstains from (ADR-045's rollup) — knowledge, not ignorance.
+var notModelled = map[string]bool{
+	"local-binding": true, "nested-decl": true, "builtin-name": true,
+}
+
+var langByExt = map[string]string{
+	".py": "python", ".ts": "ts/js", ".tsx": "ts/js", ".js": "ts/js",
+	".jsx": "ts/js", ".mjs": "ts/js", ".cjs": "ts/js", ".go": "go",
+	".rs": "rust",
+}
+
+// ListBlindSpots answers list_blind_spots(scope): what Hobbes cannot
+// see under a path, stated as classified counts with the register
+// entry each limit points to (ADR-047). This is the complement of
+// every other knowledge tool: they serve the captured fraction; this
+// serves the boundary, so an agent knows which context it must gather
+// and verify itself. Scope is a repo-relative path prefix, "." for the
+// whole repo.
+func (s *Store) ListBlindSpots(scope string) (string, error) {
+	var g graphDoc
+	if err := s.loadInto("graph.json", &g); err != nil {
+		return "", err
+	}
+	prefix := scope
+	if prefix == "." {
+		prefix = ""
+	}
+	var rows []coverageRow
+	for _, row := range g.ResolutionCoverage {
+		if strings.HasPrefix(row.File, prefix) {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 && scope != "." {
+		return "", fmt.Errorf(
+			"no detected call sites under %q — scope is a repo-relative "+
+				"path prefix (e.g. src/app), or \".\" for the whole repo", scope)
+	}
+
+	var b strings.Builder
+	b.WriteString(s.header(g.SHA, g.Dirty))
+	fmt.Fprintf(&b, "what Hobbes cannot see under %s — the work to verify yourself:\n\n", scope)
+	b.WriteString("never in any count below, because it is not detected at all: dynamic\n" +
+		"dispatch and calls through values (C-1), fixture-injected test reach\n" +
+		"(C-4), computed route paths (C-5). Every percentage here is a floor\n" +
+		"over DETECTED call sites, not over the repo.\n")
+
+	type agg struct {
+		sites, unresolved int
+		tail              map[string]int
+	}
+	langs := map[string]*agg{}
+	for _, row := range rows {
+		lang, ok := langByExt[path.Ext(row.File)]
+		if !ok {
+			continue
+		}
+		a := langs[lang]
+		if a == nil {
+			a = &agg{tail: map[string]int{}}
+			langs[lang] = a
+		}
+		a.sites += row.Sites
+		a.unresolved += row.Unresolved
+		for class, n := range row.Tail {
+			a.tail[class] += n
+		}
+	}
+	present := map[string]bool{}
+	for _, lang := range sortedKeys(langs) {
+		a := langs[lang]
+		if a.sites == 0 {
+			continue
+		}
+		accounted := float64(a.sites-a.unresolved) / float64(a.sites) * 100
+		fmt.Fprintf(&b, "\ncapture [%s]: %.1f%% of %d detected call sites accounted\n",
+			lang, accounted, a.sites)
+		seen, cannot := groupLine(a.tail, true), groupLine(a.tail, false)
+		if seen != "" {
+			fmt.Fprintf(&b, "  seen, not modelled by design: %s\n", seen)
+		}
+		if cannot != "" {
+			fmt.Fprintf(&b, "  cannot resolve: %s\n", cannot)
+		}
+		for class := range a.tail {
+			present[class] = true
+		}
+	}
+
+	for _, dc := range g.DependencyCoverage {
+		if len(dc.Missing) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\nenvironment gap: %d/%d declared packages resolved; missing: %s\n"+
+			"  (third-party calls into these are invisible, not absent — C-23/C-27/C-30)\n",
+			dc.Resolved, dc.Declared, strings.Join(dc.Missing, ", "))
+	}
+	for i, e := range g.ExtractionErrors {
+		if i == 10 {
+			fmt.Fprintf(&b, "  … and %d more degradation records\n", len(g.ExtractionErrors)-10)
+			break
+		}
+		fmt.Fprintf(&b, "\ndegraded: %s: %s: %s\n", e.Path, e.Stage, e.Message)
+	}
+
+	worst := slices.Clone(rows)
+	sort.Slice(worst, func(i, j int) bool { return worst[i].Unresolved > worst[j].Unresolved })
+	shown := 0
+	for _, row := range worst {
+		if row.Unresolved == 0 || shown == 10 {
+			break
+		}
+		if shown == 0 {
+			b.WriteString("\nlargest unresolved remainders:\n")
+		}
+		fmt.Fprintf(&b, "  %s — %d of %d sites unresolved (%s)\n",
+			row.File, row.Unresolved, row.Sites, classList(row.Tail))
+		shown++
+	}
+	if shown == 0 {
+		b.WriteString("\nevery detected call site under this scope is accounted for.\n")
+	}
+
+	first := true
+	for _, m := range tailMeanings {
+		if !present[m.class] {
+			continue
+		}
+		if first {
+			b.WriteString("\nwhat each class means (an observation, never a guess):\n")
+			first = false
+		}
+		fmt.Fprintf(&b, "  %s — %s\n", m.class, m.meaning)
+	}
+	return b.String(), nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// groupLine renders one rollup group of a tail, in class order.
+func groupLine(tail map[string]int, wantNotModelled bool) string {
+	total := 0
+	var parts []string
+	for _, m := range tailMeanings {
+		n := tail[m.class]
+		if n == 0 || notModelled[m.class] != wantNotModelled {
+			continue
+		}
+		total += n
+		parts = append(parts, fmt.Sprintf("%s %d", m.class, n))
+	}
+	if total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d (%s)", total, strings.Join(parts, ", "))
+}
+
+func classList(tail map[string]int) string {
+	if len(tail) == 0 {
+		return "unclassified — pre-ADR-045 artifact, re-run `hobbes ingest`"
+	}
+	var parts []string
+	for _, m := range tailMeanings {
+		if n := tail[m.class]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", m.class, n))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func scopeOverlaps(recordScope, query string) bool {
 	record := strings.TrimSuffix(strings.TrimSpace(recordScope), "/")
 	q := strings.TrimSuffix(strings.TrimSpace(query), "/")

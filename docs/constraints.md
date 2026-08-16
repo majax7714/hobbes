@@ -11,6 +11,13 @@ This register is written for **anyone who runs Hobbes**, not for the people
 who built it. Named individuals appear only as the source of a decision —
 historical attribution, the same role an ADR number plays.
 
+Its audience includes **agents** (ADR-047): what Hobbes cannot see is
+itself context — it is how a single-use agent points at the work it must
+do by hand — so the register's content reaches sessions through
+`list_blind_spots` on the proxy, and the derivation contract
+(architecture, "Where this is going") makes the stated complement a
+mandatory half of any future derived context.
+
 ## Why this file exists
 
 Hobbes' value is that a human can review at the concept level instead of
@@ -127,7 +134,11 @@ information appears in both, and the entries cross-reference.
   calls on untypable receivers. One ledger subtlety the tail makes
   visible: a site lane A's *fallback* resolved still counts as
   unresolved here (the count is the semantic ledger) and carries class
-  `fallback-resolved` — it has an edge, at syntactic tier.
+  `fallback-resolved` — it has an edge, at syntactic tier. Since
+  ADR-047 the same decomposition reaches **agents** where they work:
+  `list_blind_spots` on the session proxy serves the scoped rollup with
+  each class naming its register entry, so an in-sandbox agent can
+  point at the verification work that is its own.
 - **Note:** deliberately counts, never a confidence score. An edge with no
   named target cannot be drawn, checked, or cited — it is C-1's false edge
   wearing a probability. The tail classes keep that rule: each is an

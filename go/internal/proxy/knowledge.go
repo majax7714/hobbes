@@ -36,6 +36,11 @@ type ListInvariantsArgs struct {
 	Scope string `json:"scope" jsonschema:"a repo-relative path to ask about, e.g. pipeline/src/hobbes; \".\" or empty lists every confirmed invariant"`
 }
 
+// ListBlindSpotsArgs is list_blind_spots's input schema.
+type ListBlindSpotsArgs struct {
+	Scope string `json:"scope" jsonschema:"a repo-relative path prefix to ask about, e.g. src/app; \".\" or empty covers the whole repo"`
+}
+
 // addKnowledgeTools registers the v1 knowledge subset on the MCP server.
 func (s *Server) addKnowledgeTools(srv *mcp.Server) {
 	store := knowledge.Open(s.cfg.RepoRoot)
@@ -89,6 +94,25 @@ func (s *Server) addKnowledgeTools(srv *mcp.Server) {
 			scope = "."
 		}
 		return s.answer("list_invariants", scope, store.ListInvariants), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "list_blind_spots",
+		Description: "What Hobbes cannot see under a path: the classified " +
+			"unresolved remainder, environment gaps, and degraded " +
+			"extractions, each naming the register entry behind it. This is " +
+			"the complement of every other tool here — they serve what the " +
+			"graph proved; this serves the boundary. Read it to know which " +
+			"context you must gather and verify yourself: a silent graph " +
+			"region is not an empty one.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args ListBlindSpotsArgs) (*mcp.CallToolResult, any, error) {
+		// Like list_invariants, an empty query is meaningful: the whole
+		// repo's blind spots.
+		scope := args.Scope
+		if scope == "" {
+			scope = "."
+		}
+		return s.answer("list_blind_spots", scope, store.ListBlindSpots), nil, nil
 	})
 }
 

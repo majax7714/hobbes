@@ -95,6 +95,22 @@ derivation itself — policy and context generated *from* the architecture for
 one task. It is not a milestone yet and nothing here should be designed in a
 way that makes it harder to reach.
 
+**The derivation contract (ADR-047).** When per-task derivation is built,
+derived context has two mandatory halves: the captured fraction — graph,
+tests, docs, everything citable — and the **stated complement**: what
+Hobbes cannot see in the task's scope, drawn from the constraint register
+and the per-repo tail view, in the form `list_blind_spots` already serves
+to agents today. Knowing what cannot be seen is how an agent points at
+the work it must do itself — the context to gather by reading, the claims
+to verify rather than trust — so a derivation that hands an agent only
+the known half has recreated the confident-surface-over-quiet-gap failure
+(P8) at the exact layer built to prevent it. Derived **policy** meets the
+same data from the enforcement side: where the graph cannot see, there is
+less evidence to widen permissions on, and staying narrow — or
+escalating — is the honest default. These are requirements on the unbuilt
+milestone, not aspirations: a derivation that does not carry the
+complement is not done.
+
 **Local, deliberately.** Hobbes runs on the box, against a repo on disk. It
 is not a hosted product, an application to log into, or an IDE plugin (§9).
 
