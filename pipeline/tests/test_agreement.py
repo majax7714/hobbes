@@ -160,8 +160,15 @@ def semgrep_record(**overrides) -> Invariant:
 
 
 def run_semgrep(root: Path, config: str, target: str = ".") -> int:
-    cfg = root / "generated-semgrep.yml"
-    cfg.write_text(config)
+    # The config lives outside *root*: for the dogfood-repo case, writing
+    # it into the target would litter the real working tree.
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".yml", prefix="hobbes-semgrep-", delete=False
+    ) as fh:
+        fh.write(config)
+        cfg = Path(fh.name)
     proc = subprocess.run(
         [
             "semgrep",
@@ -177,6 +184,7 @@ def run_semgrep(root: Path, config: str, target: str = ".") -> int:
         text=True,
         timeout=300,
     )
+    cfg.unlink(missing_ok=True)
     # Exit 0 = clean, 1 = findings; anything else is semgrep itself
     # failing (a malformed generated config lands here, which is exactly
     # what this suite exists to catch).
