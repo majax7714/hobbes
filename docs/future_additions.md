@@ -274,3 +274,29 @@ resolves in neither. Registered as **C-12**.
   It subsumes the buffering papercut above by deleting the process that
   buffers. It does *not* subsume the clone papercut — that stays a
   one-line fix either way.
+
+- **Hobbes should catch a general mechanism swallowing a specific
+  guarantee** (Max's ask at the V2.M4 review, 2026-08-15; the principle is
+  **P10**, ADR-036). V2.M4 wrapped every pack in `except Exception` so that
+  a failing pack degrades rather than fails the ingest (P6) — and that
+  handler swallowed the refusal guarding **I-1**, so
+  `ingest --tf-plan prod.tfstate` began *succeeding* with a warning. Both
+  mechanisms were right in isolation; the general one won by default.
+
+  It was caught by a test written two milestones earlier about `.tfstate`
+  and an exit code — not by Hobbes, which is the point. **Nothing in the
+  system detects this class of gap today.**
+
+  The natural home is **V2.M6's unified checker**, because the question is
+  a graph question once refusals are a type rather than a message:
+  *does a broad handler enclose a path that must refuse?* `PackRefusal`
+  makes refusals a type in one subsystem; the general form needs the same
+  in the others (the proxy's exec wrapper, the escalation queue, the
+  narrative runner's retry) before the checker has anything to reason
+  over. Two steps, in order: give every specific guarantee a type, then
+  ask the graph which broad handlers dominate one.
+
+  Worth building because the failure mode is invisible by construction —
+  the change that causes it is in a different subsystem, made for an
+  unrelated and good reason, by someone not thinking about the guarantee
+  at all.

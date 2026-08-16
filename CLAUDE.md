@@ -199,9 +199,9 @@ uv run hobbes lanes --json
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
 deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
 (ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
-Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4
-(ADR-035) is BUILT and awaiting review; V2.M5 (Go support) is next and
-must not start until Max passes M4.**
+Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4 (ADR-035)
+built and reviewed — passed by Max 2026-08-15.** **V2.M5 (Go language
+support) is ACTIVE.**
 
 **V2.M4 — enrichment packs (ADR-035).** Framework knowledge left the graph
 builder: four packs (`http-python`, `cli-python`, `http-ts`, `terraform`)
@@ -218,14 +218,26 @@ asserted per pack in `test_packs.py` and was verified on SELENEX and the
 dogfood repo, where removing `terraform` drops its 5 edges and 3 `tf:`
 nodes but **keeps all 5 `env:` nodes**, because Python reads them.
 
-**The regression M4 nearly shipped, and the rule it produced.** Wrapping
-packs in `except Exception` for P6 degradation swallowed the `.tfstate`
-refusal that guards **I-1**: `ingest --tf-plan prod.tfstate` started
-*succeeding* with a warning. Packs degrade, **except when they refuse** —
-`PackRefusal` is re-raised, never degraded. A refusal is not a pass that
-broke, and degrading one turns "Hobbes refused to read your state file"
-into "Hobbes read it, with a warning". Any future pack that declines
-user-supplied input raises `PackRefusal`.
+**P10 — a specific safety guarantee outranks a general safety system
+(ADR-036).** Max's rule, from the M4 review, and it governs every
+mechanism, not one milestone. Wrapping packs in `except Exception` for P6
+degradation swallowed the `.tfstate` refusal that guards **I-1**:
+`ingest --tf-plan prod.tfstate` started *succeeding* with a warning. Both
+mechanisms were right alone; the general one won by default, because
+`except Exception` is broader than anything inside it.
+
+So: a general mechanism must be written so it **cannot** absorb a specific
+guarantee — it **names what it will not handle and re-raises that first**
+(`run_packs` re-raises `PackRefusal`), a refusal is a **distinct type**
+rather than a message, and the specific guarantee keeps **its own test at
+the level a user meets it**. Rank by importance × coverage: the broader the
+reach, the less it may decide on its own. Intent is not enough — whoever
+widens the general mechanism is not thinking about the specific one.
+
+Watch this in the mechanisms that already exist: expire-to-deny, the
+narrative runner's corrective retry, the proxy's exec wrapper. **Hobbes
+cannot catch this itself yet** — it was found by an M3 test, not by the
+system; parked in `future_additions.md` for V2.M6's checker.
 
 **The architecture is one running document (ADR-033, 2026-08-15).**
 `hobbes-architecture-v2.md` is gone: it became `hobbes-architecture.md`,

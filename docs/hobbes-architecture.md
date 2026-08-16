@@ -120,6 +120,18 @@ is not a hosted product, an application to log into, or an IDE plugin (§9).
   names the provider and version that produced it, because its lifetime is
   the provider's rather than ours: C-6, C-9 and C-23 are all provider
   limits, and any of them may end on an upstream release (ADR-034).
+- **P10 — A specific safety guarantee outranks a general safety system.**
+  A general mechanism — degrade-on-failure, catch-and-continue,
+  escalate-by-default, expire-to-deny — is a policy about the *unknown*
+  case. A specific guarantee (never read `.tfstate`, never push) is a
+  decision about a *known* one. Where they meet the specific one wins, and
+  the general mechanism must be written so it **cannot** absorb it: it names
+  what it will not handle and re-raises that first. Rank by importance ×
+  coverage — the broader a mechanism's reach, the less it may decide on its
+  own. Intent is not enough, because whoever widens the general mechanism is
+  usually not thinking about the specific one: V2.M4's `except Exception`
+  around packs swallowed the refusal guarding I-1 and turned a refused
+  ingest into a successful one (ADR-036).
 
 ---
 
@@ -321,7 +333,9 @@ in `extraction_errors` and the ingest continues (P6). The exception is
 `PackRefusal`, which is re-raised: a pack declining input the user supplied
 — a `.tfstate` handed to `--tf-plan` — is not a pass that broke, and
 degrading it would turn a refusal into a warning printed beside the thing
-it refused to do. That distinction is load-bearing; it guards I-1.
+it refused to do. That distinction is load-bearing; it guards I-1, and it is
+**P10's worked example** — the general mechanism names what it will not
+handle rather than trusting itself to be careful (ADR-036).
 
 Known cost: **a pack cannot be disabled for a repo where it misfires**
 (**C-25**). The `packs` list makes a wrong edge attributable, not

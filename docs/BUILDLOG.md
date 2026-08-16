@@ -1921,3 +1921,58 @@ tests).
 **V2.M4 is built and stops here for review.** V2.M5 (Go support — and the
 first time Hobbes can see its own 9.4k lines of Go) does not start until Max
 passes it.
+
+---
+
+## 2026-08-15 (seventh) — M4 passed; P10, the rule the near-miss produced
+
+Max reviewed V2.M4 and passed it. He also named the thing the tfstate
+near-miss was an instance of, and it is a principle rather than a note:
+
+> specific safety guarantees come before a general safety system. safety
+> systems should be tiered by importance and coverage.
+
+**ADR-036 adds P10 — a specific safety guarantee outranks a general safety
+system.** The M4 case is the worked example: `except Exception` around packs
+(general, correct, P6) swallowed `PlanError` (specific, correct, I-1), and
+`ingest --tf-plan prod.tfstate` began succeeding. Both mechanisms were right
+in isolation. The general one won **by default rather than by decision**,
+because a broad handler is broader than anything inside it.
+
+Three requirements come out of it, and they are requirements on the
+*general* mechanism, because intent at the specific end is not enough — the
+person widening the general handler is not thinking about the guarantee at
+all:
+
+1. A broad handler **names what it will not handle and re-raises it first**.
+2. A refusal is a **distinct type**, not a return value or a log line — a
+   guarantee that travels as a message is one string-match from being lost.
+3. The specific guarantee keeps **its own test at the level a user meets
+   it**. The test that caught this was written at M3 about `.tfstate` and an
+   exit code, and it survived a refactor of code it knew nothing about
+   precisely because it asserted the user-visible guarantee rather than the
+   implementation behind it.
+
+Ranking is **importance × coverage**: the broader a mechanism's reach, the
+less it may decide on its own. A handler around one call site may swallow
+that call's errors; a handler around every pack, every tool call or every
+session may not, because it cannot know what it is standing in front of.
+
+Named the mechanisms already in the blast radius, without claiming they are
+wrong: expire-to-deny, the narrative runner's corrective retry, the proxy's
+exec wrapper. M4's was not known to be wrong either, until a test failed.
+
+**Max's second ask: Hobbes should eventually catch this itself.** Parked in
+`future_additions.md`, not built, and the entry says plainly that nothing in
+the system detects this class of gap today — it was found by a test, not by
+Hobbes. The natural home is V2.M6's unified checker, because *does a broad
+handler enclose a path that must refuse?* becomes a graph question once
+refusals are a type. `PackRefusal` makes them one in the pack layer; the
+other subsystems need the same before a checker has anything to reason over.
+Two steps, in order: give every specific guarantee a type, then ask the
+graph which broad handlers dominate one.
+
+**V2.M5 (Go language support) is now active** — and it is the first
+milestone written under P10, which is fitting: adding a language means new
+general handling for a new indexer's failure modes, which is exactly the
+shape that ate I-1.
