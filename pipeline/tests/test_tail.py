@@ -44,6 +44,54 @@ class TestClasses:
         assert tails[f][tail.BUILTIN] == 1
         assert tails[f][tail.UNCLASSIFIED] == 1
 
+    def test_a_scope_contained_lane_a_binding_is_local(self, tmp_path):
+        # `fake_policy_bin` is a fixture parameter of the enclosing test:
+        # bound at line 1, function spans 1-3, call at line 2 — local.
+        f = write(tmp_path, "test_a.py",
+                  "def test_x(fake_policy_bin):\n"
+                  "    out = fake_policy_bin('deny')\n"
+                  "    assert out\n")
+        bindings = {f: (("fake_policy_bin", 1, 3),)}
+        tails = tail.classify([site(f, 2, "fake_policy_bin", col=10)], tmp_path,
+                              local_bindings=bindings)
+        assert tails[f] == {tail.LOCAL: 1}
+
+    def test_a_binding_outside_its_extent_does_not_match(self, tmp_path):
+        # Same name, but the call sits outside the binding's function —
+        # containment fails and the site falls through honestly.
+        f = write(tmp_path, "a.py",
+                  "def setup(helper):\n"
+                  "    pass\n"
+                  "helper()\n")
+        bindings = {f: (("helper", 1, 2),)}
+        tails = tail.classify([site(f, 3, "helper", col=0)], tmp_path,
+                              local_bindings=bindings)
+        assert tails[f] == {tail.UNCLASSIFIED: 1}
+
+    def test_a_scope_contained_local_outranks_an_import_binding(self, tmp_path):
+        # A parameter shadows a module-level import inside its function.
+        f = write(tmp_path, "a.py",
+                  "from utils import runner\n"
+                  "def drive(runner):\n"
+                  "    runner()\n")
+        tails = tail.classify(
+            [site(f, 3, "runner", col=4)], tmp_path,
+            import_bindings={f: frozenset({"runner"})},
+            local_bindings={f: (("runner", 2, 3),)},
+        )
+        assert tails[f] == {tail.LOCAL: 1}
+
+    def test_an_attr_call_never_matches_a_local_binding(self, tmp_path):
+        # A local named `helper` must not absorb `self.helper()` — the
+        # attribute call's receiver is what is untyped, and the class
+        # says so.
+        f = write(tmp_path, "a.py",
+                  "def run(helper):\n"
+                  "    self.helper()\n")
+        tails = tail.classify([site(f, 2, "helper", col=9)], tmp_path,
+                              local_bindings={f: (("helper", 1, 2),)})
+        assert tails[f] == {tail.ATTR: 1}
+
     def test_a_bare_call_of_an_import_bound_name_is_import_binding(self, tmp_path):
         f = write(tmp_path, "a.py",
                   "from sqlalchemy.dialects.postgresql import UUID as PG_UUID\n"

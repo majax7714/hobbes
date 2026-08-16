@@ -310,3 +310,50 @@ class TestDegradation:
         # tree-sitter is error-tolerant by design (§3.1): the good file is
         # complete and the broken one contributes what could be read.
         assert any(s["id"] == "good.Good" for s in layer["symbols"])
+
+
+class TestLocalBindings:
+    """Sub-package bindings with enclosing-func extents (ADR-046)."""
+
+    def bindings(self, tmp_path, text):
+        (tmp_path / "go.mod").write_text("module example.com/lb\n")
+        (tmp_path / "a.go").write_text(text)
+        layer = extract_go(tmp_path)
+        return set(layer["local_bindings"].get("a.go", ()))
+
+    def test_short_var_and_params_bind(self, tmp_path):
+        got = self.bindings(tmp_path,
+            "package lb\n"
+            "func run(name string) {\n"
+            "\tcleanup := func() {}\n"
+            "\tcleanup()\n"
+            "}\n")
+        assert ("cleanup", 2, 5) in got
+        assert ("name", 2, 5) in got
+
+    def test_range_and_var_targets_bind(self, tmp_path):
+        got = self.bindings(tmp_path,
+            "package lb\n"
+            "func iter(xs []int) {\n"
+            "\tvar total int\n"
+            "\tfor i, v := range xs {\n"
+            "\t\ttotal += i + v\n"
+            "\t}\n"
+            "}\n")
+        assert {n for n, _, _ in got} >= {"total", "i", "v", "xs"}
+
+    def test_named_results_and_receivers_bind(self, tmp_path):
+        got = self.bindings(tmp_path,
+            "package lb\n"
+            "type T struct{}\n"
+            "func (t *T) get() (out int) {\n"
+            "\treturn out\n"
+            "}\n")
+        assert {n for n, _, _ in got} >= {"t", "out"}
+
+    def test_package_level_declarations_do_not_bind(self, tmp_path):
+        got = self.bindings(tmp_path,
+            "package lb\n"
+            "var Global = 1\n"
+            "func f() {}\n")
+        assert got == set()

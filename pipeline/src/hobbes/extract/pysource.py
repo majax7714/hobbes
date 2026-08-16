@@ -104,6 +104,21 @@ class EnvRead:
     line: int
 
 
+@dataclass(frozen=True)
+class LocalBinding:
+    """A name bound below module level: a parameter, an assignment or
+    ``for``/``with``/``except``-target inside a function, or a nested
+    ``def``/``class`` name — carrying the line extent of the enclosing
+    function it is visible in (ADR-046). The tail view matches a bare
+    unresolved call against these **by containment** (the site's line
+    inside the extent), so the observation is "bound in a scope that
+    spans this call", not a file-wide name coincidence."""
+
+    name: str
+    start: int
+    end: int
+
+
 @dataclass
 class ParsedFile:
     """Everything one walk collects from one file."""
@@ -112,6 +127,7 @@ class ParsedFile:
     symbols: list[Symbol] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     env_reads: list[EnvRead] = field(default_factory=list)
+    local_bindings: list[LocalBinding] = field(default_factory=list)
     #: The module docstring's literal, exactly as written, or None.
     #: Normalizing it is hobbes.extract.docstrings' job — this module
     #: extracts, it does not interpret.
@@ -124,7 +140,109 @@ def parse_source(source: bytes) -> ParsedFile:
     root = _PARSER.parse(source).root_node
     parsed.docstring = _module_docstring(root)
     _walk(root, [], parsed, ())
+    parsed.local_bindings = _collect_local_bindings(root)
     return parsed
+
+
+def _target_identifiers(node: Node):
+    """Identifier nodes in an assignment/for/with target expression.
+    Attribute and subscript targets bind no new local name, so they
+    yield nothing."""
+    if node.type == "identifier":
+        yield node
+    elif node.type in (
+        "tuple_pattern",
+        "list_pattern",
+        "pattern_list",
+        "tuple",
+        "list",
+        "parenthesized_expression",
+    ):
+        for child in node.named_children:
+            yield from _target_identifiers(child)
+
+
+def _collect_local_bindings(root: Node) -> list[LocalBinding]:
+    """Every sub-module binding with its enclosing function's extent.
+
+    A second, deliberately separate walk: :func:`_walk` collects what the
+    graph models; this collects what the graph *deliberately does not*
+    (C-9's floor), so the tail view can say "seen, below the floor"
+    instead of "unknown" (ADR-046). Recorded forms: function parameters
+    (a pytest fixture argument is one), assignment and walrus targets,
+    ``for``/``with``/``except`` targets, and nested ``def``/``class``
+    names — each visible within the innermost enclosing function.
+    """
+    out: list[LocalBinding] = []
+
+    def record(name: str, extent: tuple[int, int]) -> None:
+        out.append(LocalBinding(name, extent[0], extent[1]))
+
+    def walk(node: Node, extent: tuple[int, int] | None) -> None:
+        kind = node.type
+        if kind == "function_definition":
+            own = (node.start_point.row + 1, node.end_point.row + 1)
+            if extent is not None:
+                name = node.child_by_field_name("name")
+                if name is not None:
+                    record(_text(name), extent)  # nested def binds outside
+            params = node.child_by_field_name("parameters")
+            if params is not None:
+                for param in params.named_children:
+                    ident = param if param.type == "identifier" else None
+                    if ident is None:
+                        for child in param.children:
+                            if child.type == "identifier":
+                                ident = child
+                                break
+                    if ident is not None:
+                        record(_text(ident), own)
+            body = node.child_by_field_name("body")
+            if body is not None:
+                for child in body.children:
+                    walk(child, own)
+            return
+        if kind == "class_definition":
+            if extent is not None:
+                name = node.child_by_field_name("name")
+                if name is not None:
+                    record(_text(name), extent)  # local class binds its name
+            # A class body is its own namespace: methods and class attrs
+            # do not bind bare names in the enclosing function, so the
+            # descent resets the extent (methods then bind their own
+            # params under their own extents, exactly like any def).
+            for child in node.children:
+                walk(child, None)
+            return
+        if extent is not None:
+            if kind in ("assignment", "augmented_assignment"):
+                left = node.child_by_field_name("left")
+                if left is not None:
+                    for ident in _target_identifiers(left):
+                        record(_text(ident), extent)
+            elif kind == "named_expression":
+                name = node.child_by_field_name("name")
+                if name is not None and name.type == "identifier":
+                    record(_text(name), extent)
+            elif kind == "for_statement":
+                left = node.child_by_field_name("left")
+                if left is not None:
+                    for ident in _target_identifiers(left):
+                        record(_text(ident), extent)
+            elif kind == "as_pattern":  # `with ... as f`, `except E as e`
+                alias = node.child_by_field_name("alias")
+                if alias is not None:
+                    for ident in _target_identifiers(alias):
+                        record(_text(ident), extent)
+                    if alias.type == "as_pattern_target":
+                        for child in alias.named_children:
+                            for ident in _target_identifiers(child):
+                                record(_text(ident), extent)
+        for child in node.children:
+            walk(child, extent)
+
+    walk(root, None)
+    return out
 
 
 def _module_docstring(root: Node) -> str | None:

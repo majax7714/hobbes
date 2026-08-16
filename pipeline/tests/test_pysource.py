@@ -174,3 +174,72 @@ class TestResilience:
     def test_empty_file(self):
         p = parse("")
         assert (p.imports, p.symbols, p.calls, p.env_reads) == ([], [], [], [])
+
+
+class TestLocalBindings:
+    """Sub-module bindings with enclosing-function extents (ADR-046)."""
+
+    def bindings(self, text):
+        from hobbes.extract.pysource import parse_source
+        return {(b.name, b.start, b.end)
+                for b in parse_source(text.encode()).local_bindings}
+
+    def test_parameters_bind_within_their_function(self):
+        got = self.bindings(
+            "def test_x(fake_policy_bin, tmp_path):\n"
+            "    pass\n")
+        assert ("fake_policy_bin", 1, 2) in got
+        assert ("tmp_path", 1, 2) in got
+
+    def test_typed_and_defaulted_parameters_bind_too(self):
+        got = self.bindings(
+            "def run(count: int, retry=False, *args, **kwargs):\n"
+            "    pass\n")
+        assert {n for n, _, _ in got} == {"count", "retry", "args", "kwargs"}
+
+    def test_assignments_and_tuple_targets_bind(self):
+        got = self.bindings(
+            "def go():\n"
+            "    out = make()\n"
+            "    a, b = pair()\n")
+        assert {n for n, _, _ in got} >= {"out", "a", "b"}
+
+    def test_a_nested_def_binds_in_the_enclosing_function(self):
+        got = self.bindings(
+            "def outer():\n"
+            "    def symbol_at(line):\n"
+            "        pass\n"
+            "    symbol_at(3)\n")
+        # the nested def's *name* carries the outer extent; its param
+        # carries its own
+        assert ("symbol_at", 1, 4) in got
+        assert ("line", 2, 3) in got
+
+    def test_for_with_and_except_targets_bind(self):
+        got = self.bindings(
+            "def go():\n"
+            "    for item in xs:\n"
+            "        pass\n"
+            "    with open(p) as fh:\n"
+            "        pass\n"
+            "    try:\n"
+            "        pass\n"
+            "    except ValueError as exc:\n"
+            "        pass\n")
+        assert {n for n, _, _ in got} >= {"item", "fh", "exc"}
+
+    def test_module_level_names_are_not_local_bindings(self):
+        got = self.bindings("X = make()\nfor y in xs:\n    pass\n")
+        assert got == set()
+
+    def test_a_local_class_binds_its_name_but_not_its_methods(self):
+        got = self.bindings(
+            "def outer():\n"
+            "    class Helper:\n"
+            "        def ping(self):\n"
+            "            pass\n"
+            "    return Helper\n")
+        names = {n for n, _, _ in got}
+        assert "Helper" in names
+        assert "ping" not in names  # a method is not a bare-callable local
+        assert ("self", 3, 4) in got  # but its params bind in the method

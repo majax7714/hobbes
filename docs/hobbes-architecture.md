@@ -368,7 +368,10 @@ remainder *is* — per file, in `resolution_coverage.tail` — **by
 observation only, never inference**: checker origins for TS/JS (a binding
 declared below the modelled vocabulary is `local-binding` — seen and
 deliberately not modelled, C-9, which is knowledge rather than ignorance),
-same-file import bindings for Python (`import-binding`, lane A's own
+lane A's own sub-module bindings for Python and Go (the same
+`local-binding` class at a stated lesser proof grade — the binding's
+enclosing-function extent must span the call's line, ADR-046), same-file
+import bindings for Python (`import-binding`, lane A's own
 parse — usually the shape of a missing environment, C-23/C-27/C-30),
 pinned builtin-name matches, and text shape (`attr-call`), with
 `unclassified` as the honest residue. A class states a checkable fact or

@@ -270,18 +270,20 @@ information appears in both, and the entries cross-reference.
 ### C-32 — The tail view's classes are observations with boundaries
 - **Cannot tell you:** *why* a call is unresolved beyond what its class
   observes — and three boundaries shape what the classes can say.
-  **Checker-origin classes** (`local-binding` / `nested-decl` /
-  `external-origin`) exist **for TS/JS only**: no other syntax provider
-  resolves declarations, so a Python local's call lands in
-  `unclassified` or `attr-call`, and an absent `local-binding` count for
-  Python means *not asked*, never "no locals". Python's
-  `import-binding` (added the same day, ADR-045 amendment) narrows this
-  but is **binding-proven, not declaration-proven** — the import
-  statement binds the name; a later local assignment shadowing it would
-  still match, the same "matches" honesty as `builtin-name`. It is also
-  Python-only: a Go import binds a package name, not a callable, so
-  Go's closure-typed bare tail stays `unclassified` rather than
-  borrowing a class that does not mean anything there. **Builtin lists are
+  **Origin classes carry two proof grades** (narrowed by ADR-046, which
+  applied this entry's candidate fix): for TS/JS, `local-binding` /
+  `nested-decl` / `external-origin` are **declaration-proven** — the
+  checker resolved where the callee lives. For Python and Go,
+  `local-binding` is **binding-proven with scope containment** — lane
+  A recorded the binding (a parameter, a `:=` or assignment target, a
+  nested def) with its enclosing function's extent, and the site
+  matches only when that extent spans the call's line; `nested-decl`
+  and `external-origin` do not exist for them, and Python's
+  `import-binding` (ADR-045 amendment) is binding-proven the same way,
+  minus the scope check — an import binds at module level. **Rust has
+  no origin classes at all**: both verified Rust tails are empty, so a
+  collector could not be verified against anything real, and wiring one
+  on zero evidence would be the P11 mistake at class scale. **Builtin lists are
   pinned literals**, not the running interpreter's — a builtin the
   language adds later classifies `unclassified` until the pin moves.
   **Shape is read from the terminal's source line** — a wrapped chain

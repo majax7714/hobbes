@@ -7,10 +7,15 @@ checkable fact about the site:
 
 - ``fallback-resolved`` — lane A's resolver produced a (syntactic) edge
   for this site; only the semantic provider came up empty.
-- ``local-binding`` — the checker resolved the callee to a declaration
-  **in the same file**, below the graph's modelled vocabulary (C-9): a
-  destructured setter, a handler ``const``, a nested function. Seen and
-  deliberately not modelled — not unknown.
+- ``local-binding`` — the callee is a binding **below the modelled
+  vocabulary in the same file** (C-9): a destructured setter, a handler
+  ``const``, a nested function, a fixture parameter, a closure-typed
+  ``:=`` target. Seen and deliberately not modelled — not unknown. Two
+  proof grades, both observations (ADR-046): for TS/JS the checker
+  resolved the declaration; for Python and Go, lane A's own parse
+  recorded the binding *with its enclosing function's extent*, and the
+  site matches only when that extent spans the call's line — scope
+  containment, not a file-wide name coincidence.
 - ``nested-decl`` — same, but the declaration lives in another repo file.
 - ``external-origin`` — every declaration the checker found lives outside
   the repo: a dependency or an ambient lib. Known origin, unresolved call.
@@ -185,19 +190,26 @@ def classify(
     origins: dict[tuple[str, int, str], str] | None = None,
     fallback: dict[tuple[str, int, str], tuple] | None = None,
     import_bindings: dict[str, frozenset[str]] | None = None,
+    local_bindings: dict[str, tuple] | None = None,
 ) -> dict[str, Counter]:
     """Per-file tail classes for the *unresolved* call sites.
 
     *origins* is the checker's verdict per site (tsextract v4), keyed
     like the fallback dict: ``(file, line, name)``. *import_bindings*
     maps a file to the names its import statements bind (lane A's own
-    parse — Python's ``FromImport`` bound names today). Every input
-    site lands in exactly one class, so per file the counts sum to the
-    coverage row's ``unresolved`` — an invariant the tests pin.
+    parse — Python's ``FromImport`` bound names today).
+    *local_bindings* maps a file to ``(name, start, end)`` tuples — lane
+    A's sub-module bindings with enclosing-function extents (ADR-046);
+    a bare site matches only when an extent spans its line, and a
+    scope-contained local outranks an import binding because a binding
+    inside the enclosing function shadows a module-level import. Every
+    input site lands in exactly one class, so per file the counts sum
+    to the coverage row's ``unresolved`` — an invariant the tests pin.
     """
     origins = origins or {}
     fallback = fallback or {}
     import_bindings = import_bindings or {}
+    local_bindings = local_bindings or {}
     lines = _Lines(repo_root)
     out: dict[str, Counter] = {}
     for site in unresolved:
@@ -212,7 +224,13 @@ def classify(
             shape = _shape(text, site.name, site.col) if text is not None else None
             builtins_ = _BUILTINS.get(lang or "", frozenset())
             bound = import_bindings.get(site.file, frozenset())
-            if shape == "bare" and site.name in bound:
+            locals_ = local_bindings.get(site.file, ())
+            if shape == "bare" and any(
+                name == site.name and start <= site.line <= end
+                for (name, start, end) in locals_
+            ):
+                cls = LOCAL
+            elif shape == "bare" and site.name in bound:
                 cls = IMPORT_BINDING
             elif shape == "bare" and site.name in builtins_:
                 cls = BUILTIN

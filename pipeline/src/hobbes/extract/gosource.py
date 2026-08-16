@@ -69,6 +69,11 @@ class GoFile:
     calls: list[dict] = field(default_factory=list)
     env_reads: list[dict] = field(default_factory=list)
     tests: list[dict] = field(default_factory=list)
+    #: (name, start, end): names bound below package level — parameters
+    #: (receivers and named results included), `:=` and `var` targets,
+    #: range targets — with the enclosing function's line extent, so the
+    #: tail view can match a bare call by scope containment (ADR-046).
+    local_bindings: list[tuple] = field(default_factory=list)
 
 
 def has_go_files(repo_root: Path) -> bool:
@@ -151,7 +156,66 @@ def _parse_file(rel: str, source: bytes) -> GoFile:
 
     parsed.calls = _calls(root, parsed.symbols)
     parsed.env_reads = _env_reads(root)
+    parsed.local_bindings = _local_bindings(root)
     return parsed
+
+
+def _local_bindings(root: Node) -> list[tuple]:
+    """Names bound below package level, with enclosing-function extents.
+
+    The observation the tail view needs (ADR-046): a bare unresolved Go
+    call is usually a closure-typed local (``cleanup := func() {...}``,
+    ``ctx, cancel := context.WithCancel(...)``) — bound here, invisible
+    to both lanes' resolvers, and previously "unclassified". Recorded
+    forms: parameters (receiver and named results included), ``:=`` and
+    ``var`` targets, and ``range`` targets, each inside the innermost
+    ``func``. Package-level declarations are symbols, not bindings.
+    """
+    out: list[tuple] = []
+
+    def idents(node: Node):
+        if node.type == "identifier":
+            yield node
+        elif node.type == "expression_list":
+            for child in node.named_children:
+                yield from idents(child)
+
+    def walk(node: Node, extent: tuple[int, int] | None) -> None:
+        kind = node.type
+        if kind in ("function_declaration", "method_declaration", "func_literal"):
+            own = (node.start_point.row + 1, node.end_point.row + 1)
+            for part in node.children:  # receiver, params, named results
+                if part.type == "parameter_list":
+                    for decl in part.named_children:
+                        for child in decl.children:
+                            if child.type == "identifier":
+                                out.append((_text(child), *own))
+            body = node.child_by_field_name("body")
+            if body is not None:
+                for child in body.children:
+                    walk(child, own)
+            return
+        if extent is not None:
+            if kind == "short_var_declaration":
+                left = node.child_by_field_name("left")
+                if left is not None:
+                    for ident in idents(left):
+                        out.append((_text(ident), *extent))
+            elif kind == "var_declaration":
+                for spec in node.named_children:
+                    if spec.type == "var_spec":
+                        for name in spec.children_by_field_name("name"):
+                            out.append((_text(name), *extent))
+            elif kind == "range_clause":
+                left = node.child_by_field_name("left")
+                if left is not None:
+                    for ident in idents(left):
+                        out.append((_text(ident), *extent))
+        for child in node.children:
+            walk(child, extent)
+
+    walk(root, None)
+    return out
 
 
 def _text(node: Node) -> str:
@@ -444,6 +508,11 @@ def _join(files: list[GoFile]) -> dict:
         "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
         "module_edges": _edge_list(module_edges),
         "symbols": sorted_symbols,
+        "local_bindings": {
+            parsed.path: tuple(parsed.local_bindings)
+            for parsed in files
+            if parsed.local_bindings
+        },
         "call_sites": _call_sites(files, packages, conversions),
         "call_fallback": _call_fallback(files, packages, conversions),
         "files": files,

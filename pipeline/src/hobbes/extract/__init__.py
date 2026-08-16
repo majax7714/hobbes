@@ -281,12 +281,25 @@ def _build_symbol_layer(
         )
         for module in modules
     }
+    # Sub-module bindings with enclosing-function extents (ADR-046):
+    # Python's from its parse, Go's from its layer. TS needs none — its
+    # checker origins already answer, one grade stronger.
+    local_bindings: dict[str, tuple] = {
+        module.path: tuple(
+            (b.name, b.start, b.end) for b in parsed[module.id].local_bindings
+        )
+        for module in modules
+        if parsed[module.id].local_bindings
+    }
+    if go:
+        local_bindings.update(go.get("local_bindings", {}))
     tails = tail.classify(
         ev.unresolved_sites(syntax, resolutions, external),
         repo_root,
         origins=origins,
         fallback=fallback,
         import_bindings=py_bindings,
+        local_bindings=local_bindings,
     )
     graph["resolution_coverage"] = [
         {
