@@ -574,3 +574,60 @@ class TestIntegrationIngest:
         graph = {p.name: json.loads(p.read_text()) for p in ingest(repo)}["graph.json"]
         assert graph["languages"] == ["javascript", "typescript"]
 
+
+
+@pytest.mark.skipif(not helper_available(), reason="node/ts-morph not installed")
+class TestRenderOnlyTestReach:
+    """C-24, lifted: a test that only renders a component reaches it.
+
+    The whole pipeline on a real .tsx repo — helper, join, fallback arm,
+    test collection — because the debt was end-to-end: `<Card />` was a
+    `uses` edge, reach follows `calls`, and a render-only test showed an
+    empty reach that read as "nothing guards this".
+    """
+
+    def test_rendering_a_component_reaches_it(self, tmp_path):
+        repo = tmp_path / "app"
+        (repo / "src").mkdir(parents=True)
+        (repo / "src" / "card.tsx").write_text(
+            "import { label } from \"./label.js\";\n"
+            "export function Card() {\n"
+            "  return <div>{label()}</div>;\n"
+            "}\n"
+        )
+        (repo / "src" / "label.tsx").write_text(
+            "export function label() { return \"hi\"; }\n"
+        )
+        (repo / "src" / "card.test.tsx").write_text(
+            "import { test } from \"vitest\";\n"
+            "import { render } from \"@testing-library/react\";\n"
+            "import { Card } from \"./card.js\";\n"
+            "test(\"renders\", () => {\n"
+            "  render(<Card />);\n"
+            "});\n"
+        )
+
+        from hobbes.extract import extract_repo
+
+        extraction = extract_repo(repo)
+        (record,) = [
+            t
+            for t in extraction.tests["tests"]
+            if t["id"].endswith("::renders")
+        ]
+        # The render is a call site, so reach closes over Card and what
+        # Card itself calls — not empty, and not just the direct render.
+        assert "src/card.Card" in record["reaches"]
+        assert "src/label.label" in record["reaches"]
+
+        # The honesty half: the calls edge exists and carries evidence at
+        # the JSX site's own line.
+        edges = [
+            e
+            for e in extraction.graph["symbol_edges"]
+            if e["type"] == "calls"
+            and e["to"] == "src/card.Card"
+            and e["from"].startswith("src/card.test")
+        ]
+        assert edges, "the render site must be a calls edge"
+        assert edges[0]["evidence"][0]["line"] == 5

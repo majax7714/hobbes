@@ -171,6 +171,50 @@ test("calls resolve locally, through imports, and to methods; externals omitted"
   assert.deepEqual(calls.map((c) => c.name), ["helper", "local", "express", "run"]);
 });
 
+test("JSX instantiations are call sites; intrinsics are not (C-24)", () => {
+  const root = makeRepo({
+    "src/card.tsx": "export function Card() { return <div>hi</div>; }\n",
+    "src/ui.tsx": [
+      "export const Ui = {",
+      "  Button: function Button() { return <span>b</span>; },",
+      "};",
+    ].join("\n"),
+    "src/app.tsx": [
+      'import { Card } from "./card.js";',
+      'import { Ui } from "./ui.js";',
+      "export function App() {",
+      "  return (",
+      "    <div>",
+      "      <Card />",
+      "      <Card>x</Card>",
+      "      <Ui.Button />",
+      "    </div>",
+      "  );",
+      "}",
+    ].join("\n"),
+  });
+  const facts = extractRepo(root);
+  const calls = byPath(facts, "src/app.tsx").calls;
+  // <div> never appears: an intrinsic is a string at runtime, not code
+  // this repo owns. <Card>x</Card> counts once — a closing tag repeats
+  // the name, it does not instantiate again.
+  assert.deepEqual(
+    calls.map((c) => [c.name, c.callee_path, c.scope]),
+    [
+      ["Card", "src/card.tsx", "App"],
+      ["Card", "src/card.tsx", "App"],
+      // A dotted tag is a claimed site with a null fallback resolution:
+      // lane A models only top-level symbols (`Ui.Button()` the call
+      // resolves to nothing for the same reason), and the join's
+      // semantic arm is what can still promote it.
+      ["Button", null, "App"],
+    ]
+  );
+  // Two Card sites: the self-closing element and the paired element's
+  // opening tag — two instantiations in the rendered tree.
+  assert.equal(calls.filter((c) => c.name === "Card").length, 2);
+});
+
 test("call sites carry the terminal identifier's name and 0-based column", () => {
   const root = makeRepo({
     "src/util.js": "export function helper() { return 1; }\nexport const obj = { helper };\n",

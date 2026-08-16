@@ -314,10 +314,6 @@ function resolveExpressionTarget(expr, repoRoot, fileSet) {
   return null;
 }
 
-function resolveCallTarget(call, repoRoot, fileSet) {
-  return resolveExpressionTarget(call.getExpression(), repoRoot, fileSet);
-}
-
 /** The identifier that names the callee — what a reader would point at,
  * and what SCIP puts its occurrence on. `f()` -> `f`; `a.b.c()` -> `c`. */
 function terminalIdentifier(expr) {
@@ -346,14 +342,22 @@ function terminalIdentifier(expr) {
  * because that is where the semantic provider puts its occurrence. They
  * differ on a wrapped chain (`obj\n  .method()`), and a line mismatch
  * there is a silently unjoined call rather than an error.
+ *
+ * **JSX instantiations are call sites** (C-24 lifted, 2026-08-15):
+ * `<BetCard />` executes BetCard when the element renders, so a test
+ * that only renders a component genuinely reaches it — leaving these as
+ * bare references made every such test's reach empty. Honesty about the
+ * edges of that claim: only component-like tags count (a capitalised
+ * identifier, or any dotted tag — `<div>` is a string at runtime, not
+ * code this repo owns); the framework mediates *when* the component
+ * body runs, exactly as any call site behind a branch mediates whether
+ * its callee runs; and only the opening tag is a site — a closing tag
+ * repeats the name, it does not instantiate again.
  */
 function extractCalls(sourceFile, repoRoot, fileSet) {
   const calls = [];
-  sourceFile.forEachDescendant((node) => {
-    if (!Node.isCallExpression(node)) return;
-    const terminal = terminalIdentifier(node.getExpression());
-    if (!terminal) return;
-    const target = resolveCallTarget(node, repoRoot, fileSet);
+  const push = (terminal, resolveFrom, scopeNode) => {
+    const target = resolveExpressionTarget(resolveFrom, repoRoot, fileSet);
     const { line, column } = sourceFile.getLineAndColumnAtPos(terminal.getStart());
     calls.push({
       // Lane A's own resolution, kept as the join's fallback rather than
@@ -365,8 +369,24 @@ function extractCalls(sourceFile, repoRoot, fileSet) {
       line,
       col: column - 1,
       name: terminal.getText(),
-      scope: enclosingScope(node),
+      scope: enclosingScope(scopeNode),
     });
+  };
+  sourceFile.forEachDescendant((node) => {
+    if (Node.isCallExpression(node)) {
+      const terminal = terminalIdentifier(node.getExpression());
+      if (terminal) push(terminal, node.getExpression(), node);
+      return;
+    }
+    if (Node.isJsxSelfClosingElement(node) || Node.isJsxOpeningElement(node)) {
+      const tag = node.getTagNameNode();
+      const component =
+        (Node.isIdentifier(tag) && /^[A-Z]/.test(tag.getText())) ||
+        Node.isPropertyAccessExpression(tag);
+      if (!component) return;
+      const terminal = terminalIdentifier(tag);
+      if (terminal) push(terminal, tag, node);
+    }
   });
   return calls.sort(
     (a, b) => a.line - b.line || a.col - b.col || a.name.localeCompare(b.name)

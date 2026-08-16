@@ -228,9 +228,16 @@ sandbox at the review's head ref (`hobbes-session --ref`, new) with the
 diff hunks in the prompt; a missing sandbox errors on the answer rather
 than falling back. P10's parked ask (broad-handler-encloses-refusal)
 stays parked — the other subsystems need typed refusals before a checker
-kind can want them. C-24's candidate fix was this register's guess at an
-M6 home, not the plan's — it remains open, flagged for a decision before
-M7.
+kind can want them.
+
+**C-24 lifted (2026-08-15, post-M6, Max-approved):** JSX instantiations
+are call sites in the tsextract syntax provider — the condition was that
+"in every meaningful sense" keeps its outliers named, and the lifted
+entry names them (component-like tags only, framework-mediated timing =
+call-behind-a-branch, closing tags are not sites, a component passed as
+a value stays `uses`). Verified on kbet: 12 test→component render edges,
+all semantic tier, 108/174 tests now reach a component; lanes agree on
+both repos.
 
 **V2.M5 — Go, and the checklist correction (ADR-037).** Hobbes now sees
 **its own Go**: 216 nodes across `go, hcl, javascript, python, typescript`,

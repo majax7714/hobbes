@@ -74,8 +74,10 @@ resolves in neither. Registered as **C-12**.
   call is attributed to the `it()` enclosing it; calls outside every case
   (a `beforeEach`, a `describe` body) are shared by the file's cases,
   because that code really does run for each. Constraint **C-11** is
-  lifted; its residue is **C-24** (a test that only renders a component
-  reaches nothing, since JSX is a `uses` edge and reach follows calls).
+  lifted; its residue was **C-24** (a test that only renders a component
+  reached nothing, since JSX was a `uses` edge and reach follows calls) —
+  **also lifted, 2026-08-15**: JSX instantiations are call sites in the
+  syntax provider, Max-approved with the outliers named in the register.
   Original note follows.
 
   (from M6, deferred 2026-08-11). JS test reach

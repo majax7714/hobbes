@@ -250,31 +250,35 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-021 (the limit), V2.M3 (the lift). Superseded by C-24,
   which is the honest residue.
 
-### C-24 — A test that only *renders* a component does not reach it
-- **Cannot tell you:** that a React component test guards the component it
-  renders. Reach is the closure over **call** edges, and `<BetCard />` is a
-  JSX element, not a call site — it lands in the graph as a `uses` edge
-  (182 of them on kbet), which reach deliberately does not follow.
-- **Because:** distinguishing "renders this component" from "names this
-  type in an annotation" needs the `syntax_kind` SCIP does not populate
-  (C-6). Both are `uses`.
-- **Bites at:** `tests_guarding` on component-heavy repos, and `hobbes
-  review`'s unguarded-new-code verdict.
-- **Direction is deliberate.** This *under*-reports, where C-11
-  over-reported, and that asymmetry is the point: under-reporting makes
-  `review` flag code as unguarded and a human looks; over-reporting lets
-  code claim guarding it does not have. Given a choice between two
-  inaccuracies, reach takes the one that fails toward attention. It also
-  keeps JS reach computed exactly as pytest reach is (ADR-007's closure
-  over calls), which is what C-11 was really about.
-- **You find out:** **unsurfaced.** A render-only test row shows an empty
-  `reaches` and gives no reason.
-- **Candidate fix:** record JSX elements as call sites in the syntax
-  provider — a JSX instantiation *is* a call in every meaningful sense —
-  or seed a case's reach from the `uses` edges inside its own range.
-  Deferred to V2.M6, where the reviewer flow is the consumer that would
-  feel it.
-- **Source:** V2.M3.
+### C-24 — A test that only *renders* a component does not reach it — **LIFTED 2026-08-15**
+- **Was:** reach is the closure over **call** edges, and `<BetCard />` was
+  a JSX element, not a call site — a `uses` edge reach deliberately did
+  not follow, so a render-only test showed an empty `reaches` that read
+  as "nothing guards this". The entry's asymmetry argument (under-report
+  rather than over-report) held while the choice was between two
+  inaccuracies; the fix removes the inaccuracy instead of picking a
+  direction.
+- **Lifted by:** the tsextract syntax provider records a JSX
+  instantiation as a call site (Max-approved, 2026-08-15) — the
+  component executes when the element renders, so the site is a call in
+  the sense reach cares about. The join then treats it like any other
+  site: lane A's fallback where it resolves, promoted to `semantic`
+  where SCIP confirms. Measured on kbet: 12 direct test→component render
+  edges, **all semantic tier** (BetCard among them — this entry's own
+  example), and 108 of 174 tests now reach a component, with closure
+  over what the component itself renders (`ActiveBetsStrip →
+  StripButton`). The lanes agree on both kbet and this repo.
+- **Honest residue — the outliers of "a JSX instantiation is a call":**
+  only component-like tags count (a capitalised identifier or a dotted
+  tag; `<div>` is a string at runtime, not code the repo owns); the
+  framework mediates *when* the body runs, exactly as any call behind a
+  branch mediates whether its callee runs; a closing tag is not a second
+  site; and a component passed as a *value* (`<Route component={Card}>`)
+  is still a `uses` edge, because nothing at that site instantiates it.
+  kbet's remaining 44 empty-reach tests are store/logic tests in plain
+  `.ts` files — a different residual (calls through mocks and store
+  indirection), not this entry's subject.
+- **Source:** V2.M3; lifted 2026-08-15, after V2.M6 and before V2.M7.
 
 ### C-12 — Imports across tsconfig zones do not resolve
 - **Cannot tell you:** that package A imports package B in a monorepo,
@@ -572,19 +576,15 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Six of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
-narrowed to three tools at V2.M6 — C-20, C-24). Four have been
-**lifted** — C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep
-(which also surfaced C-5 and C-26), and C-18 at V2.M6, whose fix made
-soft verdicts source-based. That churn is the point of keeping the
-register: none of it was knowable before this file existed, and what
-remains is the backlog P8 generates.
-
-C-24's candidate fix (JSX elements as call sites, so a render-only test
-guards what it renders) was this entry's guess at a V2.M6 home; the
-approved M6 plan did not include it and it remains open — the reviewer
-flow is the consumer that feels it, so it is a candidate for a decision
-before V2.M7 rather than a silently dropped promise.
+Five of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
+narrowed to three tools at V2.M6 — and C-20). Five have been **lifted** —
+C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
+surfaced C-5 and C-26), C-18 at V2.M6, and C-24 the same day: Max
+approved JSX instantiations as call sites with the standing condition
+that "in every meaningful sense" keeps its outliers named, which the
+lifted entry does. That churn is the point of keeping the register: none
+of it was knowable before this file existed, and what remains is the
+backlog P8 generates.
 
 C-27 arrived the way the register says entries should: C-16's first
 working run produced a number (0 of 5 resolved), the number was
@@ -628,21 +628,19 @@ path to be written down.
 
 Ranked by how badly each remaining entry misleads, worst first:
 
-1. **C-24** — an empty `reaches` on a component test reads as "nothing
-   guards this", though it fails in the safe direction by design.
-   Deferred to V2.M6 by its own entry.
-2. **C-12** — a monorepo's cross-zone import edge is simply absent, at
+1. **C-12** — a monorepo's cross-zone import edge is simply absent, at
    exactly the altitude the graph exists to show.
-3. **C-14** — an empty CLI list reads as "no CLI" on TS/JS and Go repos.
+2. **C-14** — an empty CLI list reads as "no CLI" on TS/JS and Go repos.
 
 The rest stay quiet rather than lying, which is a real difference.
 
 **Nothing left in the register inflates a number.** C-11 was the only
 entry that made a claim larger than the truth, and V2.M3 lifted it; C-24,
-its residue, was deliberately chosen to fail toward attention instead.
-Every remaining limit under-reports or stays silent — so a Hobbes number
-can now be read as a floor, which is a property worth defending in later
-milestones.
+its deliberately-under-reporting residue, was lifted in turn once the
+under-report could be replaced with the true edge rather than the safer
+inaccuracy. Every remaining limit under-reports or stays silent — so a
+Hobbes number can now be read as a floor, which is a property worth
+defending in later milestones.
 
 **Track record so far:** three of the four entries touched at V2.M3 were
 *already true and already invisible* before the register existed — C-23 in

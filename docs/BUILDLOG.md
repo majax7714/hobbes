@@ -2298,3 +2298,50 @@ Binaries rebuilt (web, proxy, sandbox proxy, session).
 
 **V2.M6 stops here for review.** V2.M7 (Rust proof) does not start until
 Max passes it.
+
+---
+
+## 2026-08-15 (thirteenth) — C-24 lifted: a render is a call, outliers named
+
+Max's call on the flagged debt: JSX instantiations become call sites,
+"as long as that's something we keep honest with what hobbes does —
+'in every meaningful sense' always can have outliers." The condition
+shaped the change as much as the mechanism did.
+
+**The mechanism is one gate in the syntax provider.** `extractCalls`
+records a JSX opening or self-closing element as a call site when the
+tag is component-like — a capitalised identifier or any dotted tag —
+positioned on the tag's terminal identifier, exactly where SCIP puts its
+occurrence. Everything downstream is the existing machinery: the range
+join claims the site, lane A's fallback resolves what it can (top-level
+symbols only, same as `Ui.Button()` the call), and SCIP promotes to
+semantic where it confirms. No schema change, no helper version bump —
+more sites, same shape.
+
+**The outliers, named where a user meets them** (the lifted C-24 entry
+and the extractor's own docstring): `<div>` is a string at runtime, not
+code the repo owns — excluded; the framework mediates *when* a component
+body runs, which is the same epistemic status as any call site behind a
+branch; a closing tag repeats a name and is not a second site; and a
+component passed as a value (`<Route component={Card}>`) stays a `uses`
+edge, because nothing at that site instantiates it.
+
+**Verified on kbet — the repo where the debt was measured.** 12 direct
+test→component render edges, **all semantic tier**, `BetCard` among them
+(the entry's own example); **108 of 174 tests now reach a component**,
+with closure through what components themselves render (`ActiveBetsStrip
+→ StripButton`). The 44 still-empty rows are store/logic tests in plain
+`.ts` files — a different residual, honestly outside this entry's
+subject. `hobbes lanes` runs clean on kbet and on this repo (whose own
+web SPA gained its render edges: 3,738 call edges, up 137). The
+end-to-end case is pinned in `test_tssource.py`: a render-only vitest
+case reaches the component *and* what the component calls, evidence at
+the JSX line.
+
+Register: C-24 **lifted** — five lifted, five unsurfaced of twenty-seven,
+and the "nothing inflates a number" property holds: the under-reporting
+residue was replaced with the true edge, not with the safer inaccuracy.
+
+521 pytest / 22 tsextract / 52 vitest / 18 scip; Go untouched.
+
+**Pausing here before V2.M7 (the Rust proof), per Max.**
