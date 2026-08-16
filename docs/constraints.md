@@ -620,6 +620,40 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-026, `future_additions.md`. Instance recorded
   2026-08-15; surfaced by ADR-042 (2026-08-16).
 
+## The system's own claims
+
+### C-31 — "Supported" is a verified sample, not the language
+- **Cannot tell you:** that ingesting *your* repo in a supported language
+  will hold to the accuracy measured on the repos in architecture §3.8.
+  The verification base is asymmetric by an order of magnitude: Python
+  and TS/JS were proven across multiple repos of different shapes; **Go
+  on exactly one repo — this one, a shape its own builders chose**;
+  **Rust on one small repo**, 33 hand-checked call edges plus a fixture.
+- **Because:** hand-verification is per-repo work, and a language's long
+  tail — frameworks, macro styles, build layouts, dynamic idioms — is in
+  no sample. The machinery being shared (P7: zero builder lines per
+  language) is precisely what lets a thin sample *look* like broad
+  coverage: the sixth language ingests as smoothly as the first,
+  whatever the graph then misses.
+- **Bites at:** the decision to trust a graph on the first repo of a
+  shape Hobbes has never seen; every sentence of the form "Hobbes covers
+  X".
+- **You find out:** **unsurfaced.** The runtime mechanisms surface what
+  they can *detect* — tiers, `dependency_coverage`,
+  `extraction_errors`, `hobbes lanes` — but a systematic blind spot the
+  sample never exercised degrades nothing and warns nowhere, and nothing
+  at ingest states how thin the verification base for your language is.
+  §3.8's table is a document, and a document is not a surfacing — this
+  register's own rule, applied to the claim the register itself sits
+  under.
+- **Candidate surfacing:** per-language verification depth in the ingest
+  summary and beside the surface's language list — "rust: verified on 1
+  repo" next to the badge, in the moment the language list is read as a
+  capability list.
+- **Source:** ADR-044; the owner's directive, 2026-08-16 — a coverage
+  claim beyond its evidence is dishonest even when the machinery behind
+  it is proven.
+
 ---
 
 # Lifted constraints
@@ -784,8 +818,8 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Three of **thirty** entries are **unsurfaced** (C-4, C-19 — narrowed to
-two tools — and C-20). Six are **lifted** and live in the Lifted part
+Four of **thirty-one** entries are **unsurfaced** (C-4, C-19 — narrowed
+to two tools — C-20, and C-31). Six are **lifted** and live in the Lifted part
 above with their techniques and residual edge cases documented —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),
@@ -876,7 +910,14 @@ its deliberately-under-reporting residue, was lifted in turn once the
 under-report could be replaced with the true edge rather than the safer
 inaccuracy. Every remaining limit under-reports or stays silent — so a
 Hobbes number can now be read as a floor, which is a property worth
-defending in later milestones.
+defending in later milestones. **C-31 is the near-exception and the
+reason it was filed** (2026-08-16): not a number but a word —
+"supported" — that read larger than its evidence, a language list whose
+rows presented as peers while their verification bases differ by an
+order of magnitude. Architecture §3.8 now scopes the claim; the entry
+holds the unsurfaced remainder, deliberately taken as debt with its
+candidate surfacing named, rather than pretending a table in a document
+reaches a user at ingest.
 
 **Track record so far:** three of the four entries touched at V2.M3 were
 *already true and already invisible* before the register existed — C-23 in

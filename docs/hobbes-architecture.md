@@ -69,6 +69,25 @@ cannot execute a command in a space where it literally cannot, then it
 literally cannot.* Enforcement that depends on the model's cooperation is
 not enforcement.
 
+**The guaranteed fraction is the product.** A model handed a repo raw has
+a **0% guarantee** of assembling accurate systematic context — it often
+does well, and nothing bounds when it does not. Hobbes's job, stated as
+insurance rather than omniscience: convert some fraction of the codespace
+from *left to model interpretation* into *derived, checked, and citable* —
+and the integrity of that fraction matters more than its size. If Hobbes
+can confidently capture 20% of a repo, then that 20% must be properly and
+effectively captured: every edge tiered, every concession registered,
+nothing inflated (the register's floor property — no remaining limit
+inflates a number). A small guaranteed fraction is not a small result,
+twice over. First, it moves the guarantee from zero to a real number, and
+the sandbox hardens the same move on the action side — a forbidden command
+is absent, not refused — so both what an agent must be trusted to *know*
+and what it must be trusted to *not do* shrink together. Second, the
+complement is itself information: what Hobbes cannot reliably capture is
+thereby **identified** — the dynamic, unique, or special parts of the
+repo, pointed at as needing care rather than papered over. The register
+(P8) is what keeps the boundary between the two honest.
+
 Three of the four pieces exist. The graph makes the derivation possible
 (§3), invariants make the result checkable (§5), and the policy engine and
 sandbox already make it enforceable (§6). What is **not** built is the
@@ -132,6 +151,18 @@ is not a hosted product, an application to log into, or an IDE plugin (§9).
   usually not thinking about the specific one: V2.M4's `except Exception`
   around packs swallowed the refusal guarding I-1 and turned a refused
   ingest into a successful one (ADR-036).
+- **P11 — A coverage claim is scoped to its evidence.** "Hobbes supports
+  language X" is shorthand for an enumerable fact — the machinery ran
+  end-to-end on the repos in §3.8 and the stated checks passed *there* —
+  and it licenses nothing beyond that sample. Verification on one small
+  repo proves the **machinery**, not the **language**: 33 hand-checked
+  call edges make "Rust ingestion works and is honest about its tiers" a
+  true claim and "Hobbes covers Rust" a false one, and the false one is
+  the confident-surface-over-known-gap shape P8 exists to prevent. So a
+  statement of support names its sample; extending the claim means
+  extending §3.8's table in the same commit as the evidence; and where
+  languages are listed as peers, the asymmetry of their evidence bases is
+  stated too. The register carries the residual risk as C-31 (ADR-044).
 
 ---
 
@@ -382,6 +413,11 @@ every-commit fast path. Full re-index is always available and always correct
 2. Register a **syntax provider** (detection): a lane A grammar that finds
    call sites with file, line, column and terminal name.
 3. Optional: enrichment pack(s) for its frameworks.
+4. **Record the evidence** (ADR-044): verify on at least one real repo,
+   hand-check a sample of edges against their cited lines, and extend
+   §3.8's table *in the same commit*. A language absent from that table
+   is **wired**, not **supported** (P11) — and one row licenses one
+   row's worth of claim.
 
 Nothing else — no change to the graph builder, the join, the schema or the
 packs. Rust is the intended proof.
@@ -429,6 +465,39 @@ or gitignored, and a fresh clone gets the same packs as the machine that
 ingested last. It returns the day someone needs a pack *disabled* for one
 repo (C-25), and that file will have to live somewhere that survives a
 clone.
+
+### 3.8 Coverage evidence — what "supported" means
+
+"Supported" is a claim about a **sample**, and this table *is* the sample
+(P11, ADR-044). Each row states what has actually been verified — never
+what the machinery ought to generalise to. Extending a language's claim
+means extending its row, in the same commit as the evidence.
+
+| Language | Verified on | The evidence |
+|---|---|---|
+| **Python** | this repo (dogfood, continuous), SELENEX, qwen-pathology | 3,070 call sites measured with per-file resolution coverage (ADR-029); lane agreement 1,789 sites / 0 disagreements; 10/10 sampled narrative claims resolve (M5); exercised by the full test suite on every run |
+| **TypeScript / JavaScript** | kbet (real Vite+React app), SELENEX, this repo's `web/` | kbet: 231 semantic call edges, 20/20 hand-verified; 20/20 edges + 10/10 test mappings (M6); lane agreement 359 sites / 0. SELENEX: 11 JS module edges + 9 call edges + 9 node:test mappings, 100% hand-verified |
+| **Go** | **one repo — this one** | 813 call edges, 20/20 hand-verified; 216 nodes (V2.M5) |
+| **Rust** | **one small repo** (`rust_proj`) + the minirust fixture | 33 call edges, all semantic, 100% hand-checked; lanes clean at 17 sites (V2.M7) |
+| **Terraform/HCL** | SELENEX, this repo | cross-layer `packages` edge hand-verified at the cited line (M3); pack removability byte-for-byte (V2.M4) |
+
+The asymmetry is the point of the table, so state it plainly rather than
+letting the rows read as peers. Python and TS/JS were proven across
+multiple repos of different shapes. **Go's entire evidence base is one
+repo, and it is Hobbes's own** — a shape its builders chose. **Rust's is
+one small repo**: enough to prove P7 (zero builder lines) and the honesty
+machinery (tiers, `dependency_coverage`, the C-29 disclosure), and *not*
+enough to claim the language — macro-heavy crates, larger workspaces, and
+build layouts unlike the sample's are outside the claim because they are
+outside the evidence.
+
+What does carry across languages without per-language evidence is the
+honesty machinery itself — tier stamps, degradation records, coverage
+counts, lane agreement — because it is the shared code path and the test
+suite exercises it on every run. What never carries: "the graph is right
+about repos shaped unlike the sample." That residual risk is registered
+as **C-31**, and it is unsurfaced today — nothing at ingest tells a user
+how thin the verification base for their language is.
 
 ---
 
