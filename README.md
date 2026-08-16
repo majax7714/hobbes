@@ -137,8 +137,8 @@ been started, and Hobbes is not it yet.
 Mermaid + graph diff, Terraform layer, sandbox and tool proxy, narrative
 pass, TS/JS extraction, web surface, invariants and the reviewer flow.
 
-**v2 (the extraction rebuild) is underway — V2.M0–V2.M4 done and
-reviewed, V2.M5 built and awaiting review.** Two lanes over SCIP, graph
+**v2 (the extraction rebuild) is underway — V2.M0–V2.M5 done and
+reviewed, V2.M6 built and awaiting review.** Two lanes over SCIP, graph
 schema v4 with tiers and evidence lanes, semantic edges for Python,
 TypeScript and Go, framework knowledge isolated into removable enrichment
 packs, and a lane-agreement self-test that compares 2710 call sites across
