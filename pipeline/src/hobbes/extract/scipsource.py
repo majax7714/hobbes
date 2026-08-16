@@ -51,23 +51,36 @@ class ScipError(RuntimeError):
 
 
 def declared_dependencies(repo_root: Path) -> list[str]:
-    """Third-party packages the repo says it needs (pyproject.toml).
+    """Third-party packages the repo says it needs (every pyproject.toml).
 
     Fed to the helper so Decision 4's degradation check has something to
     compare against: an index that resolved *none* of a repo's declared
     dependencies is one whose environment is not installed, and its missing
     third-party edges are absent rather than nonexistent. Without this the
     check is inert — which it silently was until the SELENEX ingest.
+
+    Walks the whole repo (the pruned `iter_pyprojects` walk, same as the
+    CLI pack), not just the root: a repo whose manifest lives in a
+    subdirectory — this repo's own deps are in ``pipeline/pyproject.toml``
+    — otherwise runs the check against an empty list, and an inert check
+    that appears to run is worse than no check (C-16, lifted here).
     """
-    pyproject = Path(repo_root) / "pyproject.toml"
-    if not pyproject.is_file():
-        return []
+    from hobbes.extract.interfaces import iter_pyprojects
+
+    names: set[str] = set()
+    for pyproject in iter_pyprojects(Path(repo_root)):
+        names.update(_declared_in(pyproject))
+    return sorted(names)
+
+
+def _declared_in(pyproject: Path) -> set[str]:
+    """Bare package names one ``pyproject.toml`` declares."""
     try:
         import tomllib
 
         data = tomllib.loads(pyproject.read_text())
     except (OSError, ValueError):
-        return []
+        return set()
     project = data.get("project") or {}
     specs = list(project.get("dependencies") or [])
     for extra in (project.get("optional-dependencies") or {}).values():
@@ -80,7 +93,7 @@ def declared_dependencies(repo_root: Path) -> list[str]:
         name = re.split(r"[<>=!~;\[ ]", spec.strip(), maxsplit=1)[0]
         if name:
             names.add(name)
-    return sorted(names)
+    return names
 
 
 def declared_npm_dependencies(package_json: Path) -> list[str]:

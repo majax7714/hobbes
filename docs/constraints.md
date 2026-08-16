@@ -321,16 +321,20 @@ information appears in both, and the entries cross-reference.
   data loss decided by ordering *in silence* before M8 review.
 - **Source:** M8 review, `future_additions.md` → cross-language namespacing.
 
-### C-16 — Dependency-degradation detection reads only the repo root's manifest
-- **Cannot tell you:** that an environment is uninstalled when the
-  manifest lives in a subdirectory — this repo's own Python deps are in
-  `pipeline/pyproject.toml`, so its own degradation check is inert.
-- **Because:** `declared_dependencies` looks at `<repo>/pyproject.toml`.
-- **Bites at:** ADR-027 Decision 4's check, on exactly the repo Hobbes
-  dogfoods against.
-- **You find out:** **unsurfaced**, and worse than unsurfaced — the check
-  *appears* to run and reports nothing.
-- **Source:** BUILDLOG 2026-08-14 (seventh), found via SELENEX.
+### C-16 — Dependency-degradation detection reads only the repo root's manifest — **LIFTED 2026-08-15**
+- **Was:** `declared_dependencies` looked only at `<repo>/pyproject.toml`,
+  so a repo whose manifest lives in a subdirectory — this repo's own deps
+  are in `pipeline/pyproject.toml` — ran ADR-027 Decision 4's check
+  against an empty list. Worse than unsurfaced: the check *appeared* to
+  run and reported nothing, on exactly the repo Hobbes dogfoods against.
+- **Lifted by:** the pre-M6 register sweep — the function now unions
+  every `pyproject.toml` in the repo via the same pruned walk the CLI
+  pack uses (`iter_pyprojects`), with the subdirectory case pinned by a
+  test written in this repo's own shape. The TS half was already
+  per-zone (`declared_npm_dependencies` takes the zone's `package.json`)
+  and needed nothing.
+- **Source:** BUILDLOG 2026-08-14 (seventh), found via SELENEX; lifted
+  2026-08-15.
 
 ## Narrative, invariants, and review
 

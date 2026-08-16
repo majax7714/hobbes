@@ -188,3 +188,31 @@ class TestDeclaredDependencies:
     def test_malformed_pyproject_is_not_an_error(self, tmp_path):
         repo = self._write(tmp_path, "this is not toml {{{")
         assert scipsource.declared_dependencies(repo) == []
+
+    def test_subdirectory_manifests_are_walked(self, tmp_path):
+        # C-16 (lifted): a src-layout repo whose manifest lives below the
+        # root — this repo's own shape, deps in pipeline/pyproject.toml —
+        # must not run the degradation check against an empty list.
+        sub = tmp_path / "pipeline"
+        sub.mkdir()
+        (sub / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["tree-sitter<0.26"]\n'
+        )
+        assert scipsource.declared_dependencies(tmp_path) == ["tree-sitter"]
+
+    def test_manifests_union_across_packages(self, tmp_path):
+        self._write(tmp_path, '[project]\ndependencies = ["httpx"]\n')
+        sub = tmp_path / "worker"
+        sub.mkdir()
+        (sub / "pyproject.toml").write_text('[project]\ndependencies = ["httpx", "redis"]\n')
+        assert scipsource.declared_dependencies(tmp_path) == ["httpx", "redis"]
+
+    def test_walk_prunes_hidden_and_vendored_directories(self, tmp_path):
+        # node_modules can be 222 MB on a real app; a dependency's own
+        # manifest is not this repo's declaration either way.
+        hidden = tmp_path / ".venv"
+        vendored = tmp_path / "node_modules" / "pkg"
+        for d in (hidden, vendored):
+            d.mkdir(parents=True)
+            (d / "pyproject.toml").write_text('[project]\ndependencies = ["wrong"]\n')
+        assert scipsource.declared_dependencies(tmp_path) == []
