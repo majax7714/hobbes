@@ -28,7 +28,7 @@ from hobbes.extract.gosource import collect_go_tests, extract_go
 from hobbes.extract.graph import build_graph, resolve_call_sites
 from hobbes.extract.packs import REGISTRY as PACK_REGISTRY
 from hobbes.extract.packs import Pack, PackContext, run_packs
-from hobbes.extract.pysource import parse_source
+from hobbes.extract.pysource import FromImport, parse_source
 from hobbes.extract.rustsource import collect_rust_tests, extract_rust
 from hobbes.extract.testmap import collect_tests
 from hobbes.extract.tssource import collect_ts_tests, extract_ts
@@ -266,11 +266,27 @@ def _build_symbol_layer(
     # classified set is derived from the same disposition walk as the
     # counts, so per file the tail sums to `unresolved` by construction.
     origins = tssource.call_origins(ts["files"]) if ts else {}
+    # Names bound by `from x import y as z` per Python file — lane A's
+    # own parse, so a bare call of a bound name classifies as
+    # `import-binding` rather than falling to `unclassified` (the
+    # SELENEX/qwen finding: that residue was almost entirely imports of
+    # packages dependency_coverage already reported missing).
+    py_bindings = {
+        module.path: frozenset(
+            bound
+            for imp in parsed[module.id].imports
+            if isinstance(imp, FromImport)
+            for _, bound in imp.names
+            if bound != "*"
+        )
+        for module in modules
+    }
     tails = tail.classify(
         ev.unresolved_sites(syntax, resolutions, external),
         repo_root,
         origins=origins,
         fallback=fallback,
+        import_bindings=py_bindings,
     )
     graph["resolution_coverage"] = [
         {

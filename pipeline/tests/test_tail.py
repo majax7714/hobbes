@@ -44,6 +44,32 @@ class TestClasses:
         assert tails[f][tail.BUILTIN] == 1
         assert tails[f][tail.UNCLASSIFIED] == 1
 
+    def test_a_bare_call_of_an_import_bound_name_is_import_binding(self, tmp_path):
+        f = write(tmp_path, "a.py",
+                  "from sqlalchemy.dialects.postgresql import UUID as PG_UUID\n"
+                  "col = PG_UUID(as_uuid=True)\n")
+        bindings = {f: frozenset({"PG_UUID"})}
+        tails = tail.classify([site(f, 2, "PG_UUID", col=6)], tmp_path,
+                              import_bindings=bindings)
+        assert tails[f] == {tail.IMPORT_BINDING: 1}
+
+    def test_an_import_binding_outranks_a_builtin_match(self, tmp_path):
+        # `from rich import print`: the import is the truer observation.
+        f = write(tmp_path, "a.py", "from rich import print\nprint('x')\n")
+        bindings = {f: frozenset({"print"})}
+        tails = tail.classify([site(f, 2, "print", col=0)], tmp_path,
+                              import_bindings=bindings)
+        assert tails[f] == {tail.IMPORT_BINDING: 1}
+
+    def test_an_attribute_call_stays_attr_even_when_its_receiver_is_imported(self, tmp_path):
+        # `import os` binds `os`; `os.path.join()` is still an attr call —
+        # the binding classifies bare calls only.
+        f = write(tmp_path, "a.py", "p = os.path.join(a, b)\n")
+        bindings = {f: frozenset({"os", "join"})}
+        tails = tail.classify([site(f, 1, "join", col=12)], tmp_path,
+                              import_bindings=bindings)
+        assert tails[f] == {tail.ATTR: 1}
+
     def test_an_attribute_call_is_attr_call(self, tmp_path):
         f = write(tmp_path, "a.py", "out = capsys.readouterr()\n")
         tails = tail.classify([site(f, 1, "readouterr", col=13)], tmp_path)
@@ -142,5 +168,6 @@ class TestArtifact:
             classes |= set(row.get("tail", {}))
         assert classes <= {
             tail.FALLBACK, tail.LOCAL, tail.NESTED, tail.EXTERNAL_ORIGIN,
-            tail.BUILTIN, tail.ATTR, tail.PATH_CALL, tail.UNCLASSIFIED,
+            tail.IMPORT_BINDING, tail.BUILTIN, tail.ATTR, tail.PATH_CALL,
+            tail.UNCLASSIFIED,
         }

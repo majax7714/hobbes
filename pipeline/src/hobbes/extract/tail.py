@@ -14,9 +14,20 @@ checkable fact about the site:
 - ``nested-decl`` — same, but the declaration lives in another repo file.
 - ``external-origin`` — every declaration the checker found lives outside
   the repo: a dependency or an ambient lib. Known origin, unresolved call.
+- ``import-binding`` — a bare call whose name an import statement **in
+  the same file** binds (``from x import y as z`` binds ``z``). The
+  binding is lane A's own parse, not a guess; what stays open is only
+  where the imported thing's call would land — often a dependency the
+  environment is missing (C-23/C-27/C-30), which is exactly when this
+  class carries the tail. Added after the SELENEX/qwen run: their
+  ``unclassified`` was almost entirely this (``PG_UUID``,
+  ``load_dataset``, ``LLM`` — imports of the very packages
+  ``dependency_coverage`` reported missing).
 - ``builtin-name`` — a bare call whose name matches the language's pinned
   builtin list. The class says "matches": a local shadowing ``len`` would
-  match too, and the name is honest about that.
+  match too, and the name is honest about that. An import binding
+  outranks a builtin match — ``from rich import print`` makes the
+  import the truer observation about ``print(...)``.
 - ``attr-call`` — an attribute call (``x.foo()``): a receiver no static
   provider could type. The genuine static-analysis limit, C-2's core.
 - ``path-call`` — a ``::``-qualified call (Rust) the index left dark.
@@ -45,6 +56,7 @@ FALLBACK = "fallback-resolved"
 LOCAL = "local-binding"
 NESTED = "nested-decl"
 EXTERNAL_ORIGIN = "external-origin"
+IMPORT_BINDING = "import-binding"
 BUILTIN = "builtin-name"
 ATTR = "attr-call"
 PATH_CALL = "path-call"
@@ -172,16 +184,20 @@ def classify(
     repo_root: Path,
     origins: dict[tuple[str, int, str], str] | None = None,
     fallback: dict[tuple[str, int, str], tuple] | None = None,
+    import_bindings: dict[str, frozenset[str]] | None = None,
 ) -> dict[str, Counter]:
     """Per-file tail classes for the *unresolved* call sites.
 
     *origins* is the checker's verdict per site (tsextract v4), keyed
-    like the fallback dict: ``(file, line, name)``. Every input site
-    lands in exactly one class, so per file the counts sum to the
+    like the fallback dict: ``(file, line, name)``. *import_bindings*
+    maps a file to the names its import statements bind (lane A's own
+    parse — Python's ``FromImport`` bound names today). Every input
+    site lands in exactly one class, so per file the counts sum to the
     coverage row's ``unresolved`` — an invariant the tests pin.
     """
     origins = origins or {}
     fallback = fallback or {}
+    import_bindings = import_bindings or {}
     lines = _Lines(repo_root)
     out: dict[str, Counter] = {}
     for site in unresolved:
@@ -195,7 +211,10 @@ def classify(
             text = lines.line(site.file, site.line)
             shape = _shape(text, site.name, site.col) if text is not None else None
             builtins_ = _BUILTINS.get(lang or "", frozenset())
-            if shape == "bare" and site.name in builtins_:
+            bound = import_bindings.get(site.file, frozenset())
+            if shape == "bare" and site.name in bound:
+                cls = IMPORT_BINDING
+            elif shape == "bare" and site.name in builtins_:
                 cls = BUILTIN
             elif shape == "attr":
                 cls = ATTR

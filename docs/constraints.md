@@ -274,7 +274,14 @@ information appears in both, and the entries cross-reference.
   `external-origin`) exist **for TS/JS only**: no other syntax provider
   resolves declarations, so a Python local's call lands in
   `unclassified` or `attr-call`, and an absent `local-binding` count for
-  Python means *not asked*, never "no locals". **Builtin lists are
+  Python means *not asked*, never "no locals". Python's
+  `import-binding` (added the same day, ADR-045 amendment) narrows this
+  but is **binding-proven, not declaration-proven** — the import
+  statement binds the name; a later local assignment shadowing it would
+  still match, the same "matches" honesty as `builtin-name`. It is also
+  Python-only: a Go import binds a package name, not a callable, so
+  Go's closure-typed bare tail stays `unclassified` rather than
+  borrowing a class that does not mean anything there. **Builtin lists are
   pinned literals**, not the running interpreter's — a builtin the
   language adds later classifies `unclassified` until the pin moves.
   **Shape is read from the terminal's source line** — a wrapped chain

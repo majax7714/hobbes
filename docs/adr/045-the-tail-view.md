@@ -58,6 +58,7 @@ coverage row's `unresolved` — a tested invariant):
 | `local-binding` | checker: declared in this file, below the modelled vocabulary (C-9) | tsextract v4 |
 | `nested-decl` | checker: declared in another repo file, below the vocabulary | tsextract v4 |
 | `external-origin` | checker: every declaration lives outside the repo | tsextract v4 |
+| `import-binding` | bare call, name bound by a same-file import (added same day, see amendment) | lane A parse |
 | `builtin-name` | bare call, name in the language's **pinned** builtin list | tail.py |
 | `attr-call` | attribute call — a receiver nothing could type | source text |
 | `path-call` | `::`-qualified call | source text |
@@ -81,6 +82,32 @@ same declaration walk `resolveExpressionTarget` does, reporting which
 gate failed instead of discarding the answer. The classified set is
 derived from the same disposition walk as the counts
 (`ev._dispositions`), so the two cannot drift.
+
+## Amended same day: `import-binding` (the SELENEX/qwen run)
+
+Running the tail view against the two remaining sanctioned repos —
+Max's ask: catch major snags easier to classify than "simply unknown" —
+cracked the `unclassified` bucket open. SELENEX's 46 unclassified
+Python sites were almost entirely **bare calls of imported names**
+(`PG_UUID`×22 — an import alias — `pg_insert`, model classes);
+qwen-pathology's were `load_dataset`, `LLM`, `SamplingParams` —
+imports of the very packages its `dependency_coverage` reported
+missing (2/6 resolved).
+
+New class, same rules: **`import-binding`** — a bare call whose name an
+import statement in the same file binds. The observation is lane A's
+own parse (`FromImport`'s (imported, bound) pairs — no regex, no
+guess); what stays open is only where the call would land, which is
+typically C-23/C-27/C-30 territory — so this class is the *shape* of a
+missing environment, sitting in the **cannot resolve** group beside
+`external-origin`, its checker-graded TS sibling. Priority: an import
+binding outranks a builtin match, because `from rich import print`
+makes the import the truer fact about `print(...)`; bare calls only —
+`os.path.join()` stays `attr-call` however `os` arrived. Python-only
+today (C-32 amended): a Go import binds a package name, not a callable,
+so the class has no Go meaning, and Go's remaining bare tail
+(`cleanup`, `run` — closure-typed locals, ~20 sites on the dogfood
+repo) stays honestly `unclassified` until a provider can prove it.
 
 ## The classifier's own boundaries (C-32)
 
