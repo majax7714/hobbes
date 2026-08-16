@@ -160,7 +160,11 @@ export function terminalName(symbol) {
   // Strip the descriptor suffix, then take the last path/member segment.
   const bare = desc.replace(/(\(\)\.|#|\.|\/|:|!)$/, '')
   const seg = bare.split(/[/#.]/).filter(Boolean).pop() ?? ''
-  return seg.replace(/`/g, '')
+  // rust-analyzer scopes impl methods as `impl#[Counter]new().` — the
+  // bracketed self type rides the final segment, and a name that keeps it
+  // matches no call site, which silently costs Rust every method edge
+  // (found by the V2.M7 rust_proj verification: `unwrap` unresolved).
+  return seg.replace(/`/g, '').replace(/^\[.*\]/, '')
 }
 
 /** `<manager>:<package>` for a symbol, or '' when it has no package. */

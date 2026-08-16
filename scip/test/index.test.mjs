@@ -364,3 +364,16 @@ test("rust's toolchain stdlib is not evidence of an environment", () => {
   assert.equal(coverage.resolved, 0, 'std resolving proves nothing')
   assert.deepEqual(coverage.missing, ['serde'])
 })
+
+test('impl-scoped method monikers yield the bare method name', () => {
+  // Found by the rust_proj verification: the bracketed self type rode the
+  // final segment, so `Counter::new()` at a call site never matched the
+  // resolution's name and every in-repo method edge was silently lost.
+  assert.equal(terminalName(`${RS} impl#[Counter]new().`), 'new')
+  assert.equal(
+    terminalName(
+      'rust-analyzer cargo core https://github.com/rust-lang/rust/library/core result/impl#[`Result<T, E>`]unwrap().',
+    ),
+    'unwrap',
+  )
+})
