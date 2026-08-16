@@ -70,7 +70,8 @@ the interactive graph.
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
   behind `hobbes narrate` / `hobbes docs status`). `extract/tssource.py`
-  joins the tsextract helper's facts (M6, ADR-021). M8 adds
+  joins the tsextract helper's facts (M6, ADR-021);
+  `extract/gosource.py` is Go's lane A (V2.M5, ADR-037). M8 adds
   `src/hobbes/invariants/` (ADR-024: record loading/validation,
   graph-computed verdicts, and the four CI-config emitters) and
   `src/hobbes/review.py` (ADR-025: `hobbes review`).
@@ -82,7 +83,9 @@ the interactive graph.
   `node_modules/` gitignored, lockfile committed. Only external dep:
   ts-morph.
 - `scip/` — **v2 lane B** (ADR-027): the SCIP indexers, pinned
-  (`scip-python`, `scip-typescript`), `index.mjs` (the real helper:
+  (`scip-python`, `scip-typescript` from npm; **`scip-go` 0.2.7 is a Go
+  binary — `go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`**,
+  note the module moved from `sourcegraph/`), `index.mjs` (the real helper:
   runs an indexer, decodes, filters, reports `dependency_coverage`), and
   the spike tooling kept as reproducible evidence — `analyze.mjs` /
   `compare.mjs` for ADR-027's numbers, `spike-ts.mjs` for ADR-032's
@@ -200,8 +203,33 @@ is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
 deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
 (ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
 Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4 (ADR-035)
-built and reviewed — passed by Max 2026-08-15.** **V2.M5 (Go language
-support) is ACTIVE.**
+built and reviewed — passed by Max 2026-08-15.** **V2.M5 (ADR-037) is
+BUILT and awaiting review; V2.M6 (unified invariant checker) is next and
+must not start until Max passes M5.**
+
+**V2.M5 — Go, and the checklist correction (ADR-037).** Hobbes now sees
+**its own Go**: 216 nodes across `go, hcl, javascript, python, typescript`,
+813 Go call edges (20/20 hand-verified), 712 tests, 33 routes. The dogfood
+loop is closed for the first time.
+
+The milestone was written to prove §3.7's checklist sufficient and
+**disproved half of it**. `scip-go` populates `syntax_kind` for **0 of
+18,682** occurrences — exactly as `scip-python` does for 0 of 8,575 — so a
+language with an indexer and no lane A grammar gets references and **no
+`calls` edges at all**. §3.7 step 2 is now a **mandatory syntax provider**,
+and C-6 is generalised: it is not a scip-python gap that an upgrade could
+close, it is the ecosystem's, and **a register entry can be wrong by being
+too specific**. P7 survives narrowed — the *builder* took zero Go lines,
+which is the claim that matters; "an indexer entry plus an optional pack"
+was never true.
+
+Three Go specifics worth knowing before touching it: a **type conversion
+is spelled exactly like a call** (`Decision(s)`), so lane A drops
+conversions using the one thing SCIP lacks — which names are types; a **Go
+import names a package, not a file**, so lane A emits no in-repo import
+edges and the join raises them from real resolutions; and **`scip-go`
+emits documents outside the repo** (the Go build cache), filtered in the
+helper by `insideRepo` so every language is protected at once.
 
 **V2.M4 — enrichment packs (ADR-035).** Framework knowledge left the graph
 builder: four packs (`http-python`, `cli-python`, `http-ts`, `terraform`)

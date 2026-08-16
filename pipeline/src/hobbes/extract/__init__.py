@@ -24,6 +24,7 @@ from hobbes.extract import evidence as ev
 from hobbes.extract import scipsource, staging
 from hobbes.extract.discover import discover_modules
 from hobbes.extract.emit import ensure_hobbes_ignored, repo_stamp, write_artifacts
+from hobbes.extract.gosource import collect_go_tests, extract_go
 from hobbes.extract.graph import build_graph, resolve_call_sites
 from hobbes.extract.packs import REGISTRY as PACK_REGISTRY
 from hobbes.extract.packs import Pack, PackContext, run_packs
@@ -96,6 +97,13 @@ def extract_repo(
         degraded += _merge_layer(graph, ts["nodes"], ts["module_edges"])
         graph["symbols"] = _merge_symbols(graph["symbols"], ts["symbols"])
 
+    go = extract_go(repo_root)
+    if go:
+        languages += go["languages"]
+        degraded += list(go["errors"])
+        degraded += _merge_layer(graph, go["nodes"], go["module_edges"])
+        graph["symbols"] = _merge_symbols(graph["symbols"], go["symbols"])
+
     # Lane A is complete. Packs read it and add framework knowledge; the
     # graph builder itself knows nothing about FastAPI, Express or HCL.
     enriched = run_packs(
@@ -104,6 +112,7 @@ def extract_repo(
             modules=modules,
             parsed=parsed,
             ts=ts,
+            go=go,
             tf_plan=tf_plan,
         ),
         packs,
@@ -113,15 +122,14 @@ def extract_repo(
     degraded += _merge_layer(graph, enriched.nodes, enriched.module_edges)
     graph["packs"] = enriched.ran
 
-    degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts)
+    degraded += _build_symbol_layer(repo_root, graph, modules, parsed, ts, go)
 
     tests = collect_tests(modules, parsed, graph["symbol_edges"])
     if ts:
-        tests = sorted(
-            tests
-            + collect_ts_tests(ts["files"], ts["symbols"], graph["symbol_edges"]),
-            key=lambda t: t["id"],
-        )
+        tests += collect_ts_tests(ts["files"], ts["symbols"], graph["symbol_edges"])
+    if go:
+        tests += collect_go_tests(go["files"], graph["symbol_edges"])
+    tests = sorted(tests, key=lambda t: t["id"])
     if degraded:
         # Sorted, not append-ordered: which pass reported first is an
         # accident of pipeline order, and an artifact that changes with it
@@ -160,7 +168,7 @@ def _syntax_sites(modules, parsed) -> list:
 
 
 def _build_symbol_layer(
-    repo_root: Path, graph: dict, modules, parsed, ts: dict | None
+    repo_root: Path, graph: dict, modules, parsed, ts: dict | None, go: dict | None = None
 ) -> list[dict]:
     """Join every lane's evidence and project it onto the graph's ids.
 
@@ -189,8 +197,11 @@ def _build_symbol_layer(
     if ts:
         syntax += ts["call_sites"]
         fallback.update(ts["call_fallback"])
+    if go:
+        syntax += go["call_sites"]
+        fallback.update(go["call_fallback"])
 
-    for facts in _lane_b_facts(repo_root, modules, ts, degraded):
+    for facts in _lane_b_facts(repo_root, modules, ts, go, degraded):
         resolutions += scipsource.resolution_sites(facts)
         external += facts.get("external_refs") or []
         for record in facts.get("degraded", []):
@@ -204,7 +215,12 @@ def _build_symbol_layer(
     resolved = ev.join(syntax, resolutions, fallback=fallback)
     projected = scipsource.project(resolved, graph["nodes"], graph["symbols"])
     graph["lane_agreement"] = _lane_agreement(
-        syntax, resolutions, fallback, graph["module_edges"], projected["module_edges"]
+        syntax,
+        resolutions,
+        fallback,
+        graph["module_edges"],
+        projected["module_edges"],
+        lane_b_only_modules={n["id"] for n in (go["nodes"] if go else []) if "path" in n},
     )
     graph["symbol_edges"] = projected["symbol_edges"]
     graph["module_edges"] = _merge_module_edges(
@@ -230,7 +246,12 @@ _LANE_A_ONLY = ("ext:", "env:", "tf:")
 
 
 def _lane_agreement(
-    syntax, resolutions, fallback, lane_a_edges, lane_b_edges
+    syntax,
+    resolutions,
+    fallback,
+    lane_a_edges,
+    lane_b_edges,
+    lane_b_only_modules: set[str] | None = None,
 ) -> dict:
     """The §3.4 self-test: where both lanes can answer, they must agree.
 
@@ -239,8 +260,18 @@ def _lane_agreement(
     both could produce. Only edges between two repo modules are compared —
     ``ext:``/``env:``/``tf:`` nodes are lane A's alone, and counting them
     would report hundreds of false disagreements and bury the real ones.
+
+    *lane_b_only_modules* is the mirror of that exclusion, added for Go
+    (V2.M5): a Go import names a *package*, so lane A cannot emit an
+    in-repo import edge without guessing which of the package's files is
+    meant, and deliberately emits none (`gosource`). Every such edge would
+    otherwise land in "lane B only" — 91 of them on this repo — and a
+    report whose noise floor is that high stops being read. Excluded by
+    construction, and **counted**, because an exclusion nobody can see is
+    how a self-test quietly stops testing.
     """
     compared, disagreements = ev.agreement(syntax, resolutions, fallback)
+    lane_b_only_modules = lane_b_only_modules or set()
 
     def repo_imports(edges):
         return {
@@ -249,6 +280,9 @@ def _lane_agreement(
             if e["type"] == "imports"
             and not e["from"].startswith(_LANE_A_ONLY)
             and not e["to"].startswith(_LANE_A_ONLY)
+            and not (
+                e["from"] in lane_b_only_modules and e["to"] in lane_b_only_modules
+            )
         }
 
     a, b = repo_imports(lane_a_edges), repo_imports(lane_b_edges)
@@ -267,6 +301,16 @@ def _lane_agreement(
         # Only meaningful when lane B ran at all; an empty lane B would
         # otherwise report every module edge as "lane A only".
         "module_edges_compared": len(a | b) if b else 0,
+        # Edges left out because only one lane can produce them at all.
+        # Reported so the denominator is never quietly smaller than it
+        # looks — the ADR-029 coverage habit, applied to this report.
+        "module_edges_excluded_lane_b_only": sum(
+            1
+            for e in lane_b_edges
+            if e["type"] == "imports"
+            and e["from"] in lane_b_only_modules
+            and e["to"] in lane_b_only_modules
+        ),
         "module_edges_lane_a_only": (
             [{"from": f, "to": t} for f, t in sorted(a - b)] if b else []
         ),
@@ -276,7 +320,9 @@ def _lane_agreement(
     }
 
 
-def _lane_b_facts(repo_root: Path, modules, ts: dict | None, degraded: list[dict]):
+def _lane_b_facts(
+    repo_root: Path, modules, ts: dict | None, go: dict | None, degraded: list[dict]
+):
     """Every semantic provider's facts, skipping the ones that cannot run."""
     if not scipsource.enabled():
         return
@@ -302,6 +348,9 @@ def _lane_b_facts(repo_root: Path, modules, ts: dict | None, degraded: list[dict
         runs.append(
             ("typescript", lambda: scipsource.extract_scip_typescript(repo_root, ts_files))
         )
+    if go:
+        go_files = sorted({f.path for f in go["files"]})
+        runs.append(("go", lambda: scipsource.extract_scip_go(repo_root, go_files)))
 
     for language, run in runs:
         try:

@@ -45,6 +45,8 @@ class PackContext:
     #: The TS/JS layer's facts bundle, or ``None`` when the repo has no
     #: TypeScript (or the helper could not run).
     ts: dict | None = None
+    #: The Go layer's facts bundle, or ``None`` when the repo has no Go.
+    go: dict | None = None
     #: ``terraform show -json`` document, when ``ingest --tf-plan`` gave one.
     tf_plan: Path | None = None
 

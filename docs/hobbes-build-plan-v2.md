@@ -294,7 +294,25 @@ adding it back restores them byte-for-byte.
 
 ---
 
-## V2.M5 — Go language support (2–3)
+## V2.M5 — Go language support (2–3) — **BUILT, awaiting review**
+
+**Outcome: ADR-037, and the exit criterion answered "no".** The milestone
+was written to prove *"a Go repo ingests with zero builder changes —
+checklist §3.7 was literally sufficient, and the diff proves it."* The
+builder half held: the graph builder, join, schema and pack interface took
+**zero** Go-specific lines. The checklist half did not. `scip-go`
+populates `syntax_kind` for **0 of 18,682** occurrences, exactly as
+`scip-python` does for 0 of 8,575 — so §3.7's "optional lane A grammar"
+would have left Go with references and no `calls` edges at all. Step 2 is
+now a **mandatory syntax provider**, and C-6 is generalised from a
+scip-python limitation to a property of the ecosystem.
+
+Delivered: `extract/gosource.py` (tree-sitter-go — modules, symbols,
+imports, env-reads, call sites, test inventory), `scip-go` 0.2.7 in the
+indexer registry with `--module-version` pinned and out-of-repo documents
+dropped, and the `http-go` pack. Hobbes now sees **its own Go**: 216 nodes
+across five languages, 813 Go call edges, **20/20 hand-verified**, 2710
+call sites compared across all lanes with **0 disagreements**. 488 pytest.
 
 First real test of P7. `scip-go` config plus a small Go enrichment pack
 (`net/http` or chi routes).

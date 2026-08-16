@@ -57,6 +57,42 @@ export const INDEXERS = {
     bin: 'scip-typescript',
     args: (c) => ['index', '--cwd', c.stage, '--output', c.output, '--no-progress-bar'],
   },
+  go: {
+    bin: 'scip-go',
+    // Not an npm package: a Go binary, pinned by the version installed.
+    onPath: true,
+    install: 'go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7',
+    // scip-go has no --cwd; it indexes the module rooted at --module-root.
+    args: (c) => [
+      'index',
+      '--module-root', c.stage,
+      '--output', c.output,
+      // Decision 1 again, under a third flag name: this defaults to the
+      // git revision, so every node id would change on every commit
+      // (ADR-037). Two indexers made the same choice; assume the next
+      // one does too.
+      '--module-version', c.projectVersion,
+      '--quiet',
+    ],
+    // scip-go runs the real Go loader, whose cwd must be inside the module.
+    cwd: (c) => c.stage,
+  },
+}
+
+/**
+ * Is this document a file of the repo we indexed?
+ *
+ * `relative_path` is the indexer's word, not a fact. scip-go emits
+ * documents for the Go build cache — real paths like
+ * `../../.cache/go-build/f1/f12bb…-d` — and a join that trusts them
+ * attributes occurrences to files the user has never seen, inventing
+ * nodes outside the repo (ADR-037, finding 5). One filter here protects
+ * every language rather than each join separately.
+ */
+export function insideRepo(relativePath) {
+  const p = String(relativePath ?? '')
+  if (!p || p.startsWith('/')) return false
+  return !p.split('/').includes('..')
 }
 
 /**
@@ -127,6 +163,7 @@ export function decode(index) {
   const external = []
 
   for (const doc of index.documents) {
+    if (!insideRepo(doc.relative_path)) continue
     for (const occ of doc.occurrences) {
       if (!occ.symbol || occ.symbol.startsWith('local ')) continue
       if (!isDefinition(occ)) continue
@@ -145,6 +182,7 @@ export function decode(index) {
   }
 
   for (const doc of index.documents) {
+    if (!insideRepo(doc.relative_path)) continue
     for (const occ of doc.occurrences) {
       if (!occ.symbol || occ.symbol.startsWith('local ')) continue
       const pkgKey = packageOf(occ.symbol)
@@ -182,7 +220,14 @@ export function decode(index) {
  * environment looks like. They must not count as evidence that the
  * environment is installed — see `dependencyCoverage`.
  */
-const SELF_PACKAGES = new Set(['typescript', 'python-stdlib'])
+const SELF_PACKAGES = new Set([
+  'typescript',
+  'python-stdlib',
+  // Go's stdlib resolves from the toolchain, always, so counting it as a
+  // resolved dependency would report full coverage for a repo whose real
+  // dependencies were all missing (ADR-032's lesson, a language later).
+  'github.com/golang/go/src',
+])
 
 /**
  * Decision 4's signal, as counts rather than a boolean (ADR-032).
@@ -267,15 +312,22 @@ export function degradations(index, decoded, config) {
 function runIndexer(config) {
   const spec = INDEXERS[config.language]
   if (!spec) throw new Error(`no indexer configured for ${config.language}`)
-  const bin = join(HERE, 'node_modules', '.bin', spec.bin)
+  // Two install shapes, because indexers are not all npm packages: the
+  // Python and TypeScript ones are pinned devDependencies here, scip-go
+  // is a Go binary the user installs (`go install`). Resolving the wrong
+  // one fails as a bare ENOENT, so each says how *it* is installed.
+  const bin = spec.onPath ? spec.bin : join(HERE, 'node_modules', '.bin', spec.bin)
   const proc = spawnSync(bin, spec.args(config), {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     timeout: 600_000,
+    ...(spec.cwd ? { cwd: spec.cwd(config) } : {}),
   })
   if (proc.error && proc.error.code === 'ENOENT') {
     throw new Error(
-      `${spec.bin} is not installed — run \`npm install\` in the hobbes repo's scip/`,
+      spec.onPath
+        ? `${spec.bin} is not on PATH — install it with \`${spec.install}\``
+        : `${spec.bin} is not installed — run \`npm install\` in the hobbes repo's scip/`,
     )
   }
   if (proc.status !== 0) {

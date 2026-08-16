@@ -1976,3 +1976,91 @@ graph which broad handlers dominate one.
 milestone written under P10, which is fitting: adding a language means new
 general handling for a new indexer's failure modes, which is exactly the
 shape that ate I-1.
+
+---
+
+## 2026-08-15 (eighth) — V2.M5: Go, and the checklist that was wrong
+
+Max cleared M5 after passing M4. The milestone's exit criterion was written
+to prove something: *"a Go repo ingests with zero builder changes —
+checklist §3.7 was literally sufficient, and the diff proves it."* It
+proved half of that and disproved the other half, which is the more useful
+outcome and the reason to spike before building.
+
+**The baseline, measured first.** A Go repo extracted today produces an
+**entirely empty graph with no error** — 0 nodes, 0 edges, 0 tests, no
+degradation record. Hobbes silently reported that a repo full of Go
+contained nothing.
+
+**The spike (ADR-037, reproducible via `scip/spike-go.mjs`).** `scip-go`
+0.2.7 over this repo's own Go: 24 packages, 51 documents, 18,682
+occurrences, **0.27s**. Six findings, one of which decided the milestone:
+
+1. **`syntax_kind` is unset for 100% of 18,682 occurrences.** ADR-029
+   measured the same zero for `scip-python` (0 of 8,575). Two independent
+   implementations, the same omission, and the field is optional in SCIP.
+   That is the field separating a call from a type annotation, so §3.7's
+   "optional lane A grammar" would have left Go with references and **no
+   `calls` edges at all** — no `who_calls`, no test reach.
+2. `--module-version` **defaults to the git revision**, ADR-027's Decision 1
+   under a third flag name. Every node id would change every commit.
+3. 27.9% of definitions are graph-worthy, against ~14% for scip-python.
+4. Monikers are legible and carry the package path in backticks.
+5. **Documents escape the repo**: `../../.cache/go-build/f1/f12bb51…-d`.
+   `relative_path` is the indexer's word, not a fact.
+6. Third-party and stdlib both resolve — **no C-23 analogue for Go**, since
+   the module cache is global rather than per-repo.
+
+**So §3.7 gained a third mandatory step.** Adding a language needs *two*
+providers: an indexer for resolution and a **syntax provider for
+detection**. C-6 was generalised from "scip-python does not populate
+`syntax_kind`" to "no indexer does" — the entry had been filed too
+specifically and read as a gap one upgrade could close. Nothing catches
+that except measuring the next case, which is worth remembering the next
+time an entry names a single tool.
+
+**P7 survives, narrowed and stated honestly.** The *builder* took **zero**
+Go-specific lines — graph builder, join, schema and the V2.M4 pack
+interface all untouched. What P7 cannot promise is that a language is free:
+it costs one grammar walk, now with four worked examples. The wrong claim
+was "an indexer entry plus an optional pack".
+
+**Built:** `extract/gosource.py` (modules, symbols, imports, `os.Getenv`
+env-reads, call sites with column, Go test inventory), `scip-go` in the
+helper's `INDEXERS` with the version pinned and `insideRepo` dropping
+out-of-repo documents, `extract_scip_go` with **one run per `go.mod`** (the
+TS zoning lesson again — this repo's own module is at `go/`, not the root,
+so indexing from the root finds nothing), and the `http-go` pack.
+
+**Two Go-specific corrections, both found by reading output rather than
+by theory.** A **type conversion is spelled exactly like a call** —
+`Decision(s)` parses identically to `Resolve(s)` — and lane A drops
+conversions using the one thing SCIP lacks: which names are types. And a
+**Go import names a package, not a file**, so lane A emits no in-repo
+import edges at all; the join raises them from what the call actually
+reaches, which is precise rather than a guess among a package's files.
+
+**The lane-agreement report needed the mirror of its own exclusion.** Since
+lane A structurally cannot produce Go's in-repo imports, all 91 landed in
+"lane B only" and buried the 10 real ones. Go module edges are now excluded
+by construction the way `ext:`/`env:`/`tf:` nodes already were — and
+**counted** (`module_edges_excluded_lane_b_only: 82`), because an exclusion
+nobody can see is how a self-test quietly stops testing.
+
+**Results on the dogfood repo — the loop closes.** 216 nodes across **five
+languages**, 653 module edges, 1690 symbols, 3533 call edges, 712 tests, 33
+routes. 813 Go `calls` edges, **20/20 hand-verified** against their cited
+lines, including method-on-value calls that only lane B can resolve. 2710
+call sites compared across every lane with **0 disagreements**. With
+`HOBBES_SCIP=0` the same repo still yields a Go graph at `syntactic` tier
+with imports raised from the fallback — P6 for a fifth language, no second
+code path.
+
+Registered **C-26** (a Go file outside any `go.mod` gets no semantics;
+partial surfacing via tier). 488 pytest / 16 scip / 12 Go packages / 52
+vitest / 20 tsextract.
+
+**V2.M5 stops here for review.** V2.M6 (the unified invariant checker) does
+not start until Max passes it — and it is the milestone that inherits P10's
+parked ask, since "does a broad handler enclose a path that must refuse?"
+is a graph question.

@@ -7,6 +7,7 @@ import {
   degradations,
   dependencyCoverage,
   GRAPH_KINDS,
+  insideRepo,
   packageOf,
   terminalName,
 } from '../index.mjs'
@@ -187,4 +188,45 @@ test('references carry the column and name the join needs', () => {
   assert.deepEqual(decode(idx).references, [
     { file: 'src/b.py', line: 3, col: 17, name: 'run', def_file: 'src/a.py', def_line: 5 },
   ])
+})
+
+// V2.M5 (ADR-037): scip-go emits documents for the Go build cache, whose
+// paths escape the repo — `../../.cache/go-build/f1/f12bb…-d`. A join that
+// trusts `relative_path` invents nodes for files the user has never seen.
+
+test('insideRepo accepts an ordinary repo-relative path', () => {
+  assert.equal(insideRepo('cmd/hobbes-policy/main.go'), true)
+  assert.equal(insideRepo('main.go'), true)
+})
+
+test('insideRepo rejects paths that climb out of the repo', () => {
+  assert.equal(insideRepo('../../.cache/go-build/f1/f12bb51-d'), false)
+  assert.equal(insideRepo('go/../../elsewhere/x.go'), false)
+})
+
+test('insideRepo rejects absolute paths and nothing', () => {
+  assert.equal(insideRepo('/etc/passwd'), false)
+  assert.equal(insideRepo(''), false)
+  assert.equal(insideRepo(undefined), false)
+})
+
+test('decode drops documents outside the repo entirely', () => {
+  const GO = 'scip-go gomod example.com/x 0 `example.com/x`'
+  const idx = fakeIndex([
+    {
+      relative_path: 'main.go',
+      occurrences: [{ symbol: `${GO}/Run().`, symbol_roles: DEF, range: [4, 0, 8, 0] }],
+    },
+    {
+      // The build cache: real occurrences, not this repo's files.
+      relative_path: '../../.cache/go-build/f1/f12bb51-d',
+      occurrences: [{ symbol: `${GO}/Run().`, symbol_roles: 0, range: [2, 3, 2, 6] }],
+    },
+  ])
+  const out = decode(idx)
+  assert.equal(out.definitions.length, 1)
+  // The cached document's reference must not become an edge, and must not
+  // be counted as external either — it is not a fact about this repo.
+  assert.deepEqual(out.references, [])
+  assert.deepEqual(out.external, [])
 })

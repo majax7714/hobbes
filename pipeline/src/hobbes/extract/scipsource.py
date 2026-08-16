@@ -421,6 +421,109 @@ def extract_scip_typescript(
     return merged
 
 
+def go_modules(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
+    """Group Go *files* by the directory of their nearest ``go.mod``.
+
+    The TS zoning lesson, a language later: a Go module is the unit the
+    loader understands, and this repo is the worked example — its
+    ``go.mod`` is at ``go/``, not the root, so indexing from the repo root
+    would find no module at all. Files under no module group under ``""``
+    and are skipped rather than guessed at, because a Go file outside a
+    module cannot be type-checked and inventing a ``go.mod`` would invent
+    its dependencies too.
+    """
+    modules: dict[str, list[str]] = {}
+    cache: dict[str, str | None] = {}
+    for rel in files:
+        directory = str(PurePosixPath(rel).parent)
+        if directory not in cache:
+            cache[directory] = _nearest_go_module(repo_root, directory)
+        root = cache[directory]
+        if root is None:
+            continue
+        modules.setdefault(root, []).append(rel)
+    return {root: sorted(paths) for root, paths in sorted(modules.items())}
+
+
+def _nearest_go_module(repo_root: Path, directory: str) -> str | None:
+    """Directory of the nearest ``go.mod`` at or above *directory*."""
+    current = PurePosixPath(directory)
+    while True:
+        if (repo_root / current / "go.mod").is_file():
+            return "" if str(current) == "." else str(current)
+        if str(current) == ".":
+            return None
+        current = current.parent
+
+
+def extract_scip_go(
+    repo_root: Path, files: list[str], sha: str = ""
+) -> dict | None:
+    """Index every Go module and return one merged facts document.
+
+    One run per ``go.mod``, for the reason TS runs one per tsconfig: the
+    module is what the loader resolves against. Paths come back relative to
+    the module root and are re-rooted at the repo by :func:`_rebase`, the
+    same correction that made or broke the TS lane at V2.M3.
+    """
+    if not enabled() or not files:
+        return None
+    repo_root = Path(repo_root).resolve()
+    merged: dict = {
+        "definitions": [],
+        "references": [],
+        "external_refs": [],
+        "packages": {},
+        "degraded": [],
+        "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
+    }
+    for module_root, module_files in go_modules(repo_root, files).items():
+        facts = _index_go_module(repo_root, module_root, module_files, sha)
+        if facts is None:
+            continue
+        for key in ("definitions", "references", "external_refs", "degraded"):
+            merged[key].extend(facts.get(key, []))
+        for name, count in (facts.get("packages") or {}).items():
+            merged["packages"][name] = merged["packages"].get(name, 0) + count
+    return merged
+
+
+def _index_go_module(
+    repo_root: Path, module_root: str, module_files: list[str], sha: str
+) -> dict | None:
+    """Stage and index one Go module.
+
+    ``go.mod`` and ``go.sum`` are staged with the source: without them the
+    loader has no module to root at and no dependency versions to resolve,
+    and scip-go fails loudly rather than producing a thin index — which is
+    the degradation being visible rather than silent (P6).
+    """
+    manifest = f"{module_root}/go.mod" if module_root else "go.mod"
+    sums = f"{module_root}/go.sum" if module_root else "go.sum"
+    staged = set(module_files) | {manifest}
+    if (repo_root / sums).is_file():
+        staged.add(sums)
+
+    stage = staging.build_stage(repo_root, sorted(staged), sha=sha)
+    try:
+        facts = run_helper(
+            {
+                "stage": str(stage / module_root if module_root else stage),
+                "language": "go",
+                "projectName": repo_root.name,
+                # Pinned for the third time, under a third flag name
+                # (ADR-037): scip-go's --module-version defaults to the git
+                # revision exactly as scip-python's --project-version does.
+                "projectVersion": "0",
+                "output": str(stage.parent / f"{stage.name}.scip"),
+                "declaredDeps": [],
+            }
+        )
+    finally:
+        staging.remove_stage(stage)
+    return _rebase(facts, module_root)
+
+
 def _index_ts_zone(
     repo_root: Path, zone: str, zone_files: list[str], sha: str
 ) -> dict | None:

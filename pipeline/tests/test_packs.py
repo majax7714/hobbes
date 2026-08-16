@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from hobbes.extract import extract_repo
+from hobbes.extract.gosource import extract_go
 from hobbes.extract.packs import (
     REGISTRY,
     Pack,
@@ -25,11 +26,12 @@ from hobbes.extract.packs import (
     PackResult,
     run_packs,
 )
-from hobbes.extract.packs import cli_python, http_python, http_ts, terraform
+from hobbes.extract.packs import cli_python, http_go, http_python, http_ts, terraform
 from hobbes.extract.schema import TIERS
 
 MINIAPP = Path(__file__).parent / "fixtures" / "miniapp"
 MINITS = Path(__file__).parent / "fixtures" / "minits"
+MINIGO = Path(__file__).parent / "fixtures" / "minigo"
 HELPER = Path(__file__).parents[2] / "tsextract" / "extract.mjs"
 
 
@@ -78,11 +80,16 @@ class TestRegistry:
         names = [pack.name for pack in REGISTRY]
         assert len(names) == len(set(names))
 
-    def test_registry_holds_the_four_ported_packs(self):
+    def test_registry_holds_the_packs_in_a_stable_order(self):
+        # Order fixes `ran` and therefore the artifact, so it is asserted
+        # rather than assumed. http-go joined at V2.M5 — a new language's
+        # framework knowledge was a new module and this line, which is
+        # what P7 has to mean in practice.
         assert [pack.name for pack in REGISTRY] == [
             "http-python",
             "cli-python",
             "http-ts",
+            "http-go",
             "terraform",
         ]
 
@@ -167,6 +174,25 @@ class TestExitCriterion:
         after = json.dumps(_artifacts(MINIAPP, REGISTRY), sort_keys=True)
         assert before == after
 
+    def test_removing_http_go_removes_exactly_the_go_routes(self):
+        # V2.M4's criterion applied to V2.M5's pack, on a Go repo — the
+        # criterion has to hold for packs added later, or it was a property
+        # of the four originals rather than of the interface.
+        full = _artifacts(MINIGO, REGISTRY)
+        without = _artifacts(MINIGO, tuple(p for p in REGISTRY if p is not http_go.PACK))
+
+        assert "http-go" in full["graph"]["packs"]
+        assert "http-go" not in without["graph"]["packs"]
+        assert full["interfaces"]["routes"]
+        assert without["interfaces"]["routes"] == []
+        # The graph is the lanes', not the pack's: nothing else moves.
+        assert full["graph"]["nodes"] == without["graph"]["nodes"]
+        assert full["graph"]["module_edges"] == without["graph"]["module_edges"]
+        assert full["tests"] == without["tests"]
+
+        restored = json.dumps(_artifacts(MINIGO, REGISTRY), sort_keys=True)
+        assert restored == json.dumps(full, sort_keys=True)
+
     def test_no_packs_at_all_still_yields_a_graph(self):
         # P6 at the pack tier: packs enrich, they do not constitute. A repo
         # extracted with an empty registry keeps its modules, imports and
@@ -231,6 +257,52 @@ class TestPackContributions:
         assert not http_ts.PACK.applies(
             PackContext(repo_root=MINITS, modules=[], parsed={}, ts={"routes": []})
         )
+
+    def test_http_go_reads_net_http_registrations(self):
+        # V2.M5's pack, and the test of V2.M4's interface: a new language's
+        # framework knowledge should be a module and a registry line.
+        ctx = PackContext(
+            repo_root=MINIGO, modules=[], parsed={}, go=extract_go(MINIGO)
+        )
+        assert http_go.PACK.applies(ctx)
+        routes = {(r["path"], r["handler"]) for r in http_go.PACK.run(ctx).routes}
+        assert routes == {
+            ("/check", "cmd/mini/main.handleCheck"),
+            ("/home", "cmd/mini/main.handleHome"),
+        }
+
+    def test_http_go_reports_method_any_rather_than_guessing(self):
+        # net/http dispatches on method *inside* the handler, so claiming
+        # GET for a handler that also serves POST would be a confident
+        # wrong answer.
+        ctx = PackContext(
+            repo_root=MINIGO, modules=[], parsed={}, go=extract_go(MINIGO)
+        )
+        assert {r["method"] for r in http_go.PACK.run(ctx).routes} == {"ANY"}
+
+    def test_http_go_reads_a_go_1_22_method_pattern(self):
+        route = http_go._route_from(
+            {"args": [{"kind": "string", "value": "GET /items/{id}"},
+                      {"kind": "ident", "value": "listItems"}]}
+        )
+        assert route == {
+            "method": "GET",
+            "path": "/items/{id}",
+            "handler": "listItems",
+        }
+
+    def test_http_go_skips_a_computed_pattern(self):
+        # C-5 again: a route whose path is not statically visible is absent,
+        # never guessed at.
+        assert http_go._route_from({"args": [{"kind": "ident", "value": "prefix"}]}) is None
+
+    def test_http_go_does_not_apply_without_net_http(self, tmp_path):
+        (tmp_path / "go.mod").write_text("module example.com/x\n")
+        (tmp_path / "main.go").write_text('package main\n\nimport "fmt"\n')
+        ctx = PackContext(
+            repo_root=tmp_path, modules=[], parsed={}, go=extract_go(tmp_path)
+        )
+        assert not http_go.PACK.applies(ctx)
 
 
 class TestDegradation:

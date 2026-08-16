@@ -127,21 +127,31 @@ information appears in both, and the entries cross-reference.
 
 ### C-6 — A semantic index cannot say what a reference syntactically was
 - **Cannot tell you:** from lane B alone, whether an occurrence is a call,
-  a type annotation, or an `except` clause.
+  a type annotation, an `except` clause, or a Go type conversion.
 - **Because:** SCIP carries a `syntax_kind` that would separate them, and
-  `scip-python` populates it for **0 of 8,575** occurrences.
+  **no indexer populates it**. `scip-python` leaves it unset for 0 of
+  8,575 occurrences; `scip-go` for **0 of 18,682** (V2.M5, ADR-037). Two
+  independent implementations, the same omission — and the field is
+  optional in SCIP, so this is the state of the ecosystem rather than one
+  tool's gap. Registered first as a `scip-python` limitation and
+  **generalised at V2.M5**, when measuring a second indexer showed the
+  original framing was too narrow.
 - **Bites at:** it would have made `who_calls` silently become
   `who_references`. This is the whole reason the lanes join on ranges
   before a graph exists rather than merging finished edges.
 - **You find out:** **surfaced** — resolutions that no call site claimed
   are typed `uses`, not `calls`, so the two questions stay separable in
   the artifact.
-- **Provider (P9):** inherited from `@sourcegraph/scip-python` **0.6.6**.
-  `syntax_kind` is optional in the SCIP schema, so this is a gap in the
-  indexer rather than in SCIP. **Liftable on upgrade** — if a future
-  release populates it, lane A's call-site detection becomes a choice
-  rather than a necessity. Re-check on any version bump.
-- **Source:** ADR-029; owned as ours under P9 (ADR-034).
+- **Provider (P9):** inherited from **every** indexer measured —
+  `@sourcegraph/scip-python` 0.6.6 and `scip-go` 0.2.7. **Not liftable by
+  upgrading one of them**, which is what changed at V2.M5: it would have to
+  be fixed by all of them, and a language whose indexer still omitted it
+  would silently lose its call graph. This is why the add-a-language
+  checklist requires a syntax provider (§3.7) rather than suggesting one.
+  Re-check per indexer on any version bump; a single fix lifts nothing on
+  its own.
+- **Source:** ADR-029 (registered), ADR-037 (generalised); owned as ours
+  under P9 (ADR-034).
 
 ### C-7 — Lane A's fallback edges are guesses, and say so
 - **Cannot tell you:** with proof, where a call goes when the indexer
@@ -424,6 +434,28 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-032, found by the control variant in the V2.M3 spike;
   owned as ours under P9 (ADR-034).
 
+## Extraction — Go
+
+### C-26 — A Go file outside any module gets no semantics
+- **Cannot tell you:** where a call goes, for a `.go` file that sits under
+  no `go.mod` — a scratch file, a snippet directory, a partially-migrated
+  tree.
+- **Because:** a Go module is the unit the loader resolves against, so lane
+  B runs once per `go.mod` and files under none are skipped rather than
+  guessed at. Inventing a `go.mod` for them would invent their dependency
+  versions too, and the index would resolve against a module that does not
+  exist.
+- **Bites at:** those files' call edges, which fall to lane A's fallback —
+  correct within their own directory, and blind to anything imported.
+- **You find out:** **partial** — the edges that do exist are stamped
+  `syntactic` rather than `semantic`, so the tier says the answer is lane
+  A's; but nothing says *why* this file in particular got no semantics,
+  where a missing `go.mod` would be the one-line explanation.
+- **Candidate fix:** an `extraction_errors` record naming the directory and
+  the missing `go.mod`, which would move this to surfaced for the cost of
+  one degradation record.
+- **Source:** ADR-037, V2.M5.
+
 ## Extraction — enrichment packs
 
 ### C-25 — A pack cannot be turned off for a repo where it misfires
@@ -454,7 +486,7 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Nine of twenty-five entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
+Nine of twenty-six entries are **unsurfaced** (C-3, C-4, C-5, C-12, C-14,
 C-16, C-19, C-20, C-24). One entry — C-11 — has been **lifted**. That
 churn is the point of keeping the register: none of it was knowable before
 this file existed, and what remains is the backlog P8 generates.
@@ -464,6 +496,14 @@ unsurfaced, because `graph.json`'s `packs` list was added in the same
 commit as the pack layer. Attributing a layer to the pass that produced it
 was the cheap half of the answer; suppressing it is the half that is
 deferred.
+
+V2.M5 added **C-26** (also partial) and **widened C-6**, which is the more
+interesting event: measuring a second indexer showed the original entry was
+filed too narrowly. C-6 was written as "scip-python does not populate
+`syntax_kind`" and read as a gap one upgrade could close; `scip-go` omits
+it too, so the entry now says no indexer populates it and an upgrade of one
+lifts nothing. **A register entry can be wrong by being too specific**, and
+nothing catches that except measuring the next case.
 
 Ranked by how badly each misleads, worst first:
 

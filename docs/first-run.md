@@ -34,6 +34,12 @@ cd ../web      && npm install && npm run build   # then rebuild hobbes-web
 cd ../tsextract && npm install                   # only if the repo has TS/JS
 cd ../scip     && npm install                    # lane B: the SCIP indexers
 cd ../pipeline && uv sync
+
+# Go repos only — scip-go is a Go binary, not an npm package, so it is
+# installed rather than vendored. Pin it: its --module-version defaults
+# to the git revision, and the version is what a provider limit is filed
+# against (P9).
+go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 ```
 
 > **`scip/` is what makes edges *proven* rather than guessed.** Without
@@ -46,7 +52,9 @@ cd ../pipeline && uv sync
 > third-party types — `npm install` for TS/JS, the virtualenv for Python.
 > Without them the index still succeeds and quietly loses edges, so
 > ingest reports `dependency_coverage` and warns when too little
-> resolved (ADR-032, C-23).
+> resolved (ADR-032, C-23). **Go is the exception**: its module cache is
+> global rather than per-repo, so it is warm whenever `go build` works,
+> and `scip-go` fails loudly rather than thinning out when it is not.
 
 > **The proxy must be static.** `hobbes-session` mounts the
 > `hobbes-proxy` sitting next to it into the sandbox. A dynamically

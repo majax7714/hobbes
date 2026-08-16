@@ -25,7 +25,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hobbes.extract.packs import cli_python, http_python, http_ts, terraform
+from hobbes.extract.packs import (
+    cli_python,
+    http_go,
+    http_python,
+    http_ts,
+    terraform,
+)
 from hobbes.extract.packs.base import Pack, PackContext, PackRefusal, PackResult
 
 #: The built-in packs, in the order they run. Order is not load-bearing —
@@ -35,6 +41,7 @@ REGISTRY: tuple[Pack, ...] = (
     http_python.PACK,
     cli_python.PACK,
     http_ts.PACK,
+    http_go.PACK,
     terraform.PACK,
 )
 

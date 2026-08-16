@@ -191,6 +191,20 @@ framework-declared interfaces readable syntactically (FastAPI/Flask decorators,
 Express/Nest registrations), test inventory and structure, and *approximate*
 module-level dependency edges.
 
+Four providers: `pysource` (Python), `tssource` (TS/JS, via the ts-morph
+helper), `gosource` (Go, V2.M5), and the HCL walk inside the Terraform pack.
+Each answers the same question — where are the call sites, and what encloses
+them — and none of them resolves anything.
+
+Two things Go made explicit that the others had not (ADR-037). **A type
+conversion is spelled exactly like a call**: `Decision(s)` and `Resolve(s)`
+are the same node, and no indexer separates them either, so lane A drops
+conversions using the one thing it knows and SCIP does not — which names
+are types. And **a Go import names a package, not a file**, so lane A emits
+no in-repo import edges for Go at all; the join raises them from what the
+call actually reaches, which is precise instead of a guess between a
+package's files.
+
 **Lane A no longer *resolves* symbols; it still *detects* syntax (ADR-029).**
 An earlier wording said resolution "moves entirely to lane B", which assumed
 lane B could answer everything lane A could. It cannot answer *is this a
@@ -348,14 +362,35 @@ every-commit fast path. Full re-index is always available and always correct
 (`P1`), the cache only makes it cheap.
 
 ### 3.7 Adding a language — the checklist
-1. Register the indexer: command, version pin, and how its per-repo config
-   is derived.
-2. Optional: enrichment pack(s) for its frameworks.
-3. Optional: lane A grammar for structure/routes/tests if richer syntax
-   passes are wanted.
+1. Register the **indexer** (resolution): command, version pin, and how its
+   per-repo config is derived.
+2. Register a **syntax provider** (detection): a lane A grammar that finds
+   call sites with file, line, column and terminal name.
+3. Optional: enrichment pack(s) for its frameworks.
 
-Nothing else. Rust is the intended proof: rust-analyzer's SCIP output plus
-zero new builder code.
+Nothing else — no change to the graph builder, the join, the schema or the
+packs. Rust is the intended proof.
+
+**Step 2 was "optional" until V2.M5, and it was wrong (ADR-037).** The
+correction is worth stating in full, because it is the cost of P7 and it
+does not go away: **no SCIP indexer populates `syntax_kind`.**
+`scip-python` leaves it unset for 0 of 8,575 occurrences and `scip-go` for
+0 of 18,682 — two independent implementations, same omission, and the field
+is optional in SCIP so a third is likely to match. That field is the one
+that separates a call from a type annotation from a plain mention.
+
+So a language with an indexer and no syntax provider gets definitions and
+references and **no `calls` edges at all**: `who_calls` answers nothing and
+test reach is empty, because reach is the closure over call edges. That is
+not a less rich graph, it is a graph missing the relation the system exists
+to answer.
+
+**P7 survives, narrowed.** "Languages are configuration, not integrations"
+still holds for the *builder* — Go added zero lines to it. What P7 cannot
+promise is that a language is free: it costs one grammar walk, a bounded
+mechanical job with four worked examples now (`pysource`, `tssource`,
+`gosource`, and HCL's). The claim that was wrong is "an indexer entry plus
+an optional pack"; the claim that survives is "nothing in the core changes".
 
 **Where steps 1 and 2 actually live.** `hobbes.yaml` does not exist and is
 not going to — the architecture named it before anything needed it, and
@@ -481,7 +516,7 @@ The v2 extraction programme:
 | **V2.M2** — lane B (Python) | done | ADR-029: two providers meeting in an evidence IR, not two edge sets merged |
 | **V2.M3** — lane A demotion, TS lane, self-test | done, **reviewed 2026-08-15** | ADR-030 (P8), ADR-031 (demote, don't delete), ADR-032 (stage and symlink); discharges M2's asterisk |
 | **V2.M4** — enrichment packs | built, awaiting review | ADR-035: registered in code, activated by detection — no `hobbes.yaml`, and the ADR-012 tension dissolves |
-| **V2.M5** — Go support | not started | First real test of P7; also the first time Hobbes can see its own 9.4k lines of Go |
+| **V2.M5** — Go support | built, awaiting review | ADR-037: the checklist needed a third mandatory step. Hobbes now sees its own Go — 216 nodes, 5 languages |
 | **V2.M6** — unified invariant checker | not started | `check: graph` over the semantic graph, tier-aware verdicts |
 | **V2.M7** — Rust proof | not started | P7 demonstrated on a language nobody planned for |
 
