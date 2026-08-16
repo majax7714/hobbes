@@ -7,6 +7,10 @@ information conceded *for* us by a language provider we run — those entries
 carry a `Provider` line naming the provider and pinned version, because
 unlike our own concessions they can end on an upstream release (ADR-034).
 
+This register is written for **anyone who runs Hobbes**, not for the people
+who built it. Named individuals appear only as the source of a decision —
+historical attribution, the same role an ADR number plays.
+
 ## Why this file exists
 
 Hobbes' value is that a human can review at the concept level instead of
@@ -25,7 +29,29 @@ unaccounted call sites went from invisible to a per-file number a
 reviewer can rank on, and it only got built because someone asked a
 question that exposed the hole.
 
-## How to read an entry
+## How the register is organised
+
+Two parts, and the split is load-bearing (ADR-043):
+
+- **Active constraints** — limits that hold today. Grouped by the subsystem
+  where a user meets them.
+- **Lifted constraints** — limits that no longer hold, kept with **full
+  documentation of how they were lifted**. A lift is a technique, and a
+  technique has a boundary: an input the technique does not classify falls
+  back to being conceded — *silently*, unless the boundary is written down.
+  So a lifted entry is not archived trivia; it records the exact mechanism
+  of the lift and the residual edge cases that mechanism leaves outside.
+  Residue that turns out to matter becomes a new active entry — C-11 →
+  C-24 is the worked example, and it happened twice: C-24's own lift left
+  residue in turn.
+
+Entries are numbered `C-n`, sequential and stable, and are **never
+renumbered or deleted**. When a constraint is lifted, its entry moves to
+the Lifted part keeping its number, because "we used to concede this, and
+here is precisely how we stopped" is itself information — the next
+constraint usually hides in a lift's edge cases.
+
+## How to read an active entry
 
 | field | means |
 |---|---|
@@ -45,16 +71,22 @@ question that exposed the hole.
   it is debt, not a decision. Every `unsurfaced` row is a bug waiting for
   a milestone that can afford it.
 
-Entries are numbered `C-n`, sequential and stable, and are never renumbered
-or deleted — a constraint that stops being true is marked **lifted** with
-the commit that lifted it, because "we used to lie about this" is itself
-worth knowing.
+## How to read a lifted entry
+
+| field | means |
+|---|---|
+| **Was** | the limit as it stood, and why it was conceded then |
+| **Lifted by — the technique** | the exact mechanism of the lift — what now classifies the cases the constraint used to concede |
+| **Residual edge cases** | inputs the technique does not classify, stated as the technique's boundary — where the old concession quietly survives |
+| **Source** | the ADR or session for the concession *and* for the lift |
 
 This file is not `docs/future_additions.md`. That one parks deferred
 *work*. This one registers conceded *information*. A deferral that loses
 information appears in both, and the entries cross-reference.
 
 ---
+
+# Active constraints
 
 ## Extraction — the call graph
 
@@ -88,26 +120,6 @@ information appears in both, and the entries cross-reference.
   named target cannot be drawn, checked, or cited — it is C-1's false edge
   wearing a probability.
 - **Source:** ADR-029.
-
-### C-3 — Standard-library dependencies are invisible — **LIFTED by ADR-038**
-- **Was:** stdlib imports were dropped as noise at resolution for Python
-  (`sys.stdlib_module_names`, ADR-007) and JS/TS (Node builtins, M6), so
-  "imports no stdlib" and "stdlib not modelled" looked identical — and the
-  question is usually a security one, where `subprocess` is exactly the
-  import a reviewer wants flagged. V2.M5 made it worse without touching
-  it: Go's layer never had the filter, so `ext:os` on Go modules taught
-  the reader stdlib *was* modelled and a Python module's silence read as
-  positively clean. The asymmetry was found by the 2026-08-15 register
-  audit, unregistered by ADR-037.
-- **Lifted by:** ADR-038 (same day) — every syntax provider now emits
-  `ext:` nodes for stdlib like any other dependency. Python drops the
-  skip; TS keeps builtins normalised to a `node:`-prefixed name
-  (`ext:node:fs`, one node however the import is spelled, never shared
-  with an npm package of the same name); Go was already right, just alone.
-  Externals stay hidden by default in the surface (ADR-023) — a view
-  choice, where the old rule was an information choice.
-- **Source:** ADR-007 (the rule), ADR-038 (the lift), Max's call:
-  "no need to hide what hobbes does capture."
 
 ### C-4 — Pytest fixtures do not appear in test reach
 - **Cannot tell you:** that a test exercises code reached only through a
@@ -243,52 +255,7 @@ information appears in both, and the entries cross-reference.
 
 ## Extraction — TypeScript and JavaScript
 
-### C-11 — JS/TS test reach is per *file*, not per test case — **LIFTED at V2.M3**
-- **Was:** every case in a test file shared the file's whole
-  imports-plus-calls closure, so `tests_guarding` and behavioural coverage
-  **over-reported** for JS — the one place in the system where a limit
-  inflated a number rather than shrinking it, and unsurfaced, because a JS
-  row looked exactly like a precise pytest row.
-- **Lifted by:** the helper now records each case's extent and the join
-  carries ranges, so a call is attributed to the `it()` that encloses it;
-  calls outside every case (a `beforeEach`, a `describe` body) are shared
-  by all cases in the file, because that code really does run for each.
-  Measured on kbet: reach went from a flat 7.3 symbols for every case in a
-  file to per-case, with cases in the same file now differing.
-- **Source:** ADR-021 (the limit), V2.M3 (the lift). Superseded by C-24,
-  which is the honest residue.
-
-### C-24 — A test that only *renders* a component does not reach it — **LIFTED 2026-08-15**
-- **Was:** reach is the closure over **call** edges, and `<BetCard />` was
-  a JSX element, not a call site — a `uses` edge reach deliberately did
-  not follow, so a render-only test showed an empty `reaches` that read
-  as "nothing guards this". The entry's asymmetry argument (under-report
-  rather than over-report) held while the choice was between two
-  inaccuracies; the fix removes the inaccuracy instead of picking a
-  direction.
-- **Lifted by:** the tsextract syntax provider records a JSX
-  instantiation as a call site (Max-approved, 2026-08-15) — the
-  component executes when the element renders, so the site is a call in
-  the sense reach cares about. The join then treats it like any other
-  site: lane A's fallback where it resolves, promoted to `semantic`
-  where SCIP confirms. Measured on kbet: 12 direct test→component render
-  edges, **all semantic tier** (BetCard among them — this entry's own
-  example), and 108 of 174 tests now reach a component, with closure
-  over what the component itself renders (`ActiveBetsStrip →
-  StripButton`). The lanes agree on both kbet and this repo.
-- **Honest residue — the outliers of "a JSX instantiation is a call":**
-  only component-like tags count (a capitalised identifier or a dotted
-  tag; `<div>` is a string at runtime, not code the repo owns); the
-  framework mediates *when* the body runs, exactly as any call behind a
-  branch mediates whether its callee runs; a closing tag is not a second
-  site; and a component passed as a *value* (`<Route component={Card}>`)
-  is still a `uses` edge, because nothing at that site instantiates it.
-  kbet's remaining 44 empty-reach tests are store/logic tests in plain
-  `.ts` files — a different residual (calls through mocks and store
-  indirection), not this entry's subject.
-- **Source:** V2.M3; lifted 2026-08-15, after V2.M6 and before V2.M7.
-
-### C-12 — Imports across tsconfig zones do not resolve — **narrowed and surfaced 2026-08-16**
+### C-12 — Imports across tsconfig zones do not resolve — *narrowed and surfaced 2026-08-16*
 - **Cannot tell you:** that package A imports package B through a **path
   alias defined in B's zone** (or any custom resolver) — the alias map is
   another program's compiler config, which this walk does not interpret.
@@ -328,31 +295,6 @@ information appears in both, and the entries cross-reference.
   rather than guessing.
 - **Source:** ADR-021, M6.
 
-### C-14 — CLI entry points come from `pyproject.toml` only — **LIFTED 2026-08-16**
-- **Was:** `interfaces.json` read `[project.scripts]` and nothing else,
-  so a JS package's `bin` entries and every Go binary were absent — this
-  repo's own four binaries (`hobbes-policy`, `hobbes-proxy`,
-  `hobbes-session`, `hobbes-web`) missing while two Python console
-  scripts were listed, an inventory that read as complete and was not.
-  The register ranked it #2 worst ("an empty CLI list reads as 'no
-  CLI'").
-- **Lifted by:** three packs on the ADR-035 registry, one per remaining
-  language. `cli-ts` reads `package.json` `bin` (string and map forms,
-  every manifest, `node_modules` pruned); `cli-go` reads the lane's own
-  facts — a file in `package main` declaring `func main`, named after
-  its directory, the `go build` rule; `cli-rust` reads cargo's three
-  binary shapes (`[[bin]]` tables, `src/main.rs`, `src/bin/*`). Each
-  pack carries the per-pack removability test, and the lift's exit check
-  is this entry's own counter-example, pinned in `test_packs.py`: the
-  dogfood repo's four binaries must appear.
-- **Honest residue:** a binary that exists only in a build script — a
-  Makefile target, an npm `scripts` alias, a `go build -o` with a
-  renamed output — is still invisible; the inventory reads declared
-  targets, not build automation. `setup.py` `entry_points` remains
-  outside too, as the original entry said.
-- **Source:** M6, `future_additions.md`; widened to Go at the 2026-08-15
-  register audit; lifted 2026-08-16.
-
 ## Extraction — cross-layer
 
 ### C-15 — A node-id collision across languages drops a file from the graph
@@ -369,123 +311,7 @@ information appears in both, and the entries cross-reference.
   data loss decided by ordering *in silence* before M8 review.
 - **Source:** M8 review, `future_additions.md` → cross-language namespacing.
 
-### C-16 — Dependency-degradation detection reads only the repo root's manifest — **LIFTED 2026-08-15**
-- **Was:** `declared_dependencies` looked only at `<repo>/pyproject.toml`,
-  so a repo whose manifest lives in a subdirectory — this repo's own deps
-  are in `pipeline/pyproject.toml` — ran ADR-027 Decision 4's check
-  against an empty list. Worse than unsurfaced: the check *appeared* to
-  run and reported nothing, on exactly the repo Hobbes dogfoods against.
-- **Lifted by:** the pre-M6 register sweep — the function now unions
-  every `pyproject.toml` in the repo via the same pruned walk the CLI
-  pack uses (`iter_pyprojects`), with the subdirectory case pinned by a
-  test written in this repo's own shape. The TS half was already
-  per-zone (`declared_npm_dependencies` takes the zone's `package.json`)
-  and needed nothing.
-- **Source:** BUILDLOG 2026-08-14 (seventh), found via SELENEX; lifted
-  2026-08-15.
-
-## Narrative, invariants, and review
-
-### C-17 — Narrative claims are pinned, not proven
-- **Cannot tell you:** that a module doc's sentence is true — only which
-  line it was written from, at which SHA.
-- **Because:** narrative is LLM-written over the deterministic skeleton
-  (P5). Pins make a claim checkable by a human; they do not check it.
-- **Bites at:** the Docs tab and `get_module_doc`.
-- **You find out:** **surfaced** — every claim carries `{text, pins}` and
-  the UI resolves a pin to its source line, so disbelief is one click.
-  Staleness badges on SHA drift.
-- **Source:** ADR-019.
-
-### C-18 — Soft invariant verdicts judge the delta, not the source — **LIFTED at V2.M6**
-- **Was:** soft verdicts ran through the tool-less ADR-020 runner, so a
-  reviewer session judged from the architecture delta and a changed-file
-  list, not the files — honest but shallow, and the M8 exit-check
-  sessions said so unprompted.
-- **Lifted by:** ADR-039 — `--soft` runs each in-scope soft invariant in
-  the M4 reviewer sandbox: worktree mounted read-only at the review's
-  head ref (`hobbes-session --ref`), the knowledge tools, and the range's
-  diff hunks in the prompt. A missing sandbox is an error recorded on the
-  answer, never a silent fallback to the delta prompt — that would have
-  quietly recreated this entry.
-- **Honest residue:** needs podman, the session image, and quota; the
-  error path is the surfacing when they are absent.
-- **Source:** M8, `future_additions.md`; lifted at V2.M6 (ADR-039).
-
-### C-19 — Two of the four compiled CI configs have never been executed
-- **Cannot tell you:** that a generated dependency-cruiser config or
-  Rego policy actually runs. **import-linter left this list at V2.M6**
-  (ADR-039): the agreement suite runs `lint-imports` over generated
-  configs on every test run, and the first real execution found a real
-  emitter bug — unmatched ignore pairs failed a clean repo. **semgrep
-  left it 2026-08-16**: a dev dependency now, with the same treatment —
-  a violating tree fails, a clean one passes, path exclusions actually
-  exclude, and the dogfood repo's own I-5 rule runs against the real
-  `narrate/` package on every test run (so a new write path in
-  `narrate/` fails the suite before it fails a reviewer). The semgrep
-  emitter survived its first execution clean, which is worth recording
-  precisely because import-linter's did not: the argument for executing
-  the remaining two stands on the one bug found, not on bugs being
-  everywhere.
-- **Because:** compilation is pure text generation by design (no target
-  toolchain needed), and dependency-cruiser and conftest are not
-  installed here. Those two emitters are asserted against documented
-  formats only.
-- **Bites at:** `hobbes invariants compile` output for dep-cruiser and
-  rego, the first time anyone runs them in real CI.
-- **You find out:** **unsurfaced** for those two. The files look
-  finished.
-- **Source:** M8, `future_additions.md`; narrowed at V2.M6 and again
-  2026-08-16.
-
-### C-20 — Decisions do not survive a fresh clone
-- **Cannot tell you:** on a new machine or a re-clone, that you already
-  approved an invariant or confirmed a policy. The whole queue asks again.
-- **Because:** ADR-012 gitignores all of `.hobbes/` in target repos, so
-  the ledger, invariants and policies are per-clone, per-machine.
-- **Bites at:** `hobbes up`'s "set once, holds until you change it"
-  promise, which holds within a workspace and silently does not across
-  them.
-- **You find out:** **unsurfaced.** Re-asking looks like a first run.
-- **Source:** ADR-026, Max-confirmed as a known limitation.
-
-### C-21 — Narration re-proposes invariants that are already confirmed
-- **Cannot tell you:** that an inferred invariant is a reworded duplicate
-  of a record you settled months ago — decisions key on a content hash of
-  (statement, scope), so a rewording does not match.
-- **Because:** the inference unit is told about the repo but not about
-  `.hobbes/invariants/`.
-- **Bites at:** originally filed as a signal-to-noise cost — all six of this
-  repo's inferred records correspond 1:1 to I-1..I-6 and none match by key.
-  **The observed cost is worse than that, and the evidence is now in.**
-- **Observed 2026-08-15 — a duplicate was approved carrying a claim its
-  original had been corrected to remove.** Promoting from the inferred set
-  through the surface produced **I-9**, whose statement ends "all other
-  pushes escalate". That is false: `.hobbes/policies/repo.policy` denies
-  `git push*` outright. It is false in *exactly* the way the M5 inferred
-  wording of I-3 was false, which the M8 promotion caught and rewrote —
-  I-3's file still carries the note explaining why. Narration re-proposed
-  the uncorrected text, the queue could not show that a corrected record
-  already existed, and the approval versioned the false claim on a record
-  Hobbes will now compile and check against.
-- **You find out:** **surfaced** (2026-08-16, ADR-042) — the fix the
-  entry named, built where it named it: each pending proposal arrives
-  with its nearest confirmed record when the statement overlap crosses a
-  deterministic threshold (word-set Jaccard, no model), rendered as a
-  "possible restatement of I-n" banner carrying the confirmed prose and
-  the instruction to read it before approving. The I-9/I-3 pair — the
-  observed failure — is the pinned test case: the reworded proposal
-  names I-3 beside itself, an unrelated proposal names nothing, and a
-  retired record is history, not a neighbour. The *constraint* stands:
-  narration still does not know about `.hobbes/invariants/` and still
-  re-proposes; what changed is that the reviewer now decides while
-  looking at the record being reworded.
-- **Honest residue:** the neighbour is lexical. A restatement sharing no
-  vocabulary with its original scores below the threshold and arrives
-  bare — the mechanism catches rewords, not paraphrases, and says so
-  here rather than pretending otherwise.
-- **Source:** ADR-026, `future_additions.md`. Instance recorded
-  2026-08-15; surfaced by ADR-042 (2026-08-16).
+## Extraction — lane B environments and staging
 
 ### C-22 — Lane B links the repo's `node_modules`, and trusts it not to be written
 - **Cannot tell you:** with structural certainty that indexing a TypeScript
@@ -706,24 +532,272 @@ information appears in both, and the entries cross-reference.
   ADR-012 says the repo's `.hobbes/` is not.
 - **Source:** ADR-035, V2.M4.
 
+## Narrative, invariants, and review
+
+### C-17 — Narrative claims are pinned, not proven
+- **Cannot tell you:** that a module doc's sentence is true — only which
+  line it was written from, at which SHA.
+- **Because:** narrative is LLM-written over the deterministic skeleton
+  (P5). Pins make a claim checkable by a human; they do not check it.
+- **Bites at:** the Docs tab and `get_module_doc`.
+- **You find out:** **surfaced** — every claim carries `{text, pins}` and
+  the UI resolves a pin to its source line, so disbelief is one click.
+  Staleness badges on SHA drift.
+- **Source:** ADR-019.
+
+### C-19 — Two of the four compiled CI configs have never been executed
+- **Cannot tell you:** that a generated dependency-cruiser config or
+  Rego policy actually runs. **import-linter left this list at V2.M6**
+  (ADR-039): the agreement suite runs `lint-imports` over generated
+  configs on every test run, and the first real execution found a real
+  emitter bug — unmatched ignore pairs failed a clean repo. **semgrep
+  left it 2026-08-16**: a dev dependency now, with the same treatment —
+  a violating tree fails, a clean one passes, path exclusions actually
+  exclude, and the dogfood repo's own I-5 rule runs against the real
+  `narrate/` package on every test run (so a new write path in
+  `narrate/` fails the suite before it fails a reviewer). The semgrep
+  emitter survived its first execution clean, which is worth recording
+  precisely because import-linter's did not: the argument for executing
+  the remaining two stands on the one bug found, not on bugs being
+  everywhere.
+- **Because:** compilation is pure text generation by design (no target
+  toolchain needed), and dependency-cruiser and conftest are not
+  installed here. Those two emitters are asserted against documented
+  formats only.
+- **Bites at:** `hobbes invariants compile` output for dep-cruiser and
+  rego, the first time anyone runs them in real CI.
+- **You find out:** **unsurfaced** for those two. The files look
+  finished.
+- **Source:** M8, `future_additions.md`; narrowed at V2.M6 and again
+  2026-08-16.
+
+### C-20 — Decisions do not survive a fresh clone
+- **Cannot tell you:** on a new machine or a re-clone, that you already
+  approved an invariant or confirmed a policy. The whole queue asks again.
+- **Because:** ADR-012 gitignores all of `.hobbes/` in target repos, so
+  the ledger, invariants and policies are per-clone, per-machine.
+- **Bites at:** `hobbes up`'s "set once, holds until you change it"
+  promise, which holds within a workspace and silently does not across
+  them.
+- **You find out:** **unsurfaced.** Re-asking looks like a first run.
+- **Source:** ADR-026, confirmed as a known limitation at review.
+
+### C-21 — Narration re-proposes invariants that are already confirmed
+- **Cannot tell you:** that an inferred invariant is a reworded duplicate
+  of a record you settled months ago — decisions key on a content hash of
+  (statement, scope), so a rewording does not match.
+- **Because:** the inference unit is told about the repo but not about
+  `.hobbes/invariants/`.
+- **Bites at:** originally filed as a signal-to-noise cost — all six of this
+  repo's inferred records correspond 1:1 to I-1..I-6 and none match by key.
+  **The observed cost is worse than that, and the evidence is now in.**
+- **Observed 2026-08-15 — a duplicate was approved carrying a claim its
+  original had been corrected to remove.** Promoting from the inferred set
+  through the surface produced **I-9**, whose statement ends "all other
+  pushes escalate". That is false: `.hobbes/policies/repo.policy` denies
+  `git push*` outright. It is false in *exactly* the way the M5 inferred
+  wording of I-3 was false, which the M8 promotion caught and rewrote —
+  I-3's file still carries the note explaining why. Narration re-proposed
+  the uncorrected text, the queue could not show that a corrected record
+  already existed, and the approval versioned the false claim on a record
+  Hobbes will now compile and check against.
+- **You find out:** **surfaced** (2026-08-16, ADR-042) — the fix the
+  entry named, built where it named it: each pending proposal arrives
+  with its nearest confirmed record when the statement overlap crosses a
+  deterministic threshold (word-set Jaccard, no model), rendered as a
+  "possible restatement of I-n" banner carrying the confirmed prose and
+  the instruction to read it before approving. The I-9/I-3 pair — the
+  observed failure — is the pinned test case: the reworded proposal
+  names I-3 beside itself, an unrelated proposal names nothing, and a
+  retired record is history, not a neighbour. The *constraint* stands:
+  narration still does not know about `.hobbes/invariants/` and still
+  re-proposes; what changed is that the reviewer now decides while
+  looking at the record being reworded.
+- **Honest residue:** the neighbour is lexical. A restatement sharing no
+  vocabulary with its original scores below the threshold and arrives
+  bare — the mechanism catches rewords, not paraphrases, and says so
+  here rather than pretending otherwise.
+- **Source:** ADR-026, `future_additions.md`. Instance recorded
+  2026-08-15; surfaced by ADR-042 (2026-08-16).
+
+---
+
+# Lifted constraints
+
+A lift is a technique, and the technique — not the celebration — is what
+this part documents. Each entry keeps its number, states the limit as it
+stood, the exact mechanism that lifted it, and the **residual edge cases**:
+inputs the technique does not classify, where the old concession quietly
+survives. When a residual case turns out to bite, it becomes a new active
+entry and the two cross-reference (C-11 → C-24 is the worked chain).
+
+### C-3 — Standard-library dependencies were invisible — *lifted by ADR-038*
+- **Was:** stdlib imports were dropped as noise at resolution for Python
+  (`sys.stdlib_module_names`, ADR-007) and JS/TS (Node builtins, M6), so
+  "imports no stdlib" and "stdlib not modelled" looked identical — and the
+  question is usually a security one, where `subprocess` is exactly the
+  import a reviewer wants flagged. V2.M5 made it worse without touching
+  it: Go's layer never had the filter, so `ext:os` on Go modules taught
+  the reader stdlib *was* modelled and a Python module's silence read as
+  positively clean. The asymmetry was found by the 2026-08-15 register
+  audit, unregistered by ADR-037.
+- **Lifted by — the technique:** ADR-038 (same day) — every syntax
+  provider now emits `ext:` nodes for stdlib like any other dependency.
+  Python simply drops the skip (no list is consulted; whatever does not
+  resolve in-repo is external). TS keeps builtins **normalised** to a
+  `node:`-prefixed name — `fs`, `node:fs` and `fs/promises` all become
+  `ext:node:fs` — so a builtin never shares a node with an npm package
+  that reuses its name. Go was already right, just alone. Externals stay
+  hidden by default in the surface (ADR-023) — a view choice, where the
+  old rule was an information choice.
+- **Residual edge cases:** the TS normalisation's boundary is
+  `builtinModules` from the **running Node's** `node:module` — the list
+  is the ingest box's Node version, not a pin. A builtin added in a newer
+  Node than the box's classifies as a third-party `ext:` package until
+  the box upgrades; a builtin imported under the explicit `node:` prefix
+  always normalises regardless. Two nodes for one dependency across two
+  ingest boxes on different Node versions is the shape a user would see.
+- **Source:** ADR-007 (the rule), ADR-038 (the lift), owner's call
+  ("no need to hide what hobbes does capture" — Max, 2026-08-15).
+
+### C-11 — JS/TS test reach was per *file*, not per test case — *lifted at V2.M3*
+- **Was:** every case in a test file shared the file's whole
+  imports-plus-calls closure, so `tests_guarding` and behavioural coverage
+  **over-reported** for JS — the one place in the system where a limit
+  inflated a number rather than shrinking it, and unsurfaced, because a JS
+  row looked exactly like a precise pytest row.
+- **Lifted by — the technique:** the tsextract helper records each test
+  case's source extent (the `it()` callback's range) and the join carries
+  ranges, so a call is attributed to the case that encloses it. Measured
+  on kbet: reach went from a flat 7.3 symbols for every case in a file to
+  per-case, with cases in the same file now differing.
+- **Residual edge cases:** calls outside every case — a `beforeEach`, a
+  `describe` body — are attributed to **all** cases in the file. That is
+  the technique's deliberate boundary, not a leak: that code really does
+  run for each case. And the technique attributes only *calls*; the
+  under-report that remained for render-only component tests became its
+  own entry, **C-24**, lifted in turn below.
+- **Source:** ADR-021 (the limit), V2.M3 (the lift). Superseded by C-24,
+  which was the honest residue.
+
+### C-14 — CLI entry points came from `pyproject.toml` only — *lifted 2026-08-16*
+- **Was:** `interfaces.json` read `[project.scripts]` and nothing else,
+  so a JS package's `bin` entries and every Go binary were absent — this
+  repo's own four binaries (`hobbes-policy`, `hobbes-proxy`,
+  `hobbes-session`, `hobbes-web`) missing while two Python console
+  scripts were listed, an inventory that read as complete and was not.
+  The register ranked it #2 worst ("an empty CLI list reads as 'no
+  CLI'").
+- **Lifted by — the technique:** three packs on the ADR-035 registry, one
+  per remaining language, each reading **declared build targets** from
+  the ecosystem's own manifest convention. `cli-ts` reads `package.json`
+  `bin` (string and map forms, every manifest, `node_modules` pruned);
+  `cli-go` reads the lane's own facts — a file in `package main`
+  declaring `func main`, named after its directory, the `go build` rule;
+  `cli-rust` reads cargo's three binary shapes (`[[bin]]` tables,
+  `src/main.rs`, `src/bin/*`). Each pack carries the per-pack
+  removability test, and the lift's exit check is this entry's own
+  counter-example, pinned in `test_packs.py`: the dogfood repo's four
+  binaries must appear.
+- **Residual edge cases:** the technique reads *declared* targets, so a
+  binary that exists only in build automation — a Makefile target, an npm
+  `scripts` alias, a `go build -o` with a renamed output — is still
+  invisible. `setup.py` `entry_points` remains outside too, as the
+  original entry said: the Python pack still reads `pyproject.toml`
+  manifests only.
+- **Source:** M6, `future_additions.md`; widened to Go at the 2026-08-15
+  register audit; lifted 2026-08-16.
+
+### C-16 — Dependency-degradation detection read only the repo root's manifest — *lifted 2026-08-15*
+- **Was:** `declared_dependencies` looked only at `<repo>/pyproject.toml`,
+  so a repo whose manifest lives in a subdirectory — this repo's own deps
+  are in `pipeline/pyproject.toml` — ran ADR-027 Decision 4's check
+  against an empty list. Worse than unsurfaced: the check *appeared* to
+  run and reported nothing, on exactly the repo Hobbes dogfoods against.
+- **Lifted by — the technique:** the pre-M6 register sweep — the function
+  now unions every `pyproject.toml` in the repo via the same pruned walk
+  the CLI pack uses (`iter_pyprojects`), with the subdirectory case
+  pinned by a test written in this repo's own shape. The TS half was
+  already per-zone (`declared_npm_dependencies` takes the zone's
+  `package.json`) and needed nothing.
+- **Residual edge cases:** the technique's boundary is the manifest
+  format, not the manifest's location. A Python repo declaring
+  dependencies exclusively via `setup.py` or `requirements.txt` still
+  presents an empty declared list, and Decision 4's check is inert there
+  exactly as it was for subdirectory manifests before the lift — with the
+  same failure shape: a check that appears to run and reports nothing.
+- **Source:** BUILDLOG 2026-08-14 (seventh), found via SELENEX; lifted
+  2026-08-15.
+
+### C-18 — Soft invariant verdicts judged the delta, not the source — *lifted at V2.M6*
+- **Was:** soft verdicts ran through the tool-less ADR-020 runner, so a
+  reviewer session judged from the architecture delta and a changed-file
+  list, not the files — honest but shallow, and the M8 exit-check
+  sessions said so unprompted.
+- **Lifted by — the technique:** ADR-039 — `--soft` runs each in-scope
+  soft invariant in the M4 reviewer sandbox: worktree mounted read-only
+  at the review's head ref (`hobbes-session --ref`, added for this), the
+  knowledge tools, and the range's diff hunks in the prompt. A missing
+  sandbox is an **error recorded on the answer**, never a silent fallback
+  to the delta prompt — that fallback would have quietly recreated this
+  entry, which is why the technique forbids it by construction.
+- **Residual edge cases:** the technique needs podman, the session image,
+  and quota; where any is absent the verdict is an error, not a shallower
+  judgment — the error path *is* the surfacing. And a source-based
+  verdict is still an LLM's reading of real files: better evidence, not
+  proof (C-17's distinction applies to it unchanged).
+- **Source:** M8, `future_additions.md`; lifted at V2.M6 (ADR-039).
+
+### C-24 — A test that only *rendered* a component did not reach it — *lifted 2026-08-15*
+- **Was:** reach is the closure over **call** edges, and `<BetCard />` was
+  a JSX element, not a call site — a `uses` edge reach deliberately did
+  not follow, so a render-only test showed an empty `reaches` that read
+  as "nothing guards this". The entry's asymmetry argument (under-report
+  rather than over-report) held while the choice was between two
+  inaccuracies; the fix removes the inaccuracy instead of picking a
+  direction.
+- **Lifted by — the technique:** the tsextract syntax provider records a
+  JSX instantiation as a call site (owner-approved, 2026-08-15) — the
+  component executes when the element renders, so the site is a call in
+  the sense reach cares about. The join then treats it like any other
+  site: lane A's fallback where it resolves, promoted to `semantic`
+  where SCIP confirms. Measured on kbet: 12 direct test→component render
+  edges, **all semantic tier** (BetCard among them — this entry's own
+  example), and 108 of 174 tests now reach a component, with closure
+  over what the component itself renders (`ActiveBetsStrip →
+  StripButton`). The lanes agree on both kbet and this repo. The
+  approval carried a standing condition: "in every meaningful sense"
+  keeps its outliers named — which is the next field.
+- **Residual edge cases — the outliers of "a JSX instantiation is a
+  call":** only component-like tags count (a capitalised identifier or a
+  dotted tag; `<div>` is a string at runtime, not code the repo owns);
+  the framework mediates *when* the body runs, exactly as any call
+  behind a branch mediates whether its callee runs; a closing tag is not
+  a second site; and a component passed as a *value*
+  (`<Route component={Card}>`) is still a `uses` edge, because nothing
+  at that site instantiates it. kbet's remaining 44 empty-reach tests
+  are store/logic tests in plain `.ts` files — a different residual
+  (calls through mocks and store indirection), not this entry's subject.
+- **Source:** V2.M3; lifted 2026-08-15, after V2.M6 and before V2.M7.
+
 ---
 
 ## Debt summary
 
 Three of **thirty** entries are **unsurfaced** (C-4, C-19 — narrowed to
-two tools — and C-20). Six have been **lifted** —
+two tools — and C-20). Six are **lifted** and live in the Lifted part
+above with their techniques and residual edge cases documented —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
-surfaced C-5 and C-26), C-18 at V2.M6, and C-24 the same day: Max
-approved JSX instantiations as call sites with the standing condition
-that "in every meaningful sense" keeps its outliers named, which the
-lifted entry does. That churn is the point of keeping the register: none
-of it was knowable before this file existed, and what remains is the
-backlog P8 generates.
+surfaced C-5 and C-26), C-18 at V2.M6, and C-24 the same day: the JSX
+lift was approved with the standing condition that "in every meaningful
+sense" keeps its outliers named, which the lifted entry does. That churn
+is the point of keeping the register: none of it was knowable before
+this file existed, and what remains is the backlog P8 generates.
 
 The **2026-08-16 paydown** worked the register's own ranking, worst
-first, at Max's direction: C-14 lifted (CLI packs), C-12 narrowed and
+first: C-14 lifted (CLI packs), C-12 narrowed and
 surfaced (ADR-041 — the #1 entry's common cases now resolve, its
 residue reports itself), C-19 narrowed to two tools (semgrep executes
 in the agreement suite, and its emitter survived first contact clean
