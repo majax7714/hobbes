@@ -147,12 +147,13 @@ information appears in both, and the entries cross-reference.
   a type annotation, an `except` clause, or a Go type conversion.
 - **Because:** SCIP carries a `syntax_kind` that would separate them, and
   **no indexer populates it**. `scip-python` leaves it unset for 0 of
-  8,575 occurrences; `scip-go` for **0 of 18,682** (V2.M5, ADR-037). Two
-  independent implementations, the same omission — and the field is
-  optional in SCIP, so this is the state of the ecosystem rather than one
-  tool's gap. Registered first as a `scip-python` limitation and
-  **generalised at V2.M5**, when measuring a second indexer showed the
-  original framing was too narrow.
+  8,575 occurrences; `scip-go` for **0 of 18,682** (V2.M5, ADR-037);
+  `rust-analyzer` for **0 of 169** (V2.M7, ADR-040). Three independent
+  implementations, the same omission — and the field is optional in SCIP,
+  so this is the state of the ecosystem rather than one tool's gap.
+  Registered first as a `scip-python` limitation, **generalised at
+  V2.M5** when measuring a second indexer showed the original framing was
+  too narrow, and confirmed by the third.
 - **Bites at:** it would have made `who_calls` silently become
   `who_references`. This is the whole reason the lanes join on ranges
   before a graph exists rather than merging finished edges.
@@ -160,15 +161,16 @@ information appears in both, and the entries cross-reference.
   are typed `uses`, not `calls`, so the two questions stay separable in
   the artifact.
 - **Provider (P9):** inherited from **every** indexer measured —
-  `@sourcegraph/scip-python` 0.6.6 and `scip-go` 0.2.7. **Not liftable by
+  `@sourcegraph/scip-python` 0.6.6, `scip-go` 0.2.7, and `rust-analyzer`
+  1.97.1. **Not liftable by
   upgrading one of them**, which is what changed at V2.M5: it would have to
   be fixed by all of them, and a language whose indexer still omitted it
   would silently lose its call graph. This is why the add-a-language
   checklist requires a syntax provider (§3.7) rather than suggesting one.
   Re-check per indexer on any version bump; a single fix lifts nothing on
   its own.
-- **Source:** ADR-029 (registered), ADR-037 (generalised); owned as ours
-  under P9 (ADR-034).
+- **Source:** ADR-029 (registered), ADR-037 (generalised), ADR-040
+  (third confirmation); owned as ours under P9 (ADR-034).
 
 ### C-7 — Lane A's fallback edges are guesses, and say so
 - **Cannot tell you:** with proof, where a call goes when the indexer
@@ -230,6 +232,9 @@ information appears in both, and the entries cross-reference.
   since its default is the git revision and would re-key every node on
   every commit, which would make `hobbes diff` report the whole repo as
   removed-and-re-added, destroying the thing v2 exists to sharpen.
+  rust-analyzer is the one exception that changes nothing: it has no
+  version flag and needs none, because its moniker version is the crate's
+  `Cargo.toml` version — constant per commit by itself (ADR-040).
 - **Bites at:** a future multi-repo graph merge, which must key on package
   identity alone. Nothing today.
 - **You find out:** **n/a — no user-visible effect yet.** Registered
@@ -324,8 +329,8 @@ information appears in both, and the entries cross-reference.
 ### C-15 — A node-id collision across languages drops a file from the graph
 - **Cannot tell you:** anything about the losing file — a repo-root
   `widget.py` and `widget.ts` both want the id `widget`, and merge order
-  decides: Python is the base graph, then TS, then Go (V2.M5), then the
-  pack layer's nodes, `tf:` among them, last (V2.M4).
+  decides: Python is the base graph, then TS, then Go (V2.M5), then Rust
+  (V2.M7), then the pack layer's nodes, `tf:` among them, last (V2.M4).
 - **Because:** ids are path-derived per layer and are not namespaced on
   collision. Fixing it properly means rewriting ids across a whole layer's
   nodes, edges, symbols, tests and routes.
@@ -659,7 +664,7 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Five of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
+Five of **thirty** entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
 narrowed to three tools at V2.M6 — and C-20). Five have been **lifted** —
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
 surfaced C-5 and C-26), C-18 at V2.M6, and C-24 the same day: Max
@@ -708,6 +713,21 @@ route and per orphan Go directory. C-5's surfacing also caught the Nest
 reader *emitting* a computed route with the segment dropped — the one
 shape worse than absence, found only because surfacing forced the decline
 path to be written down.
+
+V2.M7 added three entries (**C-28/29/30**) and amended two (**C-9**: macro
+is the fifth graph kind; **C-6**: a third indexer confirmed the
+generalisation) — and it is the first milestone whose **every new entry
+arrived surfaced**: C-28 through the decode degradation record, C-29
+through a stderr disclosure on every rust ingest, C-30 through
+`dependency_coverage`. C-28 also replayed C-6's arc at higher speed:
+written for cargo targets in the morning, generalised the same day when
+the verification re-ingest showed scip-go duplicating package namespaces
+too — and this time the drop *removed two false semantic edges* that had
+stood in the Go graph since V2.M5, the register mechanism catching a lie
+rather than only naming a silence. C-29 is also a first of its kind: an
+entry registering something Hobbes **does** (execute a Rust repo's
+`build.rs` and proc macros at ingest) rather than something it cannot
+see — the honesty discipline pointed at a capability instead of a gap.
 
 Ranked by how badly each remaining entry misleads, worst first:
 

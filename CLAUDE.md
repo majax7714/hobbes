@@ -200,15 +200,25 @@ uv run hobbes lanes --json
 
 ## Current status
 
-**v1 is complete — M0–M8 all built and reviewed. v2 is underway.**
+**v1 is complete (M0–M8) and v2 is complete (V2.M0–M7) — every
+milestone built, reviewed, and passed by Max. The Rust proof (V2.M7,
+ADR-040) passed 2026-08-16, closing the v2 extraction programme.**
 
-**Active: the v2 extraction architecture.** Source of truth is the running
-`docs/hobbes-architecture.md`; the file-level plan with exit criteria
-is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0–M6 all done and passed by Max**
-(M6 cleared 2026-08-15). **V2.M7 (ADR-040, the Rust proof) is BUILT and
-awaiting review — the v2 programme is fully built; nothing starts until
-Max passes it.**
+**There is no active milestone.** The build plan
+(`docs/hobbes-build-plan-v2.md`) is now record, not plan; what comes
+next is Max's call. The standing candidates are the architecture's own
+"what is not built" — per-task **derivation** of context and policy
+(the stated goal, architecture "Where this is going") — and the backlog
+in `docs/future_additions.md` (P10 checker groundwork, cross-zone
+imports, criterion benches, decision portability, the
+lane-disagreement tab). Do not start any of them unprompted; the
+sequencing discipline (one milestone at a time, exits reviewed by Max)
+carries over to whatever he names.
+
+Languages supported: **Python, TypeScript/JavaScript, Go, Rust** (+ the
+Terraform/HCL layer), each with a syntax provider and a pinned SCIP
+indexer, joined by the one range join. Adding a language is §3.7's
+three-step checklist, proven twice (Go, Rust).
 
 **V2.M7 — Rust, the P7 proof (ADR-040).** Hobbes ingests Rust with
 **zero new builder code**: the diff is `rustsource.py` (fifth syntax

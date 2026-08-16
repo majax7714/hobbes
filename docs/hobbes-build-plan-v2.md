@@ -5,12 +5,20 @@ against the architecture's §7 (then `hobbes-architecture-v2.md`, now the
 running `docs/hobbes-architecture.md` — ADR-033) and the code as it stands at
 `c3b479c`. The deviations are now folded into §7.
 
-**Progress: V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029) done.
-V2.M3 (ADR-030/031/032) built and **reviewed — passed by Max
-2026-08-15**.** The M2 asterisk is discharged: kbet produces 20/20
+**Progress: THE PROGRAMME IS COMPLETE.** All seven milestones and the
+spike are done and reviewed — V2.M7 (the Rust proof, ADR-040) passed by
+Max 2026-08-16. Each milestone's header below carries its own outcome;
+the running architecture's §7 table is the one-line-per-milestone
+summary. This file is now record, not plan: what v2 work comes next is
+Max's call, and nothing here queues it.
+
+*(The paragraph below is kept as the record of where the plan stood
+mid-programme.)* V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\* (ADR-029)
+done. V2.M3 (ADR-030/031/032) built and reviewed — passed by Max
+2026-08-15. The M2 asterisk is discharged: kbet produces 20/20
 hand-verified semantic TS edges, and the lane-agreement report runs clean
 on all three sanctioned repos (hobbes 1789 sites / 0 disagree, SELENEX
-976 / 0, kbet 359 / 0). Next is **V2.M4**.
+976 / 0, kbet 359 / 0).
 
 **\* The M2 asterisk, and how it closes.** `scip-typescript` was in M2's
 scope and is not wired, so M2 exits marked rather than clean. Max's call
@@ -260,7 +268,7 @@ edges, which discharges the M2 asterisk.**
 
 ---
 
-## V2.M4 — Enrichment packs (3–4) — **BUILT, awaiting review**
+## V2.M4 — Enrichment packs (3–4) — **DONE (reviewed, passed 2026-08-15)**
 
 **Outcome: ADR-035.** No `hobbes.yaml` — packs are registered in a code
 tuple and activated by detection, the same answer ADR-027's amendment gave
@@ -294,7 +302,7 @@ adding it back restores them byte-for-byte.
 
 ---
 
-## V2.M5 — Go language support (2–3) — **BUILT, awaiting review**
+## V2.M5 — Go language support (2–3) — **DONE (reviewed, passed 2026-08-15)**
 
 **Outcome: ADR-037, and the exit criterion answered "no".** The milestone
 was written to prove *"a Go repo ingests with zero builder changes —
@@ -357,7 +365,7 @@ and agree with the emitted-tool verdicts wherever both exist.
 
 ---
 
-## V2.M7 — Rust proof (1–2) — **BUILT, awaiting review**
+## V2.M7 — Rust proof (1–2) — **DONE (reviewed, passed 2026-08-16)**
 
 rust-analyzer's native `scip` output on any Rust repo. **Exit:** ingestion
 with zero new builder code — P7 demonstrated on a language nobody planned

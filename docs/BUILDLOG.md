@@ -2429,3 +2429,47 @@ green.
 
 **V2.M7 stops here for review.** v2's build programme is fully built;
 nothing starts until Max passes the Rust proof.
+
+---
+
+## 2026-08-16 (fifteenth) — V2.M7 passed; the v2 programme closes
+
+Max passed the Rust proof. **v2 is complete: V2.M0–M7 all built,
+reviewed, and passed.** This session is the wrap-up he asked for — a
+register accuracy audit, a doc sweep, and the README brought current. No
+code changed.
+
+**The register audit** (the pre-M6 audit's discipline, applied post-M7):
+
+- **C-6** claimed "two independent implementations"; rust-analyzer is
+  the third (0 of 169), so the entry now counts three and its Provider
+  line names all of them. The generalisation the entry records was
+  *confirmed* by the case it predicted — worth having written down.
+- **C-10**'s mechanism sentence predated the one indexer with no version
+  flag; amended to note rust-analyzer's moniker version is the crate's
+  own Cargo.toml version, constant per commit without a pin.
+- **C-15**'s merge order gained Rust (Python → TS → Go → Rust → packs).
+- **Debt summary** updated: thirty entries, five lifted, five unsurfaced
+  (C-4, C-12, C-14, C-19, C-20 — unchanged; every V2.M7 entry arrived
+  surfaced, a first). It also now records C-29's novelty: the first
+  entry registering something Hobbes *does* (execute a Rust repo's
+  build.rs at ingest) rather than something it cannot see.
+
+**The doc sweep:** the architecture's §7 marks the programme complete
+and M7 reviewed; the build plan's header says it is now record, not
+plan — and M4/M5's headers, stale at "BUILT, awaiting review" since
+before their own passes, are finally marked DONE; first-run.md gains the
+rustup install line and the Rust trust note (C-29/C-30) beside the Go
+exception; CLAUDE.md's status states there is **no active milestone**
+and lists the standing candidates (the derivation itself, and
+future_additions) without queueing any of them.
+
+**README** rewritten where it was stale: v2 complete with six languages,
+the two-lane section names rust-analyzer and the 0-of-169 measurement,
+the status section carries the P7-proven-twice claim and the C-29
+warning in user terms ("ingest an untrusted Rust repo only if you would
+also build it"), per-language indexer installs added to getting-started,
+ADR count 40, test counts current (242 Go / 555 pytest / 52 vitest / 22
+tsextract / 24 scip).
+
+Nothing starts next until Max names it.

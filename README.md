@@ -65,7 +65,8 @@ Six ideas do most of the work:
 
 The part most worth knowing. **tree-sitter** knows a call site *is* a call
 and where it sits; **SCIP indexers** (`scip-python`, `scip-typescript`,
-`scip-go`) know what an occurrence *resolves to*. Neither is asked a
+`scip-go`, `rust-analyzer`'s native export) know what an occurrence
+*resolves to*. Neither is asked a
 question it would have to guess at, and the two meet on file:line ranges
 **before any graph exists** — so an edge can be a call *because*
 tree-sitter saw one and point where it points *because* SCIP resolved it.
@@ -73,9 +74,10 @@ tree-sitter saw one and point where it points *because* SCIP resolved it.
 Both halves are load-bearing, and that is measured rather than assumed: no
 SCIP indexer populates the field that would say what a reference
 syntactically *was* — `scip-python` leaves it unset for 0 of 8,575
-occurrences, `scip-go` for 0 of 18,682. Without the syntax half a language
-gets references and no call graph at all, which is why adding a language
-means an indexer **and** a grammar.
+occurrences, `scip-go` for 0 of 18,682, `rust-analyzer` for 0 of 169.
+Three independent implementations, the same omission. Without the syntax
+half a language gets references and no call graph at all, which is why
+adding a language means an indexer **and** a grammar.
 
 Every edge then carries a **tier**: `semantic` (proven), `syntactic` (lane
 A's own resolution, kept as a labelled floor when the indexer could not
@@ -137,17 +139,29 @@ been started, and Hobbes is not it yet.
 Mermaid + graph diff, Terraform layer, sandbox and tool proxy, narrative
 pass, TS/JS extraction, web surface, invariants and the reviewer flow.
 
-**v2 (the extraction rebuild) is underway — V2.M0–V2.M5 done and
-reviewed, V2.M6 built and awaiting review.** Two lanes over SCIP, graph
-schema v4 with tiers and evidence lanes, semantic edges for Python,
-TypeScript and Go, framework knowledge isolated into removable enrichment
-packs, and a lane-agreement self-test that compares 2710 call sites across
-every lane with zero disagreements.
+**v2 (the extraction rebuild) is complete — V2.M0–V2.M7 all built,
+reviewed, and passed (the last on 2026-08-16).** Two lanes over SCIP,
+graph schema v4 with tiers and evidence lanes, semantic edges for
+**Python, TypeScript/JavaScript, Go, and Rust**, framework knowledge
+isolated into removable enrichment packs, a unified tier-aware invariant
+checker, and a lane-agreement self-test — on this repo it compares 3,085
+call sites across every lane with zero disagreements.
 
-As of V2.M5 Hobbes can see **its own Go** — 216 nodes across five
-languages — which closes the dogfood loop for the first time: until then
-the 9.4k lines of policy engine, proxy, sandbox and web server were
-invisible to the graph Hobbes built of itself.
+The programme ended the way it was designed to: **V2.M7 added Rust with
+zero new lines in the graph builder, the join, or the schema** — one
+grammar walk, one indexer entry, and the checklist did the rest. That was
+the claim ("languages are configuration, not integrations"), and it is
+now proven twice, on Go and on a language nobody planned for. Along the
+way Hobbes learned to see **its own Go** (closing the dogfood loop) and
+its own Rust fixture — six languages in the graph it builds of itself.
+
+What v2 *cannot* tell you is a first-class artifact too:
+[`docs/constraints.md`](docs/constraints.md) holds thirty registered
+constraints, five of them since lifted, each naming where a user meets
+the limit. One worth knowing before you ingest strangers' code:
+**indexing a Rust repo executes its `build.rs` and proc macros** (C-29 —
+disclosed on stderr at every rust ingest; ingest an untrusted Rust repo
+only if you would also build it).
 
 Current detail lives in the "Current status" section of
 [`CLAUDE.md`](CLAUDE.md); the session-by-session record is
@@ -158,10 +172,10 @@ Current detail lives in the "Current status" section of
 | Document | What |
 |---|---|
 | [`docs/hobbes-architecture.md`](docs/hobbes-architecture.md) | **Source of truth — the running architecture.** Describes Hobbes as it is now; amended in place, in the same commit as the code that moves it |
-| [`docs/hobbes-build-plan-v2.md`](docs/hobbes-build-plan-v2.md) | The active programme, V2.M0–V2.M7, with exit criteria |
+| [`docs/hobbes-build-plan-v2.md`](docs/hobbes-build-plan-v2.md) | The v2 programme, V2.M0–V2.M7, complete — kept with its exit criteria and outcomes |
 | [`docs/hobbes-architecture-v1.md`](docs/hobbes-architecture-v1.md) | The frozen v1 design — history, kept for the reasoning behind the carried subsystems |
 | [`docs/hobbes-build-plan.md`](docs/hobbes-build-plan.md) | v1 milestones M0–M8 and the locked decisions |
-| [`docs/adr/`](docs/adr/) | 37 numbered ADRs — one per decision the running architecture doesn't make |
+| [`docs/adr/`](docs/adr/) | 40 numbered ADRs — one per decision the running architecture doesn't make |
 | [`docs/constraints.md`](docs/constraints.md) | **What Hobbes cannot tell you**, and where you find that out |
 | [`docs/first-run.md`](docs/first-run.md) | Bringing Hobbes up on a new app, in the order the system is meant to be used |
 | [`docs/future_additions.md`](docs/future_additions.md) | Deliberately deferred work, with the reasoning kept |
@@ -198,6 +212,10 @@ cd ../web && npm install && npm run build   # then rebuild hobbes-web
 cd ../tsextract && npm install              # TS/JS extraction
 cd ../scip      && npm install              # lane B indexers
 cd ../pipeline  && uv sync
+
+# per-language, only if your repos need them:
+go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7   # Go semantics
+rustup component add rust-analyzer                           # Rust semantics
 ```
 
 > `hobbes-proxy` **must be statically linked** — `hobbes-session` mounts it
@@ -239,11 +257,11 @@ shape: extract, let the lanes check each other, then gate on the concepts.
 ## Tests
 
 ```sh
-cd go        && go test ./...     # 188 cases across 12 packages
-cd pipeline  && uv run pytest     # 429 cases
+cd go        && go test ./...     # 242 cases across 12 packages
+cd pipeline  && uv run pytest     # 555 cases
 cd web       && npm test          # 52 vitest cases (the pure layer)
-cd tsextract && npm test          # 20 node --test cases
-cd scip      && npm test          # 12 node --test cases
+cd tsextract && npm test          # 22 node --test cases
+cd scip      && npm test          # 24 node --test cases
 ```
 
 Tests accompany the code they test in the same commit; the pytest suite

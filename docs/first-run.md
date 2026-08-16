@@ -40,6 +40,10 @@ cd ../pipeline && uv sync
 # to the git revision, and the version is what a provider limit is filed
 # against (P9).
 go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
+
+# Rust repos only — rust-analyzer is a rustup component, pinned by the
+# toolchain (the version is what C-28/29/30 are filed against).
+rustup component add rust-analyzer
 ```
 
 > **`scip/` is what makes edges *proven* rather than guessed.** Without
@@ -55,6 +59,11 @@ go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 > resolved (ADR-032, C-23). **Go is the exception**: its module cache is
 > global rather than per-repo, so it is warm whenever `go build` works,
 > and `scip-go` fails loudly rather than thinning out when it is not.
+> **Rust fetches for itself**: cargo pulls crate sources into the
+> user-global registry at index time, so the first ingest needs the
+> network (C-30) — and **indexing a Rust repo executes its `build.rs`
+> and proc macros** (C-29; ingest discloses this on stderr every time).
+> Ingest an untrusted Rust repo only if you would also build it.
 
 > **The proxy must be static.** `hobbes-session` mounts the
 > `hobbes-proxy` sitting next to it into the sandbox. A dynamically
