@@ -191,10 +191,10 @@ framework-declared interfaces readable syntactically (FastAPI/Flask decorators,
 Express/Nest registrations), test inventory and structure, and *approximate*
 module-level dependency edges.
 
-Four providers: `pysource` (Python), `tssource` (TS/JS, via the ts-morph
-helper), `gosource` (Go, V2.M5), and the HCL walk inside the Terraform pack.
-Each answers the same question — where are the call sites, and what encloses
-them — and none of them resolves anything.
+Five providers: `pysource` (Python), `tssource` (TS/JS, via the ts-morph
+helper), `gosource` (Go, V2.M5), `rustsource` (Rust, V2.M7), and the HCL
+walk inside the Terraform pack. Each answers the same question — where are
+the call sites, and what encloses them — and none of them resolves anything.
 
 Two things Go made explicit that the others had not (ADR-037). **A type
 conversion is spelled exactly like a call**: `Decision(s)` and `Resolve(s)`
@@ -204,6 +204,16 @@ are types. And **a Go import names a package, not a file**, so lane A emits
 no in-repo import edges for Go at all; the join raises them from what the
 call actually reaches, which is precise instead of a guess between a
 package's files.
+
+Rust inherits the import rule (a `use` names an item path; `ext:` edges
+only, the join raises the rest) and adds one of its own (ADR-040):
+**macro arguments are unparsed token trees** to tree-sitter, and nearly
+every Rust test asserts through a macro, so `rustsource` applies
+call-shape detection inside token trees — an identifier immediately
+followed by a parenthesized token tree is a call site at that identifier.
+A false-shaped site produces no edge, because nothing resolves at it;
+rust-analyzer meanwhile emits macro-argument occurrences at their real
+pre-expansion positions, so the two lanes still meet on ranges.
 
 **Lane A no longer *resolves* symbols; it still *detects* syntax (ADR-029).**
 An earlier wording said resolution "moves entirely to lane B", which assumed
@@ -387,11 +397,13 @@ not a less rich graph, it is a graph missing the relation the system exists
 to answer.
 
 **P7 survives, narrowed.** "Languages are configuration, not integrations"
-still holds for the *builder* — Go added zero lines to it. What P7 cannot
-promise is that a language is free: it costs one grammar walk, a bounded
-mechanical job with four worked examples now (`pysource`, `tssource`,
-`gosource`, and HCL's). The claim that was wrong is "an indexer entry plus
-an optional pack"; the claim that survives is "nothing in the core changes".
+still holds for the *builder* — Go added zero lines to it, and Rust
+(V2.M7, the language the checklist was corrected *for*) added zero again.
+What P7 cannot promise is that a language is free: it costs one grammar
+walk, a bounded mechanical job with five worked examples now (`pysource`,
+`tssource`, `gosource`, `rustsource`, and HCL's). The claim that was wrong
+is "an indexer entry plus an optional pack"; the claim that survives is
+"nothing in the core changes".
 
 **Where steps 1 and 2 actually live.** `hobbes.yaml` does not exist and is
 not going to — the architecture named it before anything needed it, and

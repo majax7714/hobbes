@@ -15,6 +15,7 @@ dependencies = [
     "tree-sitter-go>=0.25.0",
     "tree-sitter-hcl>=1.2.0",
     "tree-sitter-python>=0.25.0",
+    "tree-sitter-rust>=0.23,<0.25",
 ]
 
 [project.scripts]
