@@ -200,12 +200,37 @@ uv run hobbes lanes --json
 **Active: the v2 extraction architecture.** Source of truth is the running
 `docs/hobbes-architecture.md`; the file-level plan with exit criteria
 is `docs/hobbes-build-plan-v2.md` (approved 2026-08-14, all six
-deviations folded into §7). **V2.M0 (ADR-027), V2.M1 (ADR-028), V2.M2\*
-(ADR-029) done. V2.M3 (ADR-030/031/032) built and **reviewed — passed by
-Max 2026-08-15**, which also discharges M2's asterisk. **V2.M4 (ADR-035)
-built and reviewed — passed by Max 2026-08-15.** **V2.M5 (ADR-037) is
-BUILT and awaiting review; V2.M6 (unified invariant checker) is next and
-must not start until Max passes M5.**
+deviations folded into §7). **V2.M0–M5 all done and passed by Max**
+(M5 cleared 2026-08-15, after a same-day register audit and sweep —
+ADR-038 lifted C-3, C-16/C-18 lifted, C-5/C-26 surfaced, C-27 found and
+fixed by C-16's first working run). **V2.M6 (ADR-039) is BUILT and
+awaiting review; V2.M7 (Rust proof) must not start until Max passes
+M6.**
+
+**V2.M6 — the unified invariant checker (ADR-039).** Records carry
+`check: graph | emit | soft`; the rule block is top-level; `compile`
+holds only the target and exists only for emit. The checker judges every
+rule it can see — emit records included, so the emitted tool always has
+an in-process answer to agree with — and verdicts are **tier-aware**:
+semantic evidence proves, syntactic evidence yields `suspect` (a new
+result between fail and unknown, still exit 1), **except** on
+`ext:`/`env:`/`tf:` edges, where syntactic is the only tier that exists
+and counts as proof. All eleven records migrated; **I-4 restated a third
+time** — the enumerating wording had gone stale twice unnoticed (the old
+rule *fails* on today's graph, citing gosource.py:39), so the statement
+now states ownership and the enumeration lives only in the rule block
+the checker holds against the graph. **lint-imports ran for the first
+time in the project's history and immediately found an emitter bug**
+(unmatched ignore pairs from the except cross-product failed a clean
+repo; C-19 narrowed to the three still-unexecuted tools). Soft verdicts
+are **source-based** (C-18 lifted): `--soft` runs the M4 reviewer
+sandbox at the review's head ref (`hobbes-session --ref`, new) with the
+diff hunks in the prompt; a missing sandbox errors on the answer rather
+than falling back. P10's parked ask (broad-handler-encloses-refusal)
+stays parked — the other subsystems need typed refusals before a checker
+kind can want them. C-24's candidate fix was this register's guess at an
+M6 home, not the plan's — it remains open, flagged for a decision before
+M7.
 
 **V2.M5 — Go, and the checklist correction (ADR-037).** Hobbes now sees
 **its own Go**: 216 nodes across `go, hcl, javascript, python, typescript`,

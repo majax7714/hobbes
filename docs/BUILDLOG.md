@@ -2222,3 +2222,79 @@ counts twenty-seven entries, six unsurfaced, three lifted.
 
 **Still at the M5 review gate.** M6 starts on Max's pass, with the
 register current as of this entry.
+
+---
+
+## 2026-08-15 (twelfth) — V2.M6: the unified invariant checker (ADR-039)
+
+Max passed M5 and cleared M6. Built across five commits, each green.
+
+**The record shape.** `check: graph | emit | soft` is the spine; the rule
+block moved to the top level (it describes the invariant, not the
+compilation); `compile` shrank to `{target}` and exists only for emit;
+`soft` stopped being a pseudo-target. Validation enforces the whole
+combination and refuses a `check: graph` record whose kind the graph
+cannot answer — a check that cannot check would sit at `unknown` forever.
+A v1 record fails with the migration named. All eleven records migrated;
+the Go surface writes the new shape on approval and `list_invariants`
+renders the checking mode. The decision-key hash is untouched.
+
+**Tier-aware verdicts, with the carve-out that keeps them honest.**
+Semantic evidence proves; syntactic evidence yields `suspect` — a new
+result between fail and unknown, still exit 1, folded into review's red
+family (pass→suspect regresses, fail↔suspect is still-failing). The
+carve-out: on edges only lane A can produce (`ext:`/`env:`/`tf:`),
+syntactic is not a downgrade but the only tier that exists — an import
+statement lane A read is a fact, and calling it a suspicion would
+understate a real violation. Without the carve-out, every I-4-style
+verdict would have been permanently "suspected".
+
+**I-4, restated a third time — and the checker now guards its roster.**
+The plan predicted this. The enumerating wording went stale twice
+without the record noticing: V2.M4 moved HCL behind the pack, V2.M5
+added gosource's grammar. The old rule *fails* on today's graph, citing
+`gosource.py:39` — which is the negative control proving the checker
+isn't vacuously green, and the reason the statement now states ownership
+while the enumeration lives only in the rule block held against the
+graph on every review. A fifth language that forgets to amend the record
+turns it red instead of quietly narrowing it.
+
+**lint-imports ran for the first time in the project's history, and the
+first execution found a real bug.** The `except` cross-product emits
+ignore pairs that never occur as imports; import-linter errors on
+unmatched ignores by default; a clean repo exited 1 while the graph said
+pass. Exactly the class of bug M8's shape assertions could not see, and
+exactly where the plan said it would surface. The emitter sets
+`unmatched_ignore_imports_alerting = warn`, the regression is pinned in
+`test_agreement.py`, and C-19 narrowed to the three tools still
+unexecuted. import-linter is a dev dependency now.
+
+**Soft verdicts are source-based — C-18 lifted.** `--soft` runs each
+in-scope soft invariant in the M4 reviewer sandbox: worktree ro at the
+review's head ref (`hobbes-session --ref`, new flag with a test), the
+knowledge tools, and the range's diff hunks in the prompt (bounded at
+400 lines). A missing sandbox is an error on the answer, never a silent
+fallback to the delta prompt — that would have recreated C-18 quietly.
+
+**Exit criteria, on the dogfood repo.** `hobbes review HEAD~2..HEAD`
+runs the I-series under the new field end-to-end: I-4 **pass** under
+`check: graph` at both ends, I-5 honest `unknown` (compiled for CI),
+nine `soft` queued for a reviewer — and the delta pane flagged this
+milestone's own change (`hobbes.review -> ext:os`, the ADR-038 stdlib
+edges at work). Agreement wherever both exist: I-4's graph pass ↔
+`lint-imports` exit 0 on the generated config; the stale-rule negative
+control fails both judges *at the same line*. `hobbes invariants
+compile` emits exactly the emit records (semgrep for I-5) and names why
+graph and soft records are skipped.
+
+**P10's parked ask stays parked**, stated in ADR-039: no record can want
+a refusal-domination rule kind until refusals are a type outside the
+pack layer. **C-24's candidate fix remains open** — its "deferred to
+V2.M6" was the register's guess, not the plan's commitment; flagged for
+Max before M7.
+
+520 pytest / 18 scip / 21 tsextract / 52 vitest / all Go packages ok.
+Binaries rebuilt (web, proxy, sandbox proxy, session).
+
+**V2.M6 stops here for review.** V2.M7 (Rust proof) does not start until
+Max passes it.

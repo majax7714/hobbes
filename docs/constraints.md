@@ -356,28 +356,38 @@ information appears in both, and the entries cross-reference.
   Staleness badges on SHA drift.
 - **Source:** ADR-019.
 
-### C-18 — Soft invariant verdicts judge the delta, not the source
-- **Cannot tell you:** whether a change violates a `soft` invariant in a
-  way that needs the diff hunks — the reviewer session sees the
-  architecture delta and the changed-file list, not the files.
-- **Because:** soft verdicts run through the tool-less ADR-020 runner.
-  The M8 exit-check sessions said so unprompted.
-- **Bites at:** `hobbes review --soft`.
-- **You find out:** **partial** — the sessions tend to disclose it in
-  their own reasoning, which is honesty by accident rather than by
-  mechanism.
-- **Source:** M8, `future_additions.md`. V2.M6 is the fix.
+### C-18 — Soft invariant verdicts judge the delta, not the source — **LIFTED at V2.M6**
+- **Was:** soft verdicts ran through the tool-less ADR-020 runner, so a
+  reviewer session judged from the architecture delta and a changed-file
+  list, not the files — honest but shallow, and the M8 exit-check
+  sessions said so unprompted.
+- **Lifted by:** ADR-039 — `--soft` runs each in-scope soft invariant in
+  the M4 reviewer sandbox: worktree mounted read-only at the review's
+  head ref (`hobbes-session --ref`), the knowledge tools, and the range's
+  diff hunks in the prompt. A missing sandbox is an error recorded on the
+  answer, never a silent fallback to the delta prompt — that would have
+  quietly recreated this entry.
+- **Honest residue:** needs podman, the session image, and quota; the
+  error path is the surfacing when they are absent.
+- **Source:** M8, `future_additions.md`; lifted at V2.M6 (ADR-039).
 
-### C-19 — The compiled CI configs have never been executed
-- **Cannot tell you:** that a generated import-linter `.ini`,
-  dependency-cruiser config, semgrep rule, or Rego policy actually runs.
+### C-19 — Three of the four compiled CI configs have never been executed
+- **Cannot tell you:** that a generated dependency-cruiser config,
+  semgrep rule, or Rego policy actually runs. **import-linter is no
+  longer on this list** (V2.M6, ADR-039): it is a dev dependency, the
+  agreement suite runs `lint-imports` over generated configs on every
+  test run, and the first real execution found a real emitter bug —
+  unmatched ignore pairs failed a clean repo — which is the argument for
+  narrowing this entry rather than lifting it: the other three emitters
+  are exactly as untested as that one was.
 - **Because:** compilation is pure text generation by design (no target
-  toolchain needed), and none of the four tools is installed here. The
-  emitters are asserted against documented formats.
-- **Bites at:** `hobbes invariants compile` output, the first time anyone
-  runs it in real CI.
-- **You find out:** **unsurfaced.** The files look finished.
-- **Source:** M8, `future_additions.md`. V2.M6's exit finally runs one.
+  toolchain needed), and the other three tools are not installed here.
+  Those emitters are asserted against documented formats only.
+- **Bites at:** `hobbes invariants compile` output for dep-cruiser,
+  semgrep, and rego, the first time anyone runs them in real CI.
+- **You find out:** **unsurfaced** for those three. The files look
+  finished.
+- **Source:** M8, `future_additions.md`; narrowed at V2.M6.
 
 ### C-20 — Decisions do not survive a fresh clone
 - **Cannot tell you:** on a new machine or a re-clone, that you already
@@ -562,11 +572,19 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Six of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19,
-C-20, C-24). Three have been **lifted** — C-11 at V2.M3, and C-3 and
-C-16 in the 2026-08-15 pre-M6 sweep, which also surfaced C-5 and C-26.
-That churn is the point of keeping the register: none of it was knowable
-before this file existed, and what remains is the backlog P8 generates.
+Six of twenty-seven entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
+narrowed to three tools at V2.M6 — C-20, C-24). Four have been
+**lifted** — C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep
+(which also surfaced C-5 and C-26), and C-18 at V2.M6, whose fix made
+soft verdicts source-based. That churn is the point of keeping the
+register: none of it was knowable before this file existed, and what
+remains is the backlog P8 generates.
+
+C-24's candidate fix (JSX elements as call sites, so a render-only test
+guards what it renders) was this entry's guess at a V2.M6 home; the
+approved M6 plan did not include it and it remains open — the reviewer
+flow is the consumer that feels it, so it is a candidate for a decision
+before V2.M7 rather than a silently dropped promise.
 
 C-27 arrived the way the register says entries should: C-16's first
 working run produced a number (0 of 5 resolved), the number was

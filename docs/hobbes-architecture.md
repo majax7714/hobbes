@@ -525,9 +525,9 @@ The v2 extraction programme:
 | **V2.M1** — schema v4 + version gate | done | ADR-028: tiers and lanes, additive over v3; three consumers refuse rather than half-read |
 | **V2.M2** — lane B (Python) | done | ADR-029: two providers meeting in an evidence IR, not two edge sets merged |
 | **V2.M3** — lane A demotion, TS lane, self-test | done, **reviewed 2026-08-15** | ADR-030 (P8), ADR-031 (demote, don't delete), ADR-032 (stage and symlink); discharges M2's asterisk |
-| **V2.M4** — enrichment packs | built, awaiting review | ADR-035: registered in code, activated by detection — no `hobbes.yaml`, and the ADR-012 tension dissolves |
-| **V2.M5** — Go support | built, awaiting review | ADR-037: the checklist needed a third mandatory step. Hobbes now sees its own Go — 216 nodes, 5 languages |
-| **V2.M6** — unified invariant checker | not started | `check: graph` over the semantic graph, tier-aware verdicts |
+| **V2.M4** — enrichment packs | done | ADR-035: registered in code, activated by detection — no `hobbes.yaml`, and the ADR-012 tension dissolves |
+| **V2.M5** — Go support | done | ADR-037: the checklist needed a third mandatory step. Hobbes now sees its own Go — 216 nodes, 5 languages |
+| **V2.M6** — unified invariant checker | built, awaiting review | ADR-039: `check: graph|emit|soft`, tier-aware verdicts with the lane-A-only carve-out; lint-imports executed for the first time and found an emitter bug; soft verdicts source-based (C-18 lifted) |
 | **V2.M7** — Rust proof | not started | P7 demonstrated on a language nobody planned for |
 
 Sequencing rules carry from v1 unchanged: deterministic before generative,
