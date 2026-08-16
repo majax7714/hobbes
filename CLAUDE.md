@@ -240,6 +240,14 @@ the three verified repos: kbet's tail is 61% below-floor locals with
 concentrated remainder — anything in it that turns out to be needed
 for derived context becomes a direct register entry. C-2 amended,
 C-32 added (classifier boundaries: TS-only origins, pinned lists).
+Same day, run against SELENEX (94.3% python capture, best measured)
+and qwen-pathology (82.6%, env-missing surfaced): their unclassified
+residue was bare calls of **imported names**, so `import-binding`
+joined the classes (lane A's own FromImport parse, Python-only,
+binding-proven — ADR-045 amendment) — SELENEX unclassified 46 → 4,
+qwen 6 → 1. Remaining known residue: locally-declared Python helpers
+(dogfood's 45 — fixtures), Go closure locals (20), and attr-call —
+the genuine untypable-receiver limit — everywhere.
 
 **2026-08-16 (post-v2 doc session):** the constraints register is split
 into **Active** and **Lifted** parts (ADR-043) — lifted entries carry a

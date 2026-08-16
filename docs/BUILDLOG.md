@@ -2647,3 +2647,44 @@ lists, text shape — partial). Not scoped: review/surface reading
 **Stops here for Max's review** (milestone discipline: the exit is his
 to pass): the mechanism, the class vocabulary, and whether the capture
 line's phrasing says what he means.
+
+---
+
+## 2026-08-16 (nineteenth) — the tail view meets SELENEX and qwen; `import-binding`
+
+Max's direction: run the tail view against the two remaining sanctioned
+repos and look for major snags easier to classify than "simply
+unknown". Both ingested in place (SELENEX per its standing rule:
+read-only except `.hobbes/` outputs).
+
+**First contact numbers.** SELENEX python 94.3% of 2,711 detected
+sites accounted — the best capture measured on any repo — with
+dependency_coverage honestly reporting 9/15 (dev tools uninstalled);
+qwen-pathology 82.6% of 546, env not installed (2/6 — datasets,
+transformers, vllm missing) and the WARNING said so.
+
+**The snag, found exactly where he pointed.** SELENEX's 46
+`unclassified` python sites were almost entirely bare calls of
+**imported names** — `PG_UUID`×22 (an import alias), `pg_insert`,
+model classes — and qwen's were `load_dataset`, `LLM`,
+`SamplingParams`: imports of the very packages dependency_coverage
+reported missing. Lane A already parses those bindings
+(`FromImport`'s (imported, bound) pairs), so the class is
+provider-grade, no regex: **`import-binding`** — bare call whose name a
+same-file import binds. It sits in the *cannot resolve* group beside
+its checker-graded TS sibling `external-origin`, because it is
+usually the shape of a missing environment. Priority: import outranks
+builtin (`from rich import print`); bare calls only (`os.path.join`
+stays attr). Python-only, and C-32 says why honestly: binding-proven
+not declaration-proven (shadowing matches), and a Go import binds a
+package name, not a callable — Go's closure-typed bare tail (~20
+sites) stays `unclassified` rather than borrowing a meaningless class.
+
+**Re-verified on all five repos.** SELENEX unclassified 46 → **4**;
+qwen 6 → **1**; dogfood python 48 → 45 (its residue is locally-declared
+pytest fixtures — `fake_policy_bin` — a class Python cannot claim yet,
+C-32's candidate); kbet and rust unchanged, as they should be. ADR-045
+amended in place (same-day, section named), C-32 amended, architecture
+§3.4 class list updated.
+
+583 pytest / 29 tsextract — green (Go and web untouched this round).
