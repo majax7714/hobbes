@@ -121,6 +121,7 @@ def extract_repo(
             parsed=parsed,
             ts=ts,
             go=go,
+            rust=rust,
             tf_plan=tf_plan,
         ),
         packs,

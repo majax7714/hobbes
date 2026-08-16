@@ -47,6 +47,8 @@ class PackContext:
     ts: dict | None = None
     #: The Go layer's facts bundle, or ``None`` when the repo has no Go.
     go: dict | None = None
+    #: The Rust layer's facts bundle, or ``None`` when the repo has no Rust.
+    rust: dict | None = None
     #: ``terraform show -json`` document, when ``ingest --tf-plan`` gave one.
     tf_plan: Path | None = None
 

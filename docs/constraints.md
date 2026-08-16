@@ -309,20 +309,30 @@ information appears in both, and the entries cross-reference.
   rather than guessing.
 - **Source:** ADR-021, M6.
 
-### C-14 — CLI entry points come from `pyproject.toml` only
-- **Cannot tell you:** about a JS package's `bin` entry points, or a Go
-  binary — a `package main` under `cmd/` is exactly the shape this repo's
-  own four binaries take, and `interfaces.json` on the dogfood repo lists
-  `hobbes` and `mini` (Python console scripts) while `hobbes-policy`,
-  `hobbes-proxy`, `hobbes-session` and `hobbes-web` are absent.
-- **Because:** the `cli-python` pack (ADR-035, which owns this mechanism
-  since V2.M4) reads `[project.scripts]` from every `pyproject.toml`, and
-  it is the only CLI source; nothing reads `package.json` `bin` or Go
-  main packages.
-- **Bites at:** `interfaces.json` on TS/JS and Go repos.
-- **You find out:** **unsurfaced.** The list is empty and reads as "no CLI".
+### C-14 — CLI entry points come from `pyproject.toml` only — **LIFTED 2026-08-16**
+- **Was:** `interfaces.json` read `[project.scripts]` and nothing else,
+  so a JS package's `bin` entries and every Go binary were absent — this
+  repo's own four binaries (`hobbes-policy`, `hobbes-proxy`,
+  `hobbes-session`, `hobbes-web`) missing while two Python console
+  scripts were listed, an inventory that read as complete and was not.
+  The register ranked it #2 worst ("an empty CLI list reads as 'no
+  CLI'").
+- **Lifted by:** three packs on the ADR-035 registry, one per remaining
+  language. `cli-ts` reads `package.json` `bin` (string and map forms,
+  every manifest, `node_modules` pruned); `cli-go` reads the lane's own
+  facts — a file in `package main` declaring `func main`, named after
+  its directory, the `go build` rule; `cli-rust` reads cargo's three
+  binary shapes (`[[bin]]` tables, `src/main.rs`, `src/bin/*`). Each
+  pack carries the per-pack removability test, and the lift's exit check
+  is this entry's own counter-example, pinned in `test_packs.py`: the
+  dogfood repo's four binaries must appear.
+- **Honest residue:** a binary that exists only in a build script — a
+  Makefile target, an npm `scripts` alias, a `go build -o` with a
+  renamed output — is still invisible; the inventory reads declared
+  targets, not build automation. `setup.py` `entry_points` remains
+  outside too, as the original entry said.
 - **Source:** M6, `future_additions.md`; widened to Go at the 2026-08-15
-  register audit.
+  register audit; lifted 2026-08-16.
 
 ## Extraction — cross-layer
 
@@ -664,8 +674,10 @@ information appears in both, and the entries cross-reference.
 
 ## Debt summary
 
-Five of **thirty** entries are **unsurfaced** (C-4, C-12, C-14, C-19 —
-narrowed to three tools at V2.M6 — and C-20). Five have been **lifted** —
+Four of **thirty** entries are **unsurfaced** (C-4, C-12, C-19 —
+narrowed to three tools at V2.M6 — and C-20). Six have been **lifted** —
+C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
+own counter-example is the pinned exit check),
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also
 surfaced C-5 and C-26), C-18 at V2.M6, and C-24 the same day: Max
 approved JSX instantiations as call sites with the standing condition
@@ -733,7 +745,9 @@ Ranked by how badly each remaining entry misleads, worst first:
 
 1. **C-12** — a monorepo's cross-zone import edge is simply absent, at
    exactly the altitude the graph exists to show.
-2. **C-14** — an empty CLI list reads as "no CLI" on TS/JS and Go repos.
+
+*(C-14 held the #2 slot — "an empty CLI list reads as 'no CLI'" — until
+the 2026-08-16 paydown lifted it.)*
 
 The rest stay quiet rather than lying, which is a real difference.
 

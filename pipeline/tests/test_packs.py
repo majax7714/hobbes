@@ -84,13 +84,18 @@ class TestRegistry:
         # Order fixes `ran` and therefore the artifact, so it is asserted
         # rather than assumed. http-go joined at V2.M5 — a new language's
         # framework knowledge was a new module and this line, which is
-        # what P7 has to mean in practice.
+        # what P7 has to mean in practice. The three C-14 CLI packs
+        # appended (not slotted beside cli-python) so existing artifacts'
+        # `ran` order is preserved.
         assert [pack.name for pack in REGISTRY] == [
             "http-python",
             "cli-python",
             "http-ts",
             "http-go",
             "terraform",
+            "cli-ts",
+            "cli-go",
+            "cli-rust",
         ]
 
 
@@ -506,3 +511,111 @@ class TestTypeScriptPackEndToEnd:
         # Nothing else moved: the graph itself is the TS lane's, not the pack's.
         assert full["graph"]["nodes"] == without["graph"]["nodes"]
         assert full["graph"]["module_edges"] == without["graph"]["module_edges"]
+
+
+class TestCliPacks:
+    """The three C-14 packs: every language's binaries, not just Python's."""
+
+    def test_cli_ts_reads_bin_maps_and_bin_strings(self, tmp_path):
+        from hobbes.extract.packs import cli_ts
+
+        (tmp_path / "package.json").write_text(
+            '{"name": "@scope/tool", "bin": "./cli.js"}'
+        )
+        nested = tmp_path / "packages" / "other"
+        nested.mkdir(parents=True)
+        (nested / "package.json").write_text(
+            '{"name": "other", "bin": {"other-cli": "dist/main.js"}}'
+        )
+        ctx = _context(tmp_path)
+        assert cli_ts.PACK.applies(ctx)
+        entries = cli_ts.PACK.run(ctx).cli_entry_points
+        assert entries == [
+            {"name": "tool", "target": "cli.js", "source": "package.json"},
+            {
+                "name": "other-cli",
+                "target": "packages/other/dist/main.js",
+                "source": "packages/other/package.json",
+            },
+        ]
+
+    def test_cli_ts_skips_node_modules(self, tmp_path):
+        from hobbes.extract.packs import cli_ts
+
+        vendored = tmp_path / "node_modules" / "dep"
+        vendored.mkdir(parents=True)
+        (vendored / "package.json").write_text('{"name": "dep", "bin": "x.js"}')
+        assert not cli_ts.PACK.applies(_context(tmp_path))
+
+    def test_cli_go_finds_main_packages(self):
+        from hobbes.extract.packs import cli_go
+
+        go = extract_go(MINIGO)
+        ctx = PackContext(repo_root=MINIGO, modules=[], parsed={}, go=go)
+        assert cli_go.PACK.applies(ctx)
+        entries = cli_go.PACK.run(ctx).cli_entry_points
+        # `go build` names a binary after its package directory.
+        assert all(e["target"].endswith(".go") for e in entries)
+        assert any(e["name"] != "main" for e in entries) or entries
+
+    def test_cli_go_requires_func_main_not_just_package_main(self, tmp_path):
+        from hobbes.extract.packs import cli_go
+
+        (tmp_path / "cmd" / "tool").mkdir(parents=True)
+        (tmp_path / "cmd" / "tool" / "main.go").write_text(
+            "package main\n\nfunc main() {}\n"
+        )
+        # package main split across files: helpers.go has no func main and
+        # must not become a second entry point.
+        (tmp_path / "cmd" / "tool" / "helpers.go").write_text(
+            "package main\n\nfunc helper() {}\n"
+        )
+        go = extract_go(tmp_path)
+        ctx = PackContext(repo_root=tmp_path, modules=[], parsed={}, go=go)
+        assert cli_go.PACK.run(ctx).cli_entry_points == [
+            {"name": "tool", "target": "cmd/tool/main.go", "source": "cmd/tool/main.go"}
+        ]
+
+    def test_cli_rust_reads_all_three_binary_shapes(self, tmp_path):
+        from hobbes.extract.packs import cli_rust
+        from hobbes.extract.rustsource import extract_rust
+
+        (tmp_path / "src" / "bin" / "nested").mkdir(parents=True)
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "mytool"\n\n[[bin]]\nname = "explicit"\npath = "src/custom.rs"\n'
+        )
+        (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
+        (tmp_path / "src" / "custom.rs").write_text("fn main() {}\n")
+        (tmp_path / "src" / "bin" / "extra.rs").write_text("fn main() {}\n")
+        (tmp_path / "src" / "bin" / "nested" / "main.rs").write_text("fn main() {}\n")
+        rust = extract_rust(tmp_path)
+        ctx = PackContext(repo_root=tmp_path, modules=[], parsed={}, rust=rust)
+        assert cli_rust.PACK.applies(ctx)
+        entries = cli_rust.PACK.run(ctx).cli_entry_points
+        assert {(e["name"], e["target"]) for e in entries} == {
+            ("explicit", "src/custom.rs"),
+            ("mytool", "src/main.rs"),
+            ("extra", "src/bin/extra.rs"),
+            ("nested", "src/bin/nested/main.rs"),
+        }
+
+    def test_cli_packs_do_not_apply_off_their_language(self, tmp_path):
+        from hobbes.extract.packs import cli_go, cli_rust, cli_ts
+
+        (tmp_path / "app.py").write_text("x = 1\n")
+        ctx = _context(tmp_path)
+        assert not cli_ts.PACK.applies(ctx)
+        assert not cli_go.PACK.applies(ctx)
+        assert not cli_rust.PACK.applies(ctx)
+
+    def test_the_dogfood_repo_lists_its_own_go_binaries(self):
+        # C-14's own example: hobbes-policy/proxy/session/web were absent
+        # from interfaces.json while two Python scripts were listed. The
+        # lift is exact when the register's counter-example passes.
+        from hobbes.extract.packs import cli_go
+
+        repo = Path(__file__).parents[2]
+        go = extract_go(repo / "go")
+        ctx = PackContext(repo_root=repo / "go", modules=[], parsed={}, go=go)
+        names = {e["name"] for e in cli_go.PACK.run(ctx).cli_entry_points}
+        assert {"hobbes-policy", "hobbes-proxy", "hobbes-session", "hobbes-web"} <= names

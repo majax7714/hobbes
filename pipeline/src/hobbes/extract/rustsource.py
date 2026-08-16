@@ -96,6 +96,27 @@ def module_id(path: str) -> str:
     return str(pure.with_suffix("")) if pure.suffix == ".rs" else str(pure)
 
 
+def iter_cargo_manifests(repo_root: Path):
+    """Every ``Cargo.toml`` in the repo, pruned like the ``.rs`` walk.
+
+    Public because the CLI pack's binary-target discovery needs the same
+    pruned walk (C-14): ``rglob`` would descend into ``target/``.
+    """
+    stack = [Path(repo_root)]
+    while stack:
+        directory = stack.pop()
+        try:
+            children = sorted(directory.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.is_dir():
+                if child.name not in _RUST_SKIPPED and not child.name.startswith("."):
+                    stack.append(child)
+            elif child.name == "Cargo.toml":
+                yield child
+
+
 def local_crate_names(repo_root: Path) -> dict[str, str]:
     """``{crate name: lib target file}`` for every manifest in the repo.
 
@@ -108,32 +129,21 @@ def local_crate_names(repo_root: Path) -> dict[str, str]:
     """
     repo_root = Path(repo_root).resolve()
     names: dict[str, str] = {}
-    stack = [repo_root]
-    while stack:
-        directory = stack.pop()
+    for child in iter_cargo_manifests(repo_root):
         try:
-            children = sorted(directory.iterdir())
-        except OSError:
+            manifest = tomllib.loads(child.read_text())
+        except (OSError, ValueError):
             continue
-        for child in children:
-            if child.is_dir():
-                if child.name not in _RUST_SKIPPED and not child.name.startswith("."):
-                    stack.append(child)
-            elif child.name == "Cargo.toml":
-                try:
-                    manifest = tomllib.loads(child.read_text())
-                except (OSError, ValueError):
-                    continue
-                base = child.parent.relative_to(repo_root)
-                lib = manifest.get("lib") or {}
-                lib_path = lib.get("path", "src/lib.rs")
-                lib_file = str(PurePosixPath(base) / lib_path).removeprefix("./")
-                package = (manifest.get("package") or {}).get("name")
-                if isinstance(package, str) and package:
-                    names.setdefault(package.replace("-", "_"), lib_file)
-                lib_name = lib.get("name")
-                if isinstance(lib_name, str) and lib_name:
-                    names[lib_name] = lib_file
+        base = child.parent.relative_to(repo_root)
+        lib = manifest.get("lib") or {}
+        lib_path = lib.get("path", "src/lib.rs")
+        lib_file = str(PurePosixPath(base) / lib_path).removeprefix("./")
+        package = (manifest.get("package") or {}).get("name")
+        if isinstance(package, str) and package:
+            names.setdefault(package.replace("-", "_"), lib_file)
+        lib_name = lib.get("name")
+        if isinstance(lib_name, str) and lib_name:
+            names[lib_name] = lib_file
     return names
 
 

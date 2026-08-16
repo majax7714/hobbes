@@ -26,7 +26,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from hobbes.extract.packs import (
+    cli_go,
     cli_python,
+    cli_rust,
+    cli_ts,
     http_go,
     http_python,
     http_ts,
@@ -36,13 +39,17 @@ from hobbes.extract.packs.base import Pack, PackContext, PackRefusal, PackResult
 
 #: The built-in packs, in the order they run. Order is not load-bearing —
 #: contributions are merged and sorted — but it fixes ``ran`` and therefore
-#: the artifact, so it stays stable.
+#: the artifact, so it stays stable. The three C-14 packs append rather
+#: than slot beside cli-python, for exactly that reason.
 REGISTRY: tuple[Pack, ...] = (
     http_python.PACK,
     cli_python.PACK,
     http_ts.PACK,
     http_go.PACK,
     terraform.PACK,
+    cli_ts.PACK,
+    cli_go.PACK,
+    cli_rust.PACK,
 )
 
 
