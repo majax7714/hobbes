@@ -2871,3 +2871,58 @@ session extends is the honesty machinery's evidence at 50× scale.
 
 618 pytest / 29 tsextract / 24 scip — green (Go untouched; web
 untouched).
+
+---
+
+## 2026-08-18 (twenty-third) — the cross-unit moniker join, and the evidence log
+
+Max's direction on the dagger report: carry a repos-tested-with-stats
+doc in the repo "for honesty and proof", apply C-33's candidate fix and
+retest — edge verification may wait as long as its absence is
+documented. The frame: once extraction is properly set, development
+moves off testing and Hobbes work becomes last-commit additions, so the
+extraction layer is what gets validated and improved now.
+
+**`docs/extraction-evidence.md` — created.** The standing per-repo
+evidence log: every real repo the extraction layer has been tested
+against, dated numbers, and a mandatory *Verified* line per repo —
+including when its content is "none" (dagger's is, explicitly, per the
+direction). §3.8 stays the claim table; this is the evidence behind and
+beyond it, updated in the same commit as the session that produced the
+numbers. README points at it.
+
+**The C-33 fix — applied (ADR-049), C-33 lifted one session after
+registration.** Three parts: external rows keep their moniker (helper
+facts **v3**, both sides bumped together); `join_cross_unit` after each
+language's per-unit merge promotes external rows to references on
+**exact moniker equality** — not C-12's rejected reconciliation,
+nothing reads another unit's compiler config — with cross-unit
+ambiguity abstaining and reported (C-28's rule across units); and Go
+replace targets staged beside their consumers (`go_replace_targets`:
+consumer's own go.mod only, path replacements only, in-repo only).
+
+**Verified bottom-up.** The two-module fixture that reproduced C-33 at
+one call site flips **0% → 100%**, edge `semantic`/`calls`. Dagger
+re-ingest: go capture **79.3% → 85.6%** (cannot-resolve 20,501 →
+5,571), `core/integration [go]` **59.3% → 96.3%** (14,902 → 396
+unresolvable), **+8,014 semantic call edges** including **7,322** from
+core/integration into the `replace`d `sdk/go` — the exact miss C-33
+named. The two `scip-merge` abstentions that fired are the right ones:
+42 anonymous-TS-zone monikers (`npm . .` — colliding single-file
+testdata zones, which is the exactness rule refusing false TS joins)
+and 7 generated Go testdata modules sharing package monikers. **Lane
+agreement: 36,440 dual-resolved sites, still exactly 138 disagreements
+— zero added by ~8k new semantic edges**, which is the watchdog saying
+the join's edges are consistent wherever both lanes speak. Python,
+Rust, TS captures unchanged, as they should be. Dogfood re-ingest
+stable.
+
+Register: C-33 → Lifted (Was / technique / residual edge cases:
+ambiguity abstains, separate Rust workspaces not staged on zero
+evidence, TS alias imports stay C-12, version skew silences rather
+than corrupts and lanes would show it). Architecture §3.2 rewritten
+(the per-unit paragraph now ends in the join, not an open constraint);
+README counts corrected (33 registered / 7 lifted) and the evidence
+log linked.
+
+628 pytest / 25 scip / 29 tsextract — green.

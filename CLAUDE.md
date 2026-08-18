@@ -214,6 +214,22 @@ deliberately deferred until it is done. The build plan
 decision portability, the lane-disagreement tab, and now the C-33
 cross-unit moniker join) stays parked unless Max names an item.
 
+**2026-08-18 (the cross-unit join + the evidence log, ADR-049 — built,
+awaiting Max's review):** Max directed the C-33 candidate fix and a
+standing test-evidence doc. `docs/extraction-evidence.md` is the
+per-repo evidence log (dated stats + a mandatory *Verified* line, "none"
+allowed but stated — dagger's says so); README links it; update it in
+the same commit as any test session. The fix: helper facts **v3**
+(external rows keep monikers), `join_cross_unit` per language on
+**exact moniker equality** (ambiguity abstains + reports — C-28 across
+units; not C-12's rejected reconciliation), Go replace targets staged
+beside consumers. Verified: twomod fixture 0% → 100% semantic; dagger
+go **79.3% → 85.6%**, `core/integration` **59.3% → 96.3%**, +8,014
+semantic edges (7,322 into the replaced sdk/go); lanes still exactly
+138 — zero disagreements added. C-33 **lifted** one session after
+registration. Residuals in the lifted entry (separate Rust workspaces
+unstaged — no evidence; TS alias imports stay C-12).
+
 **2026-08-18 (extraction at scale — dagger, ADR-048):** first deep
 extraction target `~/dagger` (~265k detected call sites, 84 TS zones,
 25 Go modules — 50× the prior largest). Three changes: the ingest
