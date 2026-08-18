@@ -300,7 +300,13 @@ class TestDegradation:
 def extraction():
     from hobbes.extract import extract_repo
 
-    return extract_repo(FIXTURE)
+    # Module-scoped fixtures are set up *before* the function-scoped
+    # autouse `_lane_a_only` monkeypatch, so the suite's lane-B-off
+    # default must be pinned here or extract_repo runs the real
+    # rust-analyzer whenever the box can resolve minirust's semantics.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("HOBBES_SCIP", "0")
+        return extract_repo(FIXTURE)
 
 
 class TestExtractRepo:
