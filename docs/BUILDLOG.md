@@ -2780,3 +2780,94 @@ derivation requirement so the milestone inherits it.
 
 246 Go tests across 12 packages green (knowledge +4, proxy inventory
 updated); pytest/tsextract/web untouched.
+
+---
+
+## 2026-08-18 (twenty-second) — extraction at scale: dagger
+
+Max signed off on ADR-047's build and named the current work: deep
+extraction testing before the derivation milestone ("theres not been
+enough extraction testing to clear and thats actually what were
+handling now"). Target: `~/dagger` — the Dagger automation engine,
+~460 MB, four graph languages plus HCL-less infra, **84 TypeScript
+zones, 25 Go modules, ~265,000 detected call sites** — roughly fifty
+times the largest prior measurement. Also directed: carry the
+directory through the capture reporting. One ADR (048), one register
+add (C-33), one C-32 amendment.
+
+**The directory capture view — built.** `rollup_directories()` in
+`tail.py`, a pure read over the per-file `resolution_coverage` rows at
+depth-2 grain; the ingest summary prints the worst ten directories
+**ranked by the *cannot resolve* group** (the first draft ranked by
+total unresolved and `internal/buildkit`'s 8,573 by-design builtin
+sites outranked `sdk/typescript`'s 3,059 real misses — the view exists
+to point at what is missing), with the cut stated, never silent. On
+dagger it immediately gave the misses an address: Go read 79.3%
+overall while `core/integration` alone held 14,902 unresolvable sites.
+
+**First ingest found three things; two were fixed, one registered.**
+
+1. **The Go unclassified tail was wrapped fluent chains.** 9,131
+   unclassified Go sites; `container_test.go` held 783, and an awk
+   count of wrapped-chain openers (previous line ending `.`) found
+   782. gofmt *mandates* the trailing dot, so `From(` / `WithExec(`
+   open their lines and the line-local shape read called them bare.
+   Fixed as an observation, not a guess: in Go/Rust/TS a statement
+   cannot end with `.`, so `_shape` now reads the previous line's
+   ending when a call opens its line (trailing `//` comments cut
+   first; comment lines never continue; Python excluded — its chains
+   wrap with a leading dot). Go unclassified **9,131 → 359**.
+   attr-call 10,672 → 19,444. C-32's text-shape boundary restated.
+
+2. **One broken TS zone zeroed all 84 zones.** The `docs` zone extends
+   `@docusaurus/tsconfig` (not installed); scip-typescript exited 1;
+   the per-language catch in `_lane_b_facts` could only drop the whole
+   lane, and TS capture read **0.0%** on a repo where 83 zones were
+   indexable. Go and Rust had the identical shape and dagger's 25 Go
+   modules simply all succeeded. Fixed: the three per-unit merge loops
+   catch `UNIT_ERRORS` (pinned by test to exactly the per-language
+   tuple — P10) and record a degradation naming the unit. Re-ingest:
+   TS **0.0% → 18.8%** overall, `sdk/typescript` **0% → 63.7%**, the
+   docs zone degrading alone with its fix named. The remaining TS miss
+   is environment-shaped (no node_modules anywhere — C-23) and
+   doc-snippet trees.
+
+3. **Cross-unit references do not resolve — registered as C-33, not
+   fixed.** Dagger's root module calls `dagger.io/dagger`, `replace`d
+   to in-repo `./sdk/go`: zero of those calls resolve semantically.
+   Reproduced on a two-module fixture at one call site; two layered
+   mechanisms found: per-unit staging strips the sibling module's
+   sources (scip-go then mis-attributes the reference to the stdlib
+   bucket), and even indexed on the full tree — where scip-go emits
+   the *exact* moniker the sibling's index defines, versions agreeing —
+   `decode()` bins cross-index references into `external_refs` and
+   discards the moniker there. Candidate fix (keep the moniker,
+   cross-unit join at merge, stage replace targets) is a
+   helper-contract change that argues with C-12's no-reconciliation
+   decision for TS; written into future_additions for Max's review,
+   deliberately not built.
+
+**Lane agreement at scale:** 36,439 dual-resolved sites, **138
+disagree (0.38%)**, exit 1. 126 are Go — the demoted fallback
+disagreeing with scip-go where it cannot know build tags
+(`disk_openbsd.go` vs `disk_unix.go`), interface methods, embedded
+types: C-7/C-8's floor, now measured. 11 are a systematic TS
+decorator off-by-one where both lanes cite the same declaration
+(lane A cites the decorator line, SCIP the name line) — a reporting
+convention mismatch, not a resolution difference; noted for review
+rather than papered over with a tolerance.
+
+Regressions checked: dogfood re-ingest healthy (go 89.2%, python
+88.3%, rust 100%, TS 61.6% with the known 99-site residue), the
+directory view printing there too. Also fixed pre-existing:
+`test_rustsource.py`'s module-scoped `extraction` fixture ran lane B
+(module-scoped fixtures set up before the function-scoped autouse
+monkeypatch) — latent since V2.M7, exposed when this session's dagger
+run warmed the cargo state and rust-analyzer began succeeding on
+minirust.
+
+P11 note: no §3.8 row — no dagger edges were hand-verified. What this
+session extends is the honesty machinery's evidence at 50× scale.
+
+618 pytest / 29 tsextract / 24 scip — green (Go untouched; web
+untouched).

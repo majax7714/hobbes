@@ -205,16 +205,37 @@ uv run hobbes lanes --json
 milestone built, reviewed, and passed by Max. The Rust proof (V2.M7,
 ADR-040) passed 2026-08-16, closing the v2 extraction programme.**
 
-**There is no active milestone.** The build plan
-(`docs/hobbes-build-plan-v2.md`) is now record, not plan; what comes
-next is Max's call. The standing candidates are the architecture's own
-"what is not built" — per-task **derivation** of context and policy
-(the stated goal, architecture "Where this is going") — and the backlog
-in `docs/future_additions.md` (P10 checker groundwork, cross-zone
-imports, criterion benches, decision portability, the
-lane-disagreement tab). Do not start any of them unprompted; the
-sequencing discipline (one milestone at a time, exits reviewed by Max)
-carries over to whatever he names.
+**The named current work is deep extraction testing** (Max,
+2026-08-18): "theres not been enough extraction testing to clear and
+thats actually what were handling now." The derivation milestone is
+deliberately deferred until it is done. The build plan
+(`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
+`docs/future_additions.md` (P10 checker groundwork, criterion benches,
+decision portability, the lane-disagreement tab, and now the C-33
+cross-unit moniker join) stays parked unless Max names an item.
+
+**2026-08-18 (extraction at scale — dagger, ADR-048):** first deep
+extraction target `~/dagger` (~265k detected call sites, 84 TS zones,
+25 Go modules — 50× the prior largest). Three changes: the ingest
+summary's **per-directory capture view** (Max's ask; pure rollup over
+`resolution_coverage`, depth 2, ranked by *cannot resolve* so
+by-design classes cannot bury real misses, cut always stated),
+**wrapped-chain shape read** (Go/Rust/TS trailing-dot chains are
+attr-calls, not unknowns — dagger Go unclassified 9,131 → 359; Python
+excluded, comments guarded, C-32 restated), and **per-unit lane B
+degradation** (one broken tsconfig zone had zeroed all 84 zones' TS
+semantics; now each zone/module/cargo-root fails alone with a named
+degradation — TS 0% → 18.8%, sdk/typescript 63.7%). **C-33
+registered, not fixed:** in-repo references across indexing units
+(root module → `replace`d `./sdk/go`) resolve in neither unit's index
+— staging strips siblings AND decode discards the moniker on external
+rows; candidate fix (cross-unit moniker join) is in future_additions
+awaiting Max's review because it argues with C-12's
+no-reconciliation stance. Lanes at scale: 36,439 dual-resolved sites,
+138 disagree (0.38%) — mostly Go fallback vs build tags/interfaces
+(C-7/C-8's floor measured), plus a TS decorator off-by-one where both
+lanes cite the same declaration (noted, unfixed). No §3.8 row: no
+hand-verified edges (P11).
 
 Languages wired: **Python, TypeScript/JavaScript, Go, Rust** (+ the
 Terraform/HCL layer), each with a syntax provider and a pinned SCIP
