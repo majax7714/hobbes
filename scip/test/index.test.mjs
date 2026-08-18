@@ -345,6 +345,23 @@ test('a moniker defined in two files is ambiguous, dropped, and reported', () =>
   assert.ok(out.some((d) => d.stage === 'scip-decode' && /more than one/.test(d.message)))
 })
 
+test('an external ref keeps its moniker for the cross-unit join (v3, ADR-049)', () => {
+  // "External" means external to this index; a sibling indexing unit of
+  // the same repo may define exactly this moniker, and the join after
+  // the per-unit merge matches on it. Without the field C-33 was
+  // unfixable in principle.
+  const OTHER = 'scip-go gomod dagger.io/dagger 0 `dagger.io/dagger`/Hello().'
+  const idx = fakeIndex([
+    {
+      relative_path: 'main.go',
+      occurrences: [{ symbol: OTHER, symbol_roles: 0, range: [5, 5, 5, 10] }],
+    },
+  ])
+  const out = decode(idx)
+  assert.equal(out.external.length, 1)
+  assert.equal(out.external[0].moniker, OTHER)
+})
+
 test("rust's toolchain stdlib is not evidence of an environment", () => {
   // std/core/alloc resolve from the rustup sysroot whatever the repo's
   // dependencies look like — the scip-go lesson, a language later.

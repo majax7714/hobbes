@@ -156,9 +156,12 @@ way Hobbes learned to see **its own Go** (closing the dogfood loop) and
 its own Rust fixture — six languages in the graph it builds of itself.
 
 What v2 *cannot* tell you is a first-class artifact too:
-[`docs/constraints.md`](docs/constraints.md) holds thirty registered
-constraints, five of them since lifted, each naming where a user meets
-the limit. One worth knowing before you ingest strangers' code:
+[`docs/constraints.md`](docs/constraints.md) holds thirty-three
+registered constraints, seven of them since lifted, each naming where a
+user meets the limit — and
+[`docs/extraction-evidence.md`](docs/extraction-evidence.md) is the
+standing record of every repo the extraction layer has been tested
+against, with its measured numbers and what was and was not verified. One worth knowing before you ingest strangers' code:
 **indexing a Rust repo executes its `build.rs` and proc macros** (C-29 —
 disclosed on stderr at every rust ingest; ingest an untrusted Rust repo
 only if you would also build it).

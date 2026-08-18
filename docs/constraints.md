@@ -477,40 +477,6 @@ information appears in both, and the entries cross-reference.
 - **Source:** found 2026-08-15 by C-16's first real run; fixed and
   registered the same day. The Python sibling of C-23.
 
-### C-33 — In-repo references across indexing units do not resolve semantically
-- **Cannot tell you:** where a call lands when the caller and the callee
-  sit in different **indexing units** of the same repo — Go modules
-  (dagger's root module calls `dagger.io/dagger`, which `replace`s to
-  the in-repo `./sdk/go`: zero of those calls resolve semantically) and
-  cargo workspace roots alike. TS zones are the same limit under its
-  own entry, C-12.
-- **Because:** two layered losses, both measured on a two-module fixture
-  (ADR-048). Staging groups files per unit, so a replace/workspace
-  target's sources are absent from its consumer's stage and the indexer
-  cannot type the import at all. And even indexed on the full tree —
-  where scip-go emits the reference with the *exact* moniker the
-  sibling unit's index defines, pinned versions agreeing — `decode()`
-  resolves references only against its own index's definitions; a
-  cross-index reference lands in `external_refs`, where the moniker is
-  discarded, so the merge cannot join it even in principle.
-- **Bites at:** every multi-module Go repo and multi-workspace Rust
-  repo — exactly the monorepo shape where cross-unit edges *are* the
-  architecture. On dagger it is the dominant semantic miss:
-  `core/integration`'s calls into the Go SDK all fall to lane A's
-  fallback or the tail.
-- **You find out:** **partial** — the per-directory capture view
-  (ADR-048) shows the miss concentrated where it lives, and the
-  fallback edges carry `syntactic` tier, but nothing names *cross-unit*
-  as the cause; the low number is visible, its reason is only in this
-  entry.
-- **Candidate fix:** keep the moniker on external rows, join externals
-  against the merged definitions across units, and stage
-  replace/workspace targets beside their consumers. A helper-contract
-  change, and it crosses C-12's deliberate no-reconciliation decision
-  for TS — the Go/Rust case differs (the unit graph is explicit and a
-  moniker join is exact), but that argument needs its own review.
-- **Source:** ADR-048, the dagger measurement session (2026-08-18).
-
 ## Extraction — Go
 
 ### C-26 — A Go file outside any module gets no semantics
@@ -922,16 +888,55 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
   (calls through mocks and store indirection), not this entry's subject.
 - **Source:** V2.M3; lifted 2026-08-15, after V2.M6 and before V2.M7.
 
+### C-33 — In-repo references across indexing units did not resolve — *lifted 2026-08-18, one session after registration*
+- **Was:** a language's indexing units — Go modules, cargo roots, TS
+  zones — are indexed separately and merged, so an in-repo reference
+  *across* units resolved in neither index. Dagger's root-module calls
+  into the `replace`d `./sdk/go` produced **zero** semantic edges — the
+  dominant miss on exactly the monorepo shape where cross-unit edges
+  are the architecture. Two stacked mechanisms, measured on a
+  two-module fixture: per-unit staging stripped the sibling's sources
+  (the loader could not type the import and mis-attributed it to the
+  stdlib bucket), and `decode()` binned cross-index references into
+  `external_refs`, discarding the moniker there — unfixable in
+  principle at the merge.
+- **Lifted by — the technique (ADR-049):** external rows keep their
+  moniker (helper facts v3); `join_cross_unit` runs after each
+  language's units merge and promotes external rows to references on
+  **exact moniker equality** — never heuristically, so this is not the
+  cross-zone reconciliation C-12 rejected (nothing interprets another
+  unit's compiler config; a moniker matches byte-for-byte or the row
+  stays external). Go replace targets are staged beside their consumer
+  (`go_replace_targets`: the consumer's own go.mod only — Go's rule —
+  path replacements only, in-repo only). Verified: the reproducing
+  fixture flips 0% → 100% with the edge `semantic`/`calls`; dagger
+  re-ingest numbers in `docs/extraction-evidence.md`.
+- **Residual edge cases:** a moniker **two units both define** abstains
+  and is reported (`scip-merge` degradation — C-28's rule across
+  units; dagger's generated `internal/dagger` packages are the live
+  case). **Rust** path-dependencies across *separate* workspaces are
+  not staged together — members already collapse to one workspace
+  unit, and no verified cross-workspace case exists to build against
+  (the ADR-046/P11 rule). **TS** alias- and config-mediated cross-zone
+  imports remain C-12's subject. **Version skew** would silence the
+  join, not corrupt it: both sides are pinned to `0` (ADR-027
+  Decision 1 is what makes monikers meet), and lane agreement is the
+  watchdog if an indexer ever stamps them apart. A replace escaping
+  the repo is not staged — code outside the repo is not ours to copy.
+- **Source:** ADR-048 (registered), ADR-049 (lifted, same week the
+  register said the fix needed its own review — Max reviewed and
+  directed it).
+
 ---
 
 ## Debt summary
 
 Four of **thirty-three** entries are **unsurfaced** (C-4, C-19 — narrowed
-to two tools — C-20, and C-31); C-33 (cross-unit references, the dagger
-session's structural finding) is *partial* — the per-directory capture
-view shows the miss where it lives, but nothing yet names cross-unit as
-its cause. Six are **lifted** and live in the Lifted part
-above with their techniques and residual edge cases documented —
+to two tools — C-20, and C-31). **Seven are lifted**, C-33 fastest of
+all: registered from the dagger measurement (ADR-048) and lifted one
+session later (ADR-049) when Max reviewed the candidate fix and
+directed it — the register working as intended, a finding becoming a
+fix through review rather than around it. The other six —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),
 C-11 at V2.M3, C-3 and C-16 in the 2026-08-15 pre-M6 sweep (which also

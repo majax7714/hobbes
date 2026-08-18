@@ -43,7 +43,7 @@ SCIP_ENABLE_ENV = "HOBBES_SCIP"
 
 #: Facts schema this join understands (helper HELPER_VERSION).
 #: v2 (V2.M3, ADR-032): facts carry ``dependency_coverage`` on every run.
-HELPER_VERSION = 2
+HELPER_VERSION = 3
 
 
 class ScipError(RuntimeError):
@@ -542,7 +542,70 @@ def extract_scip_typescript(
     merged["dependency_coverage"]["missing"] = sorted(
         set(merged["dependency_coverage"]["missing"])
     )
+    join_cross_unit(merged)
     return merged
+
+
+def join_cross_unit(merged: dict) -> None:
+    """Resolve external references against sibling units' definitions
+    (ADR-049, lifting C-33).
+
+    "External" in a decoded index means external to *that index* — but a
+    language's units (Go modules, cargo roots, TS zones) are indexed
+    separately and merged, so a reference into a sibling unit of the same
+    repo sits in ``external_refs`` carrying the exact moniker the
+    sibling's own index defines. Moniker equality is the join: exact,
+    never heuristic — this is not C-12's rejected cross-zone
+    *reconciliation*, because nothing here interprets another unit's
+    compiler configuration; a moniker either matches or the reference
+    stays external.
+
+    A moniker defined by more than one unit (in different files) is
+    dropped from the joinable set and the drop reported — C-28's rule
+    applied across units: unattributed rather than guessed. Mutates
+    *merged* in place, after every unit has been merged.
+    """
+    by_moniker: dict[str, dict] = {}
+    ambiguous: set[str] = set()
+    for definition in merged["definitions"]:
+        moniker = definition.get("moniker")
+        if not moniker:
+            continue
+        prior = by_moniker.setdefault(moniker, definition)
+        if prior is not definition and prior["file"] != definition["file"]:
+            ambiguous.add(moniker)
+    still_external = []
+    for ref in merged["external_refs"]:
+        moniker = ref.get("moniker") or ""
+        target = by_moniker.get(moniker)
+        if target is None or moniker in ambiguous:
+            still_external.append(ref)
+            continue
+        merged["references"].append(
+            {
+                "file": ref["file"],
+                "line": ref["line"],
+                "col": ref["col"],
+                "name": ref["name"],
+                "def_file": target["file"],
+                "def_line": target["line"],
+            }
+        )
+    merged["external_refs"] = still_external
+    if ambiguous:
+        sample = ", ".join(sorted(ambiguous)[:3])
+        merged["degraded"].append(
+            {
+                "path": ".",
+                "stage": "scip-merge",
+                "message": (
+                    f"{len(ambiguous)} symbol(s) are defined in more than "
+                    f"one indexing unit (e.g. {sample}) — references to "
+                    "them stay unattributed rather than guessed (C-28's "
+                    "rule, across units)"
+                ),
+            }
+        )
 
 
 def go_modules(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
@@ -636,7 +699,9 @@ def extract_scip_go(
         )
     for module_root, module_files in grouped.items():
         try:
-            facts = _index_go_module(repo_root, module_root, module_files, sha)
+            facts = _index_go_module(
+                repo_root, module_root, module_files, sha, grouped
+            )
         except UNIT_ERRORS as exc:
             merged["degraded"].append(
                 _unit_failure(module_root, "scip-go", "module", exc)
@@ -648,7 +713,48 @@ def extract_scip_go(
             merged[key].extend(facts.get(key, []))
         for name, count in (facts.get("packages") or {}).items():
             merged["packages"][name] = merged["packages"].get(name, 0) + count
+    join_cross_unit(merged)
     return merged
+
+
+#: A go.mod replace whose right side is a filesystem path — the spec says
+#: a path replacement must start with ``./`` or ``../``, which is what
+#: separates it from a module replacement (``X => Y v1.2.3``).
+_GO_PATH_REPLACE = re.compile(
+    r"^\s*(?:replace\s+)?\S+(?:\s+v\S+)?\s+=>\s+(\.\.?/\S*)\s*$"
+)
+
+
+def go_replace_targets(repo_root: Path, module_root: str) -> list[str]:
+    """Module roots (repo-relative) a module's ``go.mod`` replaces into.
+
+    Only path replacements that resolve **inside the repo** count — a
+    replace escaping the repo names code Hobbes will not stage (the
+    staging contract copies the repo, nothing else). Only the consumer's
+    own ``go.mod`` is read, which is exactly Go's rule: replace
+    directives apply in the main module only.
+    """
+    manifest = repo_root / (f"{module_root}/go.mod" if module_root else "go.mod")
+    try:
+        lines = manifest.read_text().splitlines()
+    except OSError:
+        return []
+    targets = []
+    for line in lines:
+        match = _GO_PATH_REPLACE.match(line.split("//", 1)[0])
+        if not match:
+            continue
+        resolved = (
+            (repo_root / module_root / match.group(1)).resolve()
+            if module_root
+            else (repo_root / match.group(1)).resolve()
+        )
+        try:
+            rel = resolved.relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            continue  # escapes the repo: not ours to stage
+        targets.append("" if rel == "." else rel)
+    return sorted(set(targets))
 
 
 def cargo_crates(repo_root: Path, files: list[str]) -> dict[str, list[str]]:
@@ -809,6 +915,7 @@ def extract_scip_rust(
     merged["dependency_coverage"]["missing"] = sorted(
         set(merged["dependency_coverage"]["missing"])
     )
+    join_cross_unit(merged)
     return merged
 
 
@@ -861,7 +968,11 @@ def _index_cargo_root(
 
 
 def _index_go_module(
-    repo_root: Path, module_root: str, module_files: list[str], sha: str
+    repo_root: Path,
+    module_root: str,
+    module_files: list[str],
+    sha: str,
+    grouped: dict[str, list[str]] | None = None,
 ) -> dict | None:
     """Stage and index one Go module.
 
@@ -869,12 +980,27 @@ def _index_go_module(
     loader has no module to root at and no dependency versions to resolve,
     and scip-go fails loudly rather than producing a thin index — which is
     the degradation being visible rather than silent (P6).
+
+    Modules this one ``replace``s to in-repo paths are staged beside it
+    (ADR-049): without their sources the loader cannot type the import
+    at all and mis-attributes every reference into it — half of what
+    made C-33. Only the consumer's own go.mod is read (Go's rule:
+    replaces apply in the main module only), and the sibling's files
+    come from *grouped*, the same discovery that staged this module's.
     """
     manifest = f"{module_root}/go.mod" if module_root else "go.mod"
     sums = f"{module_root}/go.sum" if module_root else "go.sum"
     staged = set(module_files) | {manifest}
     if (repo_root / sums).is_file():
         staged.add(sums)
+    for sibling in go_replace_targets(repo_root, module_root):
+        if sibling == module_root:
+            continue
+        staged.update((grouped or {}).get(sibling, []))
+        for extra in ("go.mod", "go.sum"):
+            candidate = f"{sibling}/{extra}" if sibling else extra
+            if (repo_root / candidate).is_file():
+                staged.add(candidate)
 
     stage = staging.build_stage(repo_root, sorted(staged), sha=sha)
     try:

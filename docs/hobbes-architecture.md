@@ -311,11 +311,22 @@ is also the unit that fails: one broken unit records its own degradation
 rest of the language keeps its semantics. Before that, one docs zone
 missing a devDependency zeroed all 84 of dagger's TypeScript zones — a
 visible but wrong-sized degradation, which P6 does not actually permit.
-The cost of per-unit indexing is registered as **C-33**: references
-*across* units of the same repo resolve in neither unit's index, the
-same limit C-12 records for TS zones — on a multi-module monorepo this
-is exactly where the architecture's own edges live, and the candidate
-fix (a cross-unit moniker join) awaits its own review.
+
+**Units meet again in the cross-unit moniker join** (ADR-049, lifting
+C-33). A decoded index calls a reference "external" when *that index*
+does not define it — but a sibling unit of the same repo may define
+exactly that moniker, so external rows keep their monikers (helper
+facts v3) and `join_cross_unit` promotes them to ordinary references on
+**exact moniker equality** after a language's units merge. Go replace
+targets are staged beside their consumers so the loader can type the
+import in the first place (the consumer's own go.mod, path
+replacements, in-repo only). This is not the cross-zone reconciliation
+C-12 rejected: nothing interprets another unit's compiler
+configuration — a moniker matches byte-for-byte or the reference stays
+external, and a moniker two units both define abstains, reported
+(C-28's rule across units). Proven on the fixture that reproduced
+C-33 (0% → 100%, edge `semantic`) and on dagger; the lifted entry
+carries the residual edge cases.
 
 **Lane B never writes to the target repo.** Indexers want to run inside the
 tree they index, so Hobbes stages a copy under `~/.hobbes/cache` and runs

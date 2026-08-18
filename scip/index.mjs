@@ -37,7 +37,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
  *
  * v2 (V2.M3, ADR-032): facts carry `dependency_coverage` on every run,
  * replacing Decision 4's all-or-nothing degradation test. */
-export const HELPER_VERSION = 2
+export const HELPER_VERSION = 3
 
 /** Indexers we know how to drive, keyed by the language they own. */
 export const INDEXERS = {
@@ -242,6 +242,12 @@ export function decode(index) {
           col: occ.range[1],
           name: terminalName(occ.symbol),
           package: pkgKey,
+          // Kept since v3 (ADR-049): "external" means external to *this
+          // index*, and a sibling indexing unit of the same repo may
+          // define exactly this moniker — the cross-unit join matches on
+          // it after the per-unit indexes merge. Dropping it here was
+          // what made C-33 unfixable in principle.
+          moniker: occ.symbol,
         })
         continue // resolves outside this index: not a repo edge
       }

@@ -184,7 +184,7 @@ class TestOneUnitFailsAlone:
             lambda *a: {"e2e": ["e2e/a.go"], "": ["main.go"]},
         )
 
-        def index(repo_root, module_root, files, sha):
+        def index(repo_root, module_root, files, sha, grouped=None):
             if module_root == "e2e":
                 raise scipsource.ScipError("loader failed")
             return dict(self.FACTS)
@@ -221,6 +221,131 @@ class TestOneUnitFailsAlone:
         assert scipsource.UNIT_ERRORS == (
             scipsource.ScipError, staging.StagingError, OSError,
         )
+
+
+class TestCrossUnitJoin:
+    """ADR-049: external references join sibling units' definitions by
+    exact moniker equality — never heuristically — and ambiguity
+    abstains, reported (C-28's rule across units)."""
+
+    MONIKER = "scip-go gomod dagger.io/dagger 0 `dagger.io/dagger`/Hello()."
+
+    def merged(self, definitions, external_refs):
+        return {
+            "definitions": definitions,
+            "references": [],
+            "external_refs": external_refs,
+            "packages": {},
+            "degraded": [],
+            "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
+        }
+
+    def test_an_external_ref_joins_a_sibling_units_definition(self):
+        merged = self.merged(
+            [{"moniker": self.MONIKER, "file": "sdk/go/api.go", "line": 4,
+              "end_line": 4, "kind": "method"}],
+            [{"file": "main.go", "line": 6, "col": 5, "name": "Hello",
+              "package": "gomod:dagger.io/dagger", "moniker": self.MONIKER}],
+        )
+        scipsource.join_cross_unit(merged)
+        (ref,) = merged["references"]
+        assert ref["def_file"] == "sdk/go/api.go" and ref["def_line"] == 4
+        assert ref["file"] == "main.go" and ref["name"] == "Hello"
+        assert merged["external_refs"] == []
+
+    def test_a_truly_external_ref_stays_external(self):
+        rows = [{"file": "main.go", "line": 2, "col": 0, "name": "Sprintf",
+                 "package": "gomod:github.com/golang/go/src",
+                 "moniker": "scip-go gomod github.com/golang/go/src go1.26 fmt/Sprintf()."}]
+        merged = self.merged([], list(rows))
+        scipsource.join_cross_unit(merged)
+        assert merged["references"] == [] and merged["external_refs"] == rows
+
+    def test_a_ref_without_a_moniker_stays_external(self):
+        # A v2 helper's rows carry no moniker; the join must not invent one.
+        rows = [{"file": "main.go", "line": 2, "col": 0, "name": "Hello",
+                 "package": "gomod:dagger.io/dagger"}]
+        merged = self.merged(
+            [{"moniker": self.MONIKER, "file": "sdk/go/api.go", "line": 4,
+              "end_line": 4, "kind": "method"}],
+            list(rows),
+        )
+        scipsource.join_cross_unit(merged)
+        assert merged["references"] == [] and merged["external_refs"] == rows
+
+    def test_a_moniker_two_units_define_abstains_and_reports(self):
+        merged = self.merged(
+            [{"moniker": self.MONIKER, "file": "sdk/go/api.go", "line": 4,
+              "end_line": 4, "kind": "method"},
+             {"moniker": self.MONIKER, "file": "modules/x/api.go", "line": 9,
+              "end_line": 9, "kind": "method"}],
+            [{"file": "main.go", "line": 6, "col": 5, "name": "Hello",
+              "package": "gomod:dagger.io/dagger", "moniker": self.MONIKER}],
+        )
+        scipsource.join_cross_unit(merged)
+        assert merged["references"] == []
+        assert len(merged["external_refs"]) == 1
+        (record,) = merged["degraded"]
+        assert record["stage"] == "scip-merge"
+        assert "more than one indexing unit" in record["message"]
+
+    def test_same_file_re_definition_is_not_ambiguous(self):
+        # Two units emitting the identical definition (same file) agree;
+        # abstaining there would drop a join both sides support.
+        merged = self.merged(
+            [{"moniker": self.MONIKER, "file": "sdk/go/api.go", "line": 4,
+              "end_line": 4, "kind": "method"},
+             {"moniker": self.MONIKER, "file": "sdk/go/api.go", "line": 4,
+              "end_line": 4, "kind": "method"}],
+            [{"file": "main.go", "line": 6, "col": 5, "name": "Hello",
+              "package": "gomod:dagger.io/dagger", "moniker": self.MONIKER}],
+        )
+        scipsource.join_cross_unit(merged)
+        assert len(merged["references"]) == 1 and merged["degraded"] == []
+
+
+class TestGoReplaceTargets:
+    def write_mod(self, tmp_path, root, body):
+        p = tmp_path / root / "go.mod" if root else tmp_path / "go.mod"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
+
+    def test_single_line_and_block_path_replaces(self, tmp_path):
+        self.write_mod(tmp_path, "", (
+            "module example.com/root\n\n"
+            "replace example.com/one => ./sdk/go\n"
+            "replace (\n"
+            "\texample.com/two v1.2.3 => ./engine/consts\n"
+            "\texample.com/three => example.com/other v0.9.0\n"
+            ")\n"
+        ))
+        assert scipsource.go_replace_targets(tmp_path, "") == [
+            "engine/consts", "sdk/go",
+        ]
+
+    def test_relative_replace_from_a_submodule_resolves(self, tmp_path):
+        self.write_mod(tmp_path, "e2e", (
+            "module example.com/e2e\n"
+            "replace example.com/root => ../\n"
+        ))
+        assert scipsource.go_replace_targets(tmp_path, "e2e") == [""]
+
+    def test_a_replace_escaping_the_repo_is_not_ours_to_stage(self, tmp_path):
+        self.write_mod(tmp_path, "", (
+            "module example.com/root\n"
+            "replace example.com/x => ../elsewhere\n"
+        ))
+        assert scipsource.go_replace_targets(tmp_path, "") == []
+
+    def test_a_module_replacement_is_not_a_path(self, tmp_path):
+        self.write_mod(tmp_path, "", (
+            "module example.com/root\n"
+            "replace example.com/x => example.com/y v1.0.0\n"
+        ))
+        assert scipsource.go_replace_targets(tmp_path, "") == []
+
+    def test_no_manifest_is_no_targets(self, tmp_path):
+        assert scipsource.go_replace_targets(tmp_path, "") == []
 
 
 class TestLaneBCanBeTurnedOff:
