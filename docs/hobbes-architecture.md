@@ -303,6 +303,20 @@ third-party resolution needs a fetchable crate registry). Each names its
 provider and version, because unlike our own concessions these can end
 on an upstream release.
 
+**Lane B runs per unit and degrades per unit** (ADR-048). The unit an
+indexer's loader understands — a tsconfig zone, a Go module, a cargo
+workspace — is the unit Hobbes indexes, and since the dagger session it
+is also the unit that fails: one broken unit records its own degradation
+(naming the unit, the error, and that the others are unaffected) and the
+rest of the language keeps its semantics. Before that, one docs zone
+missing a devDependency zeroed all 84 of dagger's TypeScript zones — a
+visible but wrong-sized degradation, which P6 does not actually permit.
+The cost of per-unit indexing is registered as **C-33**: references
+*across* units of the same repo resolve in neither unit's index, the
+same limit C-12 records for TS zones — on a multi-module monorepo this
+is exactly where the architecture's own edges live, and the candidate
+fix (a cross-unit moniker join) awaits its own review.
+
 **Lane B never writes to the target repo.** Indexers want to run inside the
 tree they index, so Hobbes stages a copy under `~/.hobbes/cache` and runs
 them there (ADR-027's seven-clause contract). Authored source is copied;
@@ -384,6 +398,9 @@ remainder *is* — per file, in `resolution_coverage.tail` — **by
 observation only, never inference**: checker origins for TS/JS (a binding
 declared below the modelled vocabulary is `local-binding` — seen and
 deliberately not modelled, C-9, which is knowledge rather than ignorance),
+text shape read across a wrapped chain for the trailing-dot languages
+(gofmt mandates the trailing dot, so a fluent chain's openers are
+attr-calls, not unknowns — ADR-048),
 lane A's own sub-module bindings for Python and Go (the same
 `local-binding` class at a stated lesser proof grade — the binding's
 enclosing-function extent must span the call's line, ADR-046), same-file
@@ -397,7 +414,13 @@ prints the per-language capture line on every run, always against the
 honest denominator — a share **of detected call sites**, never "of the
 repo", because the undetectable classes (C-1/C-4/C-5) are in no
 denominator here — split into *seen, not modelled by design* versus
-*cannot resolve*. That second group is the guaranteed fraction's boundary
+*cannot resolve*, and below it a **per-directory capture view**
+(ADR-048): the same statement at depth-2 directory grain, ranked by the
+*cannot resolve* group so by-design classes cannot bury real misses,
+with the cut past ten rows stated rather than silent. On a large repo
+the language line says how much is missing and the directory view says
+*where* — dagger's Go read 79% while `core/integration` alone held most
+of the miss. That second group is the guaranteed fraction's boundary
 made legible per repo ("Where this is going"): what falls there is
 pointed at, never model-filled, and it is where a register entry belongs
 when something in it turns out to be *needed*. The classifier's own

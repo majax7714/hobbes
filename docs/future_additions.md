@@ -343,3 +343,21 @@ surfaced per file rather than silent.)*
   low-evidence (narrow or escalate, never widen). This is a
   requirement on the milestone, written down before the milestone
   exists — see architecture "Where this is going".
+
+- **The cross-unit moniker join** (C-33's candidate fix, from ADR-048,
+  2026-08-18). Keep the moniker on `external_refs` rows, join externals
+  against the merged definitions across a language's indexing units,
+  and stage replace/workspace targets beside their consumers. The
+  measured prize is dagger-shaped monorepos: root-module calls into an
+  in-repo `replace`d SDK are today's dominant semantic miss. It is a
+  helper-contract change, and it argues with C-12's deliberate
+  no-reconciliation decision for TS zones — the Go/Rust case is
+  stronger (explicit unit graph, exact moniker equality), and that
+  argument needs its own review before any code.
+
+- **The directory rollup in `list_blind_spots`** (from ADR-048). The
+  proxy's blind-spots tool serves worst *files*; the ingest summary now
+  rolls the same rows up per directory, which is the altitude an agent
+  scoping a task actually works at. The Go side reads the same
+  `resolution_coverage` rows — a port of `rollup_directories`, not a
+  second computation.

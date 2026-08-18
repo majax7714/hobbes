@@ -50,6 +50,34 @@ class ScipError(RuntimeError):
     """The indexer helper could not run, or answered something unusable."""
 
 
+#: What one indexing unit's failure may raise without taking the language
+#: down. The same tuple the per-language catch uses — nothing broader, so
+#: a failure class the language-level handler would not absorb is not
+#: quietly absorbed one level deeper either (P10).
+UNIT_ERRORS = (ScipError, staging.StagingError, OSError)
+
+
+def _unit_failure(unit: str, stage: str, what: str, exc: Exception) -> dict:
+    """A degradation record for one indexing unit that failed alone.
+
+    Before this existed, one zone with a broken tsconfig cost every other
+    zone its semantics: the per-unit error propagated to the per-language
+    catch, which can only drop the whole lane. Measured on dagger
+    (2026-08-18): one docs zone missing ``@docusaurus/tsconfig`` zeroed
+    all 84 TypeScript zones. P6 wants the degradation at the granularity
+    of what actually failed.
+    """
+    return {
+        "path": unit or ".",
+        "stage": stage,
+        "message": (
+            f"semantic indexing failed for this {what} alone; its call "
+            f"edges fall to lane A's fallback (syntactic tier), other "
+            f"{what}s are unaffected: {exc}"
+        ),
+    }
+
+
 def find_venv(repo_root: Path) -> tuple[str, str] | None:
     """Pyright's ``(venvPath, venv)`` for the repo's virtual environment.
 
@@ -492,7 +520,13 @@ def extract_scip_typescript(
         "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
     }
     for zone, zone_files in ts_zones(repo_root, files).items():
-        facts = _index_ts_zone(repo_root, zone, zone_files, sha)
+        try:
+            facts = _index_ts_zone(repo_root, zone, zone_files, sha)
+        except UNIT_ERRORS as exc:
+            merged["degraded"].append(
+                _unit_failure(zone, "scip-typescript", "zone", exc)
+            )
+            continue
         if facts is None:
             continue
         for key in ("definitions", "references", "external_refs", "degraded"):
@@ -601,7 +635,13 @@ def extract_scip_go(
             }
         )
     for module_root, module_files in grouped.items():
-        facts = _index_go_module(repo_root, module_root, module_files, sha)
+        try:
+            facts = _index_go_module(repo_root, module_root, module_files, sha)
+        except UNIT_ERRORS as exc:
+            merged["degraded"].append(
+                _unit_failure(module_root, "scip-go", "module", exc)
+            )
+            continue
         if facts is None:
             continue
         for key in ("definitions", "references", "external_refs", "degraded"):
@@ -749,7 +789,13 @@ def extract_scip_rust(
             file=sys.stderr,
         )
     for root, root_files in grouped.items():
-        facts = _index_cargo_root(repo_root, root, root_files, sha)
+        try:
+            facts = _index_cargo_root(repo_root, root, root_files, sha)
+        except UNIT_ERRORS as exc:
+            merged["degraded"].append(
+                _unit_failure(root, "scip-rust", "cargo root", exc)
+            )
+            continue
         if facts is None:
             continue
         for key in ("definitions", "references", "external_refs", "degraded"):

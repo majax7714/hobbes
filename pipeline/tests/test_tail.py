@@ -118,6 +118,38 @@ class TestClasses:
                               import_bindings=bindings)
         assert tails[f] == {tail.ATTR: 1}
 
+    def test_a_wrapped_chain_call_is_attr_call(self, tmp_path):
+        # gofmt mandates the trailing dot, so dagger-style fluent chains
+        # put the call opener at the line start; the previous line is the
+        # observation (ADR-048).
+        f = write(tmp_path, "a.go", "c.Container().\n\tFrom(\"alpine\").\n\tWithExec(nil)\n")
+        tails = tail.classify(
+            [site(f, 2, "From", col=1), site(f, 3, "WithExec", col=1)], tmp_path
+        )
+        assert tails[f] == {tail.ATTR: 2}
+
+    def test_a_wrapped_chain_with_a_trailing_comment_still_reads(self, tmp_path):
+        f = write(tmp_path, "a.ts", "builder. // fluent\n  build()\n")
+        tails = tail.classify([site(f, 2, "build", col=2)], tmp_path)
+        assert tails[f] == {tail.ATTR: 1}
+
+    def test_a_comment_ending_in_a_period_is_not_a_chain(self, tmp_path):
+        f = write(tmp_path, "a.go", "// see the docs.\nMiddleware()\n")
+        tails = tail.classify([site(f, 2, "Middleware", col=0)], tmp_path)
+        assert tails[f] == {tail.UNCLASSIFIED: 1}
+
+    def test_python_is_not_read_across_the_wrap(self, tmp_path):
+        # Python chains wrap with a *leading* dot; a trailing one is a
+        # shape this classifier abstains on rather than reads.
+        f = write(tmp_path, "a.py", "(x.\n  refresh())\n")
+        tails = tail.classify([site(f, 2, "refresh", col=2)], tmp_path)
+        assert tails[f] == {tail.UNCLASSIFIED: 1}
+
+    def test_a_wrapped_path_call_is_path_call(self, tmp_path):
+        f = write(tmp_path, "a.rs", "some::module::\n    thing()\n")
+        tails = tail.classify([site(f, 2, "thing", col=4)], tmp_path)
+        assert tails[f] == {tail.PATH_CALL: 1}
+
     def test_an_attribute_call_is_attr_call(self, tmp_path):
         f = write(tmp_path, "a.py", "out = capsys.readouterr()\n")
         tails = tail.classify([site(f, 1, "readouterr", col=13)], tmp_path)
@@ -191,6 +223,52 @@ class TestRollup:
 
     def test_not_modelled_covers_exactly_the_by_design_classes(self):
         assert tail.NOT_MODELLED == {tail.LOCAL, tail.NESTED, tail.BUILTIN}
+
+
+class TestDirectoryRollup:
+    ROWS = [
+        {"file": "sdk/python/src/client.py", "sites": 10, "unresolved": 4,
+         "tail": {tail.ATTR: 3, tail.IMPORT_BINDING: 1}},
+        {"file": "sdk/python/src/gen.py", "sites": 5, "unresolved": 1,
+         "tail": {tail.ATTR: 1}},
+        {"file": "sdk/typescript/src/api.ts", "sites": 8, "unresolved": 2,
+         "tail": {tail.EXTERNAL_ORIGIN: 2}},
+        {"file": "core/schema/query.go", "sites": 7, "unresolved": 0},
+        {"file": "main.go", "sites": 3, "unresolved": 1,
+         "tail": {tail.BUILTIN: 1}},
+        {"file": "main.tf", "sites": 1, "unresolved": 1},  # no bucket
+    ]
+
+    def test_groups_by_depth_two_directory_and_language(self):
+        dirs = tail.rollup_directories(self.ROWS)
+        py = dirs[("sdk/python", "python")]
+        assert py["sites"] == 15 and py["unresolved"] == 5
+        assert py["tail"] == {tail.ATTR: 4, tail.IMPORT_BINDING: 1}
+        assert ("sdk/typescript", "ts/js") in dirs
+        assert dirs[("core/schema", "go")]["unresolved"] == 0
+
+    def test_a_root_level_file_buckets_as_dot(self):
+        dirs = tail.rollup_directories(self.ROWS)
+        assert dirs[(".", "go")]["sites"] == 3
+
+    def test_unbucketed_languages_are_absent(self):
+        dirs = tail.rollup_directories(self.ROWS)
+        assert not [k for k in dirs if k[1] is None]
+
+    def test_directory_sums_match_the_language_rollup(self):
+        # The two rollups are views of one artifact; their totals must
+        # agree per language or one of them is lying.
+        langs = tail.rollup(self.ROWS)
+        dirs = tail.rollup_directories(self.ROWS)
+        for lang, agg in langs.items():
+            per_dir = [v for (_, l), v in dirs.items() if l == lang]
+            assert sum(v["sites"] for v in per_dir) == agg["sites"]
+            assert sum(v["unresolved"] for v in per_dir) == agg["unresolved"]
+
+    def test_depth_one_collapses_the_sdk_split(self):
+        dirs = tail.rollup_directories(self.ROWS, depth=1)
+        assert ("sdk", "python") in dirs and ("sdk", "ts/js") in dirs
+        assert ("sdk/python", "python") not in dirs
 
 
 class TestArtifact:

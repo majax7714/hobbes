@@ -144,6 +144,59 @@ def _print_tail_view(coverage_rows: list[dict]) -> None:
         if cannot:
             named = ", ".join(f"{c} {n}" for c, n in sorted(cannot.items()))
             print(f"    cannot resolve: {sum(cannot.values())} ({named})")
+    _print_directory_view(coverage_rows)
+
+
+#: How many directory rows the ingest summary prints. The cut is stated,
+#: never silent: the remainder line counts what it holds back, and the
+#: per-file rows in graph.json remain the full-resolution record.
+_DIR_ROWS_SHOWN = 10
+
+
+def _print_directory_view(coverage_rows: list[dict]) -> None:
+    """The per-directory capture breakdown: the same statement as the
+    per-language line, one directory at a time, worst first — so on a
+    large repo the misses have an address, not just a total. Directories
+    where everything resolved are summarised, not listed: the view
+    exists to point at what is missing."""
+    from hobbes.extract.tail import NOT_MODELLED, rollup_directories
+
+    def cannot(agg) -> dict:
+        return {c: n for c, n in agg["tail"].items() if c not in NOT_MODELLED}
+
+    dirs = rollup_directories(coverage_rows)
+    misses = {k: v for k, v in dirs.items() if cannot(v)}
+    if not misses:
+        return
+    # Ranked by the *cannot resolve* group, not total unresolved: a
+    # directory full of builtin-named calls is accounted for by design,
+    # and letting it outrank real misses would bury the point of the view.
+    ranked = sorted(
+        misses.items(), key=lambda kv: (-sum(cannot(kv[1]).values()), kv[0])
+    )
+    print(
+        f"  by directory (depth 2, worst {min(len(ranked), _DIR_ROWS_SHOWN)}"
+        f" of {len(misses)} with unresolvable sites; "
+        f"{len(dirs) - len(misses)} without)"
+    )
+    for (directory, lang), agg in ranked[:_DIR_ROWS_SHOWN]:
+        sites, unresolved = agg["sites"], agg["unresolved"]
+        accounted = (sites - unresolved) / sites * 100
+        classes = cannot(agg)
+        named = ", ".join(f"{c} {n}" for c, n in sorted(classes.items()))
+        by_design = unresolved - sum(classes.values())
+        print(
+            f"    {directory} [{lang}]: {accounted:.1f}% of {sites} sites"
+            + (f", {by_design} by design" if by_design else "")
+            + f" — cannot resolve {sum(classes.values())} ({named})"
+        )
+    rest = ranked[_DIR_ROWS_SHOWN:]
+    if rest:
+        held = sum(sum(cannot(v).values()) for _, v in rest)
+        print(
+            f"    … and {len(rest)} more directories ({held} unresolvable) — "
+            f"per-file rows in graph.json resolution_coverage"
+        )
 
 
 def _cmd_init(args: argparse.Namespace) -> int:

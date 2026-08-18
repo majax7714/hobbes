@@ -143,10 +143,46 @@ def language_of(file: str) -> str | None:
     return _LANG_BY_EXT.get(PurePosixPath(file).suffix)
 
 
-def _shape(line_text: str, name: str, col: int) -> str | None:
+#: Languages whose grammar forbids a statement from ending in ``.`` — so
+#: a previous line ending there can only be a wrapped chain, and reading
+#: it is an observation. Python is excluded: its chains wrap with the dot
+#: *leading* the next line (already read same-line), and a trailing dot
+#: inside parentheses, while legal, is a shape this classifier abstains on.
+_TRAILING_CHAIN_LANGS = frozenset({"go", "rust", "ts/js"})
+
+#: Line openers that make the previous line prose, not code.
+_COMMENT_OPENERS = ("//", "/*", "*", "#")
+
+
+def _continuation(prev_text: str) -> str | None:
+    """``attr``/``path`` when *prev_text* ends mid-chain, else None.
+
+    gofmt *mandates* the trailing dot for a wrapped method chain
+    (semicolon insertion forbids a leading one), which is why dagger's
+    fluent integration tests put thousands of call openers at line
+    starts. A trailing ``//`` comment is cut first so prose ending in a
+    period cannot fake a chain; a line that *is* a comment never
+    continues anything.
+    """
+    stripped = prev_text.strip()
+    if not stripped or stripped.startswith(_COMMENT_OPENERS):
+        return None
+    code = prev_text.split("//", 1)[0].rstrip()
+    if code.endswith("::"):
+        return "path"
+    if code.endswith("."):
+        return "attr"
+    return None
+
+
+def _shape(
+    line_text: str, name: str, col: int, prev_text: str | None = None
+) -> str | None:
     """What immediately precedes *name* on its line: ``attr``, ``path``,
     ``bare`` — or None when the name cannot be located (wrapped chains
-    put the terminal on a line the recorded text may not contain)."""
+    put the terminal on a line the recorded text may not contain). When
+    the name opens its line, *prev_text* (the previous source line, only
+    passed for the trailing-chain languages) answers instead."""
     hits, start = [], 0
     while (found := line_text.find(name, start)) != -1:
         hits.append(found)
@@ -158,6 +194,8 @@ def _shape(line_text: str, name: str, col: int) -> str | None:
     while j >= 0 and line_text[j] in " \t":
         j -= 1
     if j < 0:
+        if prev_text is not None and (cont := _continuation(prev_text)):
+            return cont
         return "bare"
     if line_text[j] == ":" and j >= 1 and line_text[j - 1] == ":":
         return "path"
@@ -221,7 +259,16 @@ def classify(
             cls = _ORIGIN_CLASS[origins[key]]
         else:
             text = lines.line(site.file, site.line)
-            shape = _shape(text, site.name, site.col) if text is not None else None
+            prev = (
+                lines.line(site.file, site.line - 1)
+                if lang in _TRAILING_CHAIN_LANGS
+                else None
+            )
+            shape = (
+                _shape(text, site.name, site.col, prev)
+                if text is not None
+                else None
+            )
             builtins_ = _BUILTINS.get(lang or "", frozenset())
             bound = import_bindings.get(site.file, frozenset())
             locals_ = local_bindings.get(site.file, ())
@@ -263,3 +310,44 @@ def rollup(coverage_rows: list[dict]) -> dict[str, dict]:
         for cls, count in (row.get("tail") or {}).items():
             agg["tail"][cls] += count
     return langs
+
+
+def directory_of(file: str, depth: int = 2) -> str:
+    """The directory bucket for *file*: the first *depth* segments of its
+    containing directory, or ``"."`` for a root-level file. Depth 2 is
+    the summary's grain — deep enough to split a heterogeneous top-level
+    directory (``sdk/python`` vs ``sdk/typescript``), shallow enough to
+    stay a summary; the per-file rows remain the full-resolution record.
+    """
+    parts = PurePosixPath(file).parts[:-1][:depth]
+    return "/".join(parts) if parts else "."
+
+
+def rollup_directories(
+    coverage_rows: list[dict], depth: int = 2
+) -> dict[tuple[str, str], dict]:
+    """Per-(directory, language) tail totals from ``resolution_coverage``
+    rows, keyed ``(directory, language)`` with the same aggregate shape
+    as :func:`rollup`.
+
+    Language stays a key inside the directory because the capture
+    statement is per-language by construction (each denominator is that
+    language's detected call sites) — collapsing ``sdk/python`` and a
+    stray shell of TS in the same directory into one number would blur
+    whose sites went unresolved. Like :func:`rollup`, a pure read over
+    the artifact: nothing here is stored twice.
+    """
+    dirs: dict[tuple[str, str], dict] = {}
+    for row in coverage_rows:
+        lang = language_of(row["file"])
+        if lang is None:
+            continue
+        key = (directory_of(row["file"], depth), lang)
+        agg = dirs.setdefault(
+            key, {"sites": 0, "unresolved": 0, "tail": Counter()}
+        )
+        agg["sites"] += row["sites"]
+        agg["unresolved"] += row["unresolved"]
+        for cls, count in (row.get("tail") or {}).items():
+            agg["tail"][cls] += count
+    return dirs

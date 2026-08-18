@@ -9,7 +9,7 @@ end-to-end path is the M2 exit check.
 import pytest
 
 from hobbes.extract import evidence as ev
-from hobbes.extract import scipsource
+from hobbes.extract import scipsource, staging
 from hobbes.extract.schema import LANE_SCIP, LANE_TREE_SITTER, SEMANTIC, SYNTACTIC
 
 NODES = [
@@ -141,6 +141,86 @@ class TestProjection:
         )
         assert len(out["symbol_edges"]) == 1
         assert len(out["symbol_edges"][0]["evidence"]) == 2  # deduped
+
+
+class TestOneUnitFailsAlone:
+    """One zone/module/crate failing must not cost the others their
+    semantics (P6 at the failure's own granularity). Before the per-unit
+    catch, dagger's one docs zone missing `@docusaurus/tsconfig` zeroed
+    all 84 TypeScript zones."""
+
+    FACTS = {
+        "definitions": [], "references": [{"file": "ok"}],
+        "external_refs": [], "packages": {}, "degraded": [],
+        "dependency_coverage": {"declared": 0, "resolved": 0, "missing": []},
+    }
+
+    def _enable(self, monkeypatch):
+        monkeypatch.setenv(scipsource.SCIP_ENABLE_ENV, "1")
+
+    def test_a_broken_ts_zone_degrades_alone(self, monkeypatch, tmp_path):
+        self._enable(monkeypatch)
+        monkeypatch.setattr(
+            scipsource, "ts_zones",
+            lambda *a: {"docs": ["docs/a.ts"], "web": ["web/b.ts"]},
+        )
+
+        def index(repo_root, zone, files, sha):
+            if zone == "docs":
+                raise scipsource.ScipError("tsconfig not found")
+            return dict(self.FACTS)
+
+        monkeypatch.setattr(scipsource, "_index_ts_zone", index)
+        merged = scipsource.extract_scip_typescript(tmp_path, ["web/b.ts"])
+        assert merged["references"] == [{"file": "ok"}]
+        (record,) = merged["degraded"]
+        assert record["path"] == "docs" and record["stage"] == "scip-typescript"
+        assert "alone" in record["message"] and "tsconfig" in record["message"]
+
+    def test_a_broken_go_module_degrades_alone(self, monkeypatch, tmp_path):
+        self._enable(monkeypatch)
+        monkeypatch.setattr(
+            scipsource, "go_modules",
+            lambda *a: {"e2e": ["e2e/a.go"], "": ["main.go"]},
+        )
+
+        def index(repo_root, module_root, files, sha):
+            if module_root == "e2e":
+                raise scipsource.ScipError("loader failed")
+            return dict(self.FACTS)
+
+        monkeypatch.setattr(scipsource, "_index_go_module", index)
+        merged = scipsource.extract_scip_go(tmp_path, ["main.go", "e2e/a.go"])
+        assert merged["references"] == [{"file": "ok"}]
+        (record,) = merged["degraded"]
+        assert record["path"] == "e2e" and record["stage"] == "scip-go"
+
+    def test_a_broken_cargo_root_degrades_alone(self, monkeypatch, tmp_path):
+        self._enable(monkeypatch)
+        monkeypatch.setattr(
+            scipsource, "cargo_crates",
+            lambda *a: {"sdk/rust": ["sdk/rust/a.rs"], "": ["src/lib.rs"]},
+        )
+
+        def index(repo_root, root, files, sha):
+            if root == "sdk/rust":
+                raise scipsource.ScipError("cargo metadata failed")
+            return dict(self.FACTS)
+
+        monkeypatch.setattr(scipsource, "_index_cargo_root", index)
+        merged = scipsource.extract_scip_rust(
+            tmp_path, ["src/lib.rs", "sdk/rust/a.rs"]
+        )
+        assert merged["references"] == [{"file": "ok"}]
+        (record,) = merged["degraded"]
+        assert record["path"] == "sdk/rust" and record["stage"] == "scip-rust"
+
+    def test_the_unit_catch_is_no_broader_than_the_language_catch(self):
+        # P10: the per-unit tuple must not quietly absorb anything the
+        # per-language handler would have let through.
+        assert scipsource.UNIT_ERRORS == (
+            scipsource.ScipError, staging.StagingError, OSError,
+        )
 
 
 class TestLaneBCanBeTurnedOff:

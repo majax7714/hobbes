@@ -297,9 +297,18 @@ information appears in both, and the entries cross-reference.
   on zero evidence would be the P11 mistake at class scale. **Builtin lists are
   pinned literals**, not the running interpreter's — a builtin the
   language adds later classifies `unclassified` until the pin moves.
-  **Shape is read from the terminal's source line** — a wrapped chain
-  whose terminal the recorded line does not contain declines to
-  `unclassified` rather than guessing, the C-5 rule applied to
+  **Shape is read from the terminal's source line, plus one line up
+  for a wrapped chain** (widened by ADR-048): in Go, Rust, and TS/JS a
+  statement cannot end with `.`, so when a call opens its line and the
+  previous line ends mid-chain (`.` or `::`, after cutting any trailing
+  `//` comment) the site reads `attr-call`/`path-call` — dagger's
+  gofmt-mandated fluent chains were thousands of real attr-calls
+  reading `unclassified` before this. Python is excluded (its chains
+  wrap with a leading dot, already read same-line; a trailing dot
+  inside parentheses abstains). What still abstains: a terminal the
+  recorded line does not contain, and a previous line whose chain
+  ending hides behind a string literal containing `//` — both decline
+  to `unclassified` rather than guess, the C-5 rule applied to
   classification.
 - **Because:** a class must be an observation or abstain (ADR-045's
   standing rule) — inferring what a site "probably is" from a checklist
@@ -467,6 +476,40 @@ information appears in both, and the entries cross-reference.
   break it loudly (the helper passes it only when computed).
 - **Source:** found 2026-08-15 by C-16's first real run; fixed and
   registered the same day. The Python sibling of C-23.
+
+### C-33 — In-repo references across indexing units do not resolve semantically
+- **Cannot tell you:** where a call lands when the caller and the callee
+  sit in different **indexing units** of the same repo — Go modules
+  (dagger's root module calls `dagger.io/dagger`, which `replace`s to
+  the in-repo `./sdk/go`: zero of those calls resolve semantically) and
+  cargo workspace roots alike. TS zones are the same limit under its
+  own entry, C-12.
+- **Because:** two layered losses, both measured on a two-module fixture
+  (ADR-048). Staging groups files per unit, so a replace/workspace
+  target's sources are absent from its consumer's stage and the indexer
+  cannot type the import at all. And even indexed on the full tree —
+  where scip-go emits the reference with the *exact* moniker the
+  sibling unit's index defines, pinned versions agreeing — `decode()`
+  resolves references only against its own index's definitions; a
+  cross-index reference lands in `external_refs`, where the moniker is
+  discarded, so the merge cannot join it even in principle.
+- **Bites at:** every multi-module Go repo and multi-workspace Rust
+  repo — exactly the monorepo shape where cross-unit edges *are* the
+  architecture. On dagger it is the dominant semantic miss:
+  `core/integration`'s calls into the Go SDK all fall to lane A's
+  fallback or the tail.
+- **You find out:** **partial** — the per-directory capture view
+  (ADR-048) shows the miss concentrated where it lives, and the
+  fallback edges carry `syntactic` tier, but nothing names *cross-unit*
+  as the cause; the low number is visible, its reason is only in this
+  entry.
+- **Candidate fix:** keep the moniker on external rows, join externals
+  against the merged definitions across units, and stage
+  replace/workspace targets beside their consumers. A helper-contract
+  change, and it crosses C-12's deliberate no-reconciliation decision
+  for TS — the Go/Rust case differs (the unit graph is explicit and a
+  moniker join is exact), but that argument needs its own review.
+- **Source:** ADR-048, the dagger measurement session (2026-08-18).
 
 ## Extraction — Go
 
@@ -883,8 +926,11 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Four of **thirty-two** entries are **unsurfaced** (C-4, C-19 — narrowed
-to two tools — C-20, and C-31). Six are **lifted** and live in the Lifted part
+Four of **thirty-three** entries are **unsurfaced** (C-4, C-19 — narrowed
+to two tools — C-20, and C-31); C-33 (cross-unit references, the dagger
+session's structural finding) is *partial* — the per-directory capture
+view shows the miss where it lives, but nothing yet names cross-unit as
+its cause. Six are **lifted** and live in the Lifted part
 above with their techniques and residual edge cases documented —
 C-14 in the 2026-08-16 register paydown (three CLI packs; the entry's
 own counter-example is the pinned exit check),

@@ -64,6 +64,13 @@ class TestIngest:
         assert cli.main(["ingest", "--repo", str(tmp_path)]) == 1
         assert "git repo" in capsys.readouterr().err
 
+    def test_summary_breaks_capture_down_by_directory(self, git_fixture, capsys):
+        # Lane B is off in the suite, so sites go unresolved and the
+        # per-directory view must give those misses an address.
+        assert cli.main(["ingest", "--repo", str(git_fixture)]) == 0
+        out = capsys.readouterr().out
+        assert "by directory" in out
+
     def test_tf_plan_enriches_graph(self, git_fixture, capsys):
         plan = Path(__file__).parent / "fixtures" / "plans" / "miniapp-plan.json"
         code = cli.main(
@@ -85,6 +92,64 @@ class TestIngest:
         )
         assert code == 1
         assert "state" in capsys.readouterr().err
+
+
+class TestDirectoryView:
+    @staticmethod
+    def row(file, sites, unresolved, tail=None):
+        return {
+            "file": file, "sites": sites, "unresolved": unresolved,
+            **({"tail": tail} if tail else {}),
+        }
+
+    def test_worst_directory_prints_first_with_its_classes(self, capsys):
+        cli._print_directory_view([
+            self.row("a/b/x.py", 10, 1, {"attr-call": 1}),
+            self.row("c/d/y.py", 10, 7, {"attr-call": 5, "unclassified": 2}),
+        ])
+        out = capsys.readouterr().out.splitlines()
+        assert "c/d [python]" in out[1] and "a/b [python]" in out[2]
+        assert "attr-call 5" in out[1] and "unclassified 2" in out[1]
+
+    def test_directories_without_unresolvable_sites_are_counted_not_listed(
+        self, capsys
+    ):
+        # Both the fully-resolved directory and the all-by-design one land
+        # in the "without" count: neither holds a site the view should
+        # point at.
+        cli._print_directory_view([
+            self.row("a/b/x.py", 10, 0),
+            self.row("e/f/z.py", 10, 3, {"builtin-name": 3}),
+            self.row("c/d/y.py", 10, 2, {"attr-call": 2}),
+        ])
+        out = capsys.readouterr().out
+        assert "2 without" in out
+        assert "a/b" not in out and "e/f" not in out
+
+    def test_ranked_by_cannot_resolve_not_total_unresolved(self, capsys):
+        # a/b has more unresolved sites, but they are by-design builtins;
+        # c/d's real misses must outrank them.
+        cli._print_directory_view([
+            self.row("a/b/x.py", 20, 9, {"builtin-name": 8, "attr-call": 1}),
+            self.row("c/d/y.py", 10, 5, {"unclassified": 5}),
+        ])
+        out = capsys.readouterr().out.splitlines()
+        assert "c/d [python]" in out[1] and "a/b [python]" in out[2]
+        assert "8 by design" in out[2]
+
+    def test_the_cut_is_stated_never_silent(self, capsys):
+        rows = [
+            self.row(f"d{i}/s/x.py", 10, i + 1, {"attr-call": i + 1})
+            for i in range(cli._DIR_ROWS_SHOWN + 3)
+        ]
+        cli._print_directory_view(rows)
+        out = capsys.readouterr().out
+        held = 1 + 2 + 3  # the three smallest tails are the ones held back
+        assert f"… and 3 more directories ({held} unresolvable)" in out
+
+    def test_silent_when_every_site_resolved(self, capsys):
+        cli._print_directory_view([self.row("a/b/x.py", 10, 0)])
+        assert capsys.readouterr().out == ""
 
 
 class TestRender:
