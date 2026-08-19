@@ -6,6 +6,8 @@ onto module and symbol ids. Both are pure, so no indexer runs here; the
 end-to-end path is the M2 exit check.
 """
 
+from pathlib import Path
+
 import pytest
 
 from hobbes.extract import evidence as ev
@@ -346,6 +348,114 @@ class TestGoReplaceTargets:
 
     def test_no_manifest_is_no_targets(self, tmp_path):
         assert scipsource.go_replace_targets(tmp_path, "") == []
+
+
+class TestZoneDependencyLinks:
+    """ADR-050: resolution walks up from the *file*, so every
+    node_modules on a zone file's path gets a link — not just the zone
+    root's. This repo's tsconfig-less tsextract/ and scip/ in the root
+    zone are the case the first version missed."""
+
+    def test_each_files_walk_up_tree_is_linked(self, tmp_path):
+        (tmp_path / "tsextract" / "node_modules").mkdir(parents=True)
+        (tmp_path / "scip" / "node_modules").mkdir(parents=True)
+        links = scipsource.zone_dependency_links(
+            tmp_path, ["tsextract/extract.mjs", "scip/index.mjs", "lib/x.mjs"]
+        )
+        assert links == {
+            "tsextract/node_modules": str(
+                (tmp_path / "tsextract" / "node_modules").resolve()
+            ),
+            "scip/node_modules": str((tmp_path / "scip" / "node_modules").resolve()),
+        }
+
+    def test_a_root_tree_serves_every_file(self, tmp_path):
+        (tmp_path / "node_modules").mkdir()
+        links = scipsource.zone_dependency_links(tmp_path, ["web/src/App.tsx"])
+        assert links == {"node_modules": str((tmp_path / "node_modules").resolve())}
+
+    def test_no_trees_is_no_links(self, tmp_path):
+        assert scipsource.zone_dependency_links(tmp_path, ["a/b.ts"]) == {}
+
+
+class TestDetectInstaller:
+    def test_package_lock_is_npm(self, tmp_path):
+        (tmp_path / "package-lock.json").write_text("{}")
+        assert scipsource.detect_installer(tmp_path) == ("npm", "package-lock.json")
+
+    def test_v1_yarn_lock_is_yarn1(self, tmp_path):
+        (tmp_path / "yarn.lock").write_text("# yarn lockfile v1\n")
+        assert scipsource.detect_installer(tmp_path) == ("yarn1", "yarn.lock")
+
+    def test_berry_is_declined_by_name(self, tmp_path):
+        (tmp_path / "yarn.lock").write_text('__metadata:\n  version: 8\n')
+        installer, why = scipsource.detect_installer(tmp_path)
+        assert installer is None and "Berry" in why
+
+    def test_pnpm_is_declined_by_name(self, tmp_path):
+        (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+        installer, why = scipsource.detect_installer(tmp_path)
+        assert installer is None and "pnpm" in why
+
+    def test_no_lockfile_names_the_drift(self, tmp_path):
+        installer, why = scipsource.detect_installer(tmp_path)
+        assert installer is None and "drift" in why
+
+    def test_npm_lock_outranks_yarn_lock(self, tmp_path):
+        (tmp_path / "package-lock.json").write_text("{}")
+        (tmp_path / "yarn.lock").write_text("# yarn lockfile v1\n")
+        assert scipsource.detect_installer(tmp_path)[0] == "npm"
+
+
+class TestProvisionNodeModules:
+    def repo(self, tmp_path):
+        (tmp_path / "package.json").write_text('{"name": "x"}')
+        (tmp_path / "package-lock.json").write_text("{}")
+        return tmp_path
+
+    def test_a_complete_cache_is_reused_without_installing(
+        self, tmp_path, monkeypatch
+    ):
+        import hashlib
+        repo = self.repo(tmp_path)
+        digest = hashlib.sha256(
+            (repo / "package.json").read_bytes()
+            + (repo / "package-lock.json").read_bytes()
+        ).hexdigest()[:16]
+        cache = tmp_path / "home" / ".hobbes" / "cache" / "npm" / digest
+        (cache / "node_modules").mkdir(parents=True)
+        (cache / ".complete").write_text("")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+        monkeypatch.setattr(
+            scipsource.subprocess, "run",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("installed")),
+        )
+        tree, why = scipsource.provision_node_modules(repo, "")
+        assert why is None and tree == cache / "node_modules"
+
+    def test_an_install_failure_returns_the_reason(self, tmp_path, monkeypatch):
+        repo = self.repo(tmp_path)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+
+        class Failed:
+            returncode = 1
+            stdout = ""
+            stderr = "npm error ERESOLVE\n"
+
+        monkeypatch.setattr(scipsource.subprocess, "run", lambda *a, **k: Failed())
+        tree, why = scipsource.provision_node_modules(repo, "")
+        assert tree is None and "ERESOLVE" in why
+        # An incomplete cache must not be reused as complete.
+        assert not list((tmp_path / "home" / ".hobbes").rglob(".complete"))
+
+    def test_no_lockfile_is_not_an_install(self, tmp_path, monkeypatch):
+        (tmp_path / "package.json").write_text("{}")
+        monkeypatch.setattr(
+            scipsource.subprocess, "run",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("installed")),
+        )
+        tree, why = scipsource.provision_node_modules(tmp_path, "")
+        assert tree is None and "drift" in why
 
 
 class TestLaneBCanBeTurnedOff:

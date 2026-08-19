@@ -361,3 +361,19 @@ surfaced per file rather than silent.)*
   scoping a task actually works at. The Go side reads the same
   `resolution_coverage` rows — a port of `rollup_directories`, not a
   second computation.
+
+- **Sweep `~/.hobbes/cache/npm`** (from ADR-050). Provisioned dependency
+  trees are keyed by lockfile hash and live forever; a repo that churns
+  its lockfile leaves a dead tree per revision (~25–200 MB each). Same
+  shape as the Rust `target/` caching note above — worth a `hobbes
+  cache` subcommand when the sizes start to matter, not before.
+
+- **The decorated-declaration line convention** (from the ADR-050
+  retest). Lane A cites a decorated TS method at its declaration start
+  (the decorator line); SCIP cites the name line. Both point at the
+  same declaration, but `hobbes lanes` compares `file:line`, so every
+  dual-resolved call to a decorated method reports as a disagreement —
+  131 of dagger's 258, half the report, all noise. The principled fix
+  is tssource emitting the name line (SCIP's convention); it is a
+  tsextract facts change and deserves its own small pass rather than a
+  tolerance bolted onto the checker.

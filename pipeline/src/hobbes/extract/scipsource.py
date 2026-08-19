@@ -437,20 +437,171 @@ def _nearest_config_dir(repo_root: Path, directory: str) -> str:
         current = current.parent
 
 
-def _nearest_node_modules(repo_root: Path, zone: str) -> Path | None:
-    """The dependency tree a zone resolves against, walking up to the root.
+def zone_dependency_links(
+    repo_root: Path, zone_files: list[str]
+) -> dict[str, str]:
+    """Every ``node_modules`` tree a zone's files would resolve against
+    in the repo, keyed by stage-relative path (ADR-050).
 
-    Node resolution walks up from the importing file, and the staging tree
-    has nothing above it — so the link has to be placed where the *repo*
-    would have found one (ADR-032).
+    TypeScript resolution walks up from the *importing file*, not from
+    the zone root — so a zone that groups files from several package
+    directories (this repo's tsconfig-less ``tsextract/`` and ``scip/``
+    both land in the root zone) resolves each file against the
+    ``node_modules`` beside it. Linking only the zone root's tree, as
+    the first version did, left those files' dependencies behind in the
+    stage while lane A — which reads the real repo — resolved them
+    fine: a silent lane asymmetry measured on this repo's own 61.6%.
     """
-    current = repo_root / zone if zone else repo_root
-    repo_root = repo_root.resolve()
+    links: dict[str, str] = {}
+    seen: set[str] = set()
+    for rel in zone_files:
+        directory = PurePosixPath(rel).parent
+        while True:
+            key = str(directory)
+            if key in seen:
+                break
+            seen.add(key)
+            candidate = (
+                repo_root / directory / "node_modules"
+                if key != "."
+                else repo_root / "node_modules"
+            )
+            if candidate.is_dir():
+                stage_rel = (
+                    "node_modules" if key == "." else f"{key}/node_modules"
+                )
+                links[stage_rel] = str(candidate.resolve())
+            if key == ".":
+                break
+            directory = directory.parent
+    return links
+
+
+#: Seconds a dependency install may take. Docusaurus-sized trees need
+#: minutes; a hang needs an end.
+_NPM_INSTALL_TIMEOUT = 600
+
+#: The classic-yarn version corepack runs for v1 lockfiles. Pinned in
+#: code for the same reason every indexer is (ADR-027 Decision 1): an
+#: unpinned installer is a different environment on every box.
+_YARN1_VERSION = "1.22.22"
+
+
+def detect_installer(manifest_dir: Path) -> tuple[str, str] | tuple[None, str]:
+    """``(installer, lockfile)`` for a package directory, or ``(None,
+    why)``.
+
+    Only lockfile-backed installs are offered — ``npm ci`` for
+    ``package-lock.json``, classic yarn for a v1 ``yarn.lock`` — because
+    a lockfile is what makes the provisioned tree the *repo's* pinned
+    resolution rather than the registry's answer of the day (P1).
+    pnpm and Yarn Berry are declined by name: Berry's PnP does not even
+    produce the ``node_modules`` shape the indexer resolves against.
+    """
+    if (manifest_dir / "package-lock.json").is_file():
+        return "npm", "package-lock.json"
+    yarn_lock = manifest_dir / "yarn.lock"
+    if yarn_lock.is_file():
+        try:
+            head = yarn_lock.read_text(errors="replace")[:2048]
+        except OSError:
+            return None, "yarn.lock unreadable"
+        if "yarn lockfile v1" in head:
+            return "yarn1", "yarn.lock"
+        return None, "yarn.lock is Berry (v2+), which does not build node_modules"
+    if (manifest_dir / "pnpm-lock.yaml").is_file():
+        return None, "pnpm-lock.yaml (pnpm installs are not provisioned)"
+    return None, "no lockfile (an unpinned install would drift — C-34)"
+
+
+def _corepack() -> Path | None:
+    """corepack, which ships beside the real node binary but rarely on
+    PATH through symlink farms."""
+    import shutil as _shutil
+
+    node = _shutil.which("node")
+    if node is None:
+        return None
+    candidate = Path(node).resolve().parent / "corepack"
+    return candidate if candidate.is_file() else None
+
+
+def provision_node_modules(
+    repo_root: Path, manifest_dir_rel: str
+) -> tuple[Path | None, str | None]:
+    """A ``node_modules`` for *manifest_dir_rel*, installed into Hobbes's
+    own cache — never the repo (ADR-050).
+
+    Returns ``(path, None)`` on success or ``(None, why)``. The install
+    is keyed by the content hash of ``package.json`` + the lockfile, so
+    re-ingests reuse it; it runs with ``--ignore-scripts`` always — a
+    dependency's lifecycle script is arbitrary code, and unlike C-29
+    there is no analyzer requiring it — and it needs a fetchable npm
+    registry (C-34, the npm sibling of C-30).
+    """
+    import hashlib
+    import shutil as _shutil
+
+    manifest_dir = repo_root / manifest_dir_rel if manifest_dir_rel else repo_root
+    installer, lockfile = detect_installer(manifest_dir)
+    if installer is None:
+        return None, lockfile
+    package_json = manifest_dir / "package.json"
+    if not package_json.is_file():
+        return None, "no package.json beside the lockfile"
+
+    digest = hashlib.sha256(
+        package_json.read_bytes() + (manifest_dir / lockfile).read_bytes()
+    ).hexdigest()[:16]
+    cache = Path.home() / ".hobbes" / "cache" / "npm" / digest
+    tree = cache / "node_modules"
+    if (cache / ".complete").is_file() and tree.is_dir():
+        return tree, None
+
+    cache.mkdir(parents=True, exist_ok=True)
+    _shutil.copy2(package_json, cache / "package.json")
+    _shutil.copy2(manifest_dir / lockfile, cache / lockfile)
+    if installer == "npm":
+        argv = ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+    else:
+        corepack = _corepack()
+        if corepack is None:
+            return None, "yarn.lock v1 but corepack is not installed"
+        argv = [
+            str(corepack), f"yarn@{_YARN1_VERSION}", "install",
+            "--ignore-scripts", "--frozen-lockfile", "--non-interactive",
+        ]
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=cache,
+            capture_output=True,
+            text=True,
+            timeout=_NPM_INSTALL_TIMEOUT,
+            env={**os.environ, "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"},
+        )
+    except FileNotFoundError:
+        return None, f"{argv[0]} is not installed"
+    except subprocess.TimeoutExpired:
+        return None, f"dependency install timed out after {_NPM_INSTALL_TIMEOUT}s"
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+        return None, f"{argv[0]} install failed: {' | '.join(tail)}"
+    if not tree.is_dir():
+        return None, "install succeeded but produced no node_modules"
+    (cache / ".complete").write_text("")
+    return tree, None
+
+
+def _nearest_package_manifest(repo_root: Path, zone: str) -> str | None:
+    """Repo-relative directory of the nearest ``package.json`` at or
+    above *zone*, or None."""
+    current = PurePosixPath(zone) if zone else PurePosixPath(".")
     while True:
-        candidate = current / "node_modules"
-        if candidate.is_dir():
-            return candidate
-        if current.resolve() == repo_root or current.parent == current:
+        probe = repo_root / current / "package.json" if str(current) != "." else repo_root / "package.json"
+        if probe.is_file():
+            return "" if str(current) == "." else str(current)
+        if str(current) == ".":
             return None
         current = current.parent
 
@@ -1025,15 +1176,29 @@ def _index_go_module(
 def _index_ts_zone(
     repo_root: Path, zone: str, zone_files: list[str], sha: str
 ) -> dict | None:
-    """Stage and index one TypeScript zone."""
+    """Stage and index one TypeScript zone.
+
+    Dependencies enter the stage as symlinks and only as symlinks
+    (ADR-032/050): every ``node_modules`` on a zone file's walk-up path
+    in the repo, and — when the repo has none — a lockfile-pinned tree
+    provisioned into Hobbes's own cache. The repo is never written.
+    """
     staged = sorted(set(zone_files) | set(_staged_ts_configs(repo_root, zone_files)))
-    links = {}
-    dependencies = _nearest_node_modules(repo_root, zone)
-    if dependencies is not None:
-        # Placed where the repo would have found one, relative to the zone.
-        anchor = dependencies.parent.relative_to(repo_root).as_posix()
-        rel = "node_modules" if anchor == "." else f"{anchor}/node_modules"
-        links[rel] = str(dependencies.resolve())
+    provision_failure: str | None = None
+    links = zone_dependency_links(repo_root, zone_files)
+    if not links:
+        manifest_dir = _nearest_package_manifest(repo_root, zone)
+        if manifest_dir is not None:
+            tree, provision_failure = provision_node_modules(
+                repo_root, manifest_dir
+            )
+            if tree is not None:
+                rel = (
+                    "node_modules"
+                    if not manifest_dir
+                    else f"{manifest_dir}/node_modules"
+                )
+                links[rel] = str(tree)
 
     configs = {}
     zone_config = f"{zone}/tsconfig.json" if zone else "tsconfig.json"
@@ -1059,6 +1224,20 @@ def _index_ts_zone(
         )
     finally:
         staging.remove_stage(stage)
+    if provision_failure is not None:
+        # The zone indexed without its dependencies and this says why —
+        # C-23's surfacing, at the moment the gap was created.
+        facts.setdefault("degraded", []).append(
+            {
+                "path": zone or ".",
+                "stage": "scip-typescript",
+                "message": (
+                    "dependencies not provisioned for this zone "
+                    f"({provision_failure}); third-party resolution "
+                    "degrades to lane A (C-23)"
+                ),
+            }
+        )
     return _rebase(facts, zone)
 
 

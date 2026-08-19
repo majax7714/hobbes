@@ -156,7 +156,7 @@ way Hobbes learned to see **its own Go** (closing the dogfood loop) and
 its own Rust fixture — six languages in the graph it builds of itself.
 
 What v2 *cannot* tell you is a first-class artifact too:
-[`docs/constraints.md`](docs/constraints.md) holds thirty-three
+[`docs/constraints.md`](docs/constraints.md) holds thirty-four
 registered constraints, seven of them since lifted, each naming where a
 user meets the limit — and
 [`docs/extraction-evidence.md`](docs/extraction-evidence.md) is the

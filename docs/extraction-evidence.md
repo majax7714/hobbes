@@ -34,6 +34,7 @@ typescript`). Re-ingested every session; the suite's degraded path
 
 | Date | Numbers |
 |---|---|
+| 2026-08-18 (ADR-050) | ts/js **61.6% → 67.0%** — the per-file `node_modules` links fixed the tsconfig-less root zone (`tsextract` 27.7% → 58.8%, its 131 `external-origin` sites now resolving). go/python/rust unchanged |
 | 2026-08-18 | 265 nodes, 915 module edges, 2,063 symbols, 4,207 call edges. Capture: go **89.2%** of 3,707 · python **88.3%** of 4,862 · rust **100%** of 18 · ts/js **61.6%** of 2,417. Unclassified residue: 0 python, 0 go (ADR-046), ~99 ts/js (the known fleet residue — helper/scip JS zones). Stable across the ADR-048/049 changes |
 | 2026-08-16 (V2.M7 exit) | 3,085 sites, lanes **0 disagreements** across six languages |
 | 2026-08-15 (V2.M3 exit) | lanes: 1,789 sites compared, **0 disagree** |
@@ -58,6 +59,7 @@ hand-verified (M3).
 
 | Date | Numbers |
 |---|---|
+| 2026-08-18 (ADR-050) | ts/js **72.1%** of 4,807 — its per-package tsconfig + installed tree was already the handled shape; residue is 462 `external-origin` (third-party calls) + 24 attr-call, 3 unclassified |
 | 2026-08-16 | tail: 61% below-floor locals; **9 of 1,339** sites unclassifiable |
 | 2026-08-15 (V2.M3/C-24) | **231 semantic TS call edges**; 12 test→component render edges, all semantic; 108/174 tests reach a component; lanes 359 sites, **0 disagree** |
 | 2026-08-11 (M6) | 104 nodes, 174 tests |
@@ -95,6 +97,7 @@ constraint in two days.
 
 | Run | Numbers |
 |---|---|
+| 4th — after dependency provisioning (ADR-050) | ts/js **18.8% → 27.9%**; `sdk/typescript` **63.7% → 70.3%**; the docs zone indexes instead of failing (docs/versioned_docs 0% → 4.5% — the residue is example snippets importing `@dagger.io/dagger`, which no package.json declares: undeclarable, not unprovisioned). 8 lockfile-pinned trees provisioned into `~/.hobbes/cache/npm` (~833 MB, docusaurus dominating); every declined zone carries its C-34 reason (`no lockfile`). Lanes: 36,703 dual-resolved, 258 disagree — the +120 are all the TS decorator line-convention off-by-one (131 total, same declaration both sides; noted in future_additions), Go's 126 unchanged, **1** genuinely new |
 | 3rd — after the cross-unit join (ADR-049) | go **85.6%** of 237,728 — cannot-resolve 20,501 → **5,571** (attr-call 4,655, unclassified 219); `core/integration [go]` **59.3% → 96.3%** (cannot-resolve 14,902 → 396). **161,184 call edges (+8,014 semantic)**, 24,723 module edges; **7,322** semantic `core/integration → sdk/go` edges (the `replace`d SDK, C-33's exact case). Two `scip-merge` abstentions reported (42 anonymous-TS-zone monikers, 7 generated Go testdata modules — C-28's rule across units, exactness holding). Lanes: 36,440 dual-resolved, **still 138 disagree — zero added by the join**. python/rust/ts unchanged, as they should be |
 | 2nd — after wrapped-chain + per-unit degradation (ADR-048) | go **79.3%** of 237,728 (unclassified **359**, was 9,131) · python **89.1%** of 6,382 · rust **94.2%** of 8,595 · ts/js **18.8%** of 12,503 (`sdk/typescript` **63.7%**, was 0 — the docs zone now fails alone). 4,872 nodes, 24,452 module edges, 153,170 call edges. Lanes: 36,439 dual-resolved sites, **138 disagree (0.38%)** — 126 Go (fallback vs build tags/interface dispatch: C-7/C-8's floor measured), 11 a TS decorator line-convention off-by-one, both lanes citing the same declaration |
 | 1st — baseline | go 79.3% (unclassified 9,131 — wrapped fluent chains) · ts/js **0.0%** (one broken docs zone zeroed all 84 zones) · python 89.1% · rust 94.2%. Found C-33: zero semantic edges from the root module into the `replace`d `./sdk/go` |

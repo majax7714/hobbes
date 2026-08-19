@@ -337,6 +337,19 @@ that link are asserted by test rather than assumed: indexing writes nothing
 through it, and teardown unlinks it instead of recursing into the target
 (C-22). The second is the mistake that would delete a user's `node_modules`.
 
+Since ADR-050 the stage's dependency view is the repo's, or better —
+still without writing a byte into it. **Every** `node_modules` on a
+zone file's walk-up path is linked at its repo-relative position
+(resolution walks up from the *file*, and a zone can span several
+package directories — linking only the zone root's tree left this
+repo's own `tsextract/` dependencies behind); and when the repo has no
+tree at all but carries a lockfile Hobbes can honor
+(`package-lock.json`, v1 `yarn.lock`), one is **provisioned into
+Hobbes's cache** — lockfile-pinned or declined (P1), always
+`--ignore-scripts` — and linked in the same way. The boundary (pnpm,
+Berry, lockfile-less, offline) is C-34, declined by name per zone;
+C-23 survives narrowed as the answer there.
+
 ### 3.3 Universal IR and node identity
 SCIP is the universal IR every semantic provider emits, and SCIP symbol
 monikers are globally unique. **They are not, however, the graph's node
