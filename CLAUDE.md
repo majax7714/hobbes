@@ -214,6 +214,23 @@ deliberately deferred until it is done. The build plan
 decision portability, the lane-disagreement tab, and now the C-33
 cross-unit moniker join) stays parked unless Max names an item.
 
+**2026-08-19 (the company-shaped derivation workflow — written down,
+docs-only):** Max brought a direction for the unbuilt derivation
+milestone: structure the context-derived coding flow like a software
+company — user proposes → orchestrator scopes the proposal under base
+context → engineers plan → plan reviewer (dev-ops analog) validates →
+adjust/finalize → fan-out to per-feature/specialized single-use agents
+(width by codebase size) → verifier before commit. Recorded as the
+final entry in `docs/future_additions.md`, cross-referencing the
+ADR-047 derivation-contract entry so the milestone inherits both. Open
+hard part named there: the role taxonomy (how many/which/what type),
+Max's method being a relational mapping from real software-company
+role structures; the entry adds the filter (only roles encoding a
+verification/context boundary map onto agents) and the derived-org
+requirement (fan-out computed from the graph, never authored — the
+§3.7 no-`hobbes.yaml` instinct). Nothing built; derivation stays
+deferred; extraction testing remains the current work.
+
 **2026-08-18 (node dependencies non-invasively, ADR-050 — built,
 awaiting Max's review):** TS/JS was the weakest lane; Max asked for a
 node workaround "not invasive to the repos". Built two: **per-file

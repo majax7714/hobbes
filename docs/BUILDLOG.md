@@ -2986,3 +2986,36 @@ bolted onto the checker.
 Suites: 640 pytest / 29 tsextract / 25 scip green. Evidence log
 updated with all three repos' rows; architecture §3.2 amended;
 `_nearest_node_modules` removed (subsumed).
+
+---
+
+## 2026-08-19 (twenty-fifth) — the company-shaped derivation workflow, written down
+
+Docs-only session. Max brought a direction for the unbuilt derivation
+milestone (from a friend's idea on agentic breakup): structure the
+eventual context-derived coding flow the way a software company
+structures work — user proposes (head boss) → orchestrator builds what
+the proposal actually is under base context → engineers develop a
+build plan → a plan reviewer (the dev-ops analog) validates →
+engineers adjust or finalize → fan-out to per-feature / specialized
+engineers, width a function of codebase size → back to the verifier
+before commit. The ask was to get the idea down in writing as a path
+forward, not to build anything.
+
+Recorded as a dated entry at the end of `docs/future_additions.md`,
+beside — and cross-referencing — the ADR-047 derivation-contract entry,
+so the milestone inherits both when it is picked up. The entry carries
+three observations beyond the pipeline itself: the cast already exists
+in embryo (sandbox roles, `hobbes review` + the unified checker as the
+deterministic half of the verifier, the escalation queue as the boss's
+approval surface, ADR-047 applying per role); the hard part is the role
+taxonomy (how many, which, what type), where Max's proposed method is
+mapping a relational system from real software-company role structures
+if public data exists — with the filter named as the actual design work
+(roles that encode a verification/context boundary map onto agents;
+roles that exist for human constraints do not); and the org chart
+should be derived from the graph per task, not authored — §3.7's
+no-`hobbes.yaml` instinct applied to the fan-out.
+
+No code, no suites run. The derivation milestone stays deferred; deep
+extraction testing remains the named current work.

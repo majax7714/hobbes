@@ -377,3 +377,47 @@ surfaced per file rather than silent.)*
   is tssource emitting the name line (SCIP's convention); it is a
   tsextract facts change and deserves its own small pass rather than a
   tolerance bolted onto the checker.
+
+- **The company-shaped derivation workflow** (Max, 2026-08-19, from a
+  friend's idea on agentic breakup; the control-flow proposal for the
+  unbuilt derivation milestone — reads together with "The derivation
+  carries the complement" above). Approach the eventual context-derived
+  coding flow the way a software company structures work: the **user
+  proposes** (the head boss — intent, already one of the two things
+  that need a human); an **orchestrator** builds what the proposal
+  actually *is*, under base derived context; **engineers develop a
+  build plan**; a **plan reviewer** (the dev-ops analog) validates it;
+  engineers adjust or finalize; the work fans out to **per-feature or
+  specialized engineers** — fan-out width a function of codebase size —
+  each a single-use agent under per-task derived context; and
+  everything returns to the **verifier** before it commits. Companies
+  solved role decomposition under exactly Hobbes's constraint — no
+  single head holds the whole system — so the structure transfers to
+  single-use agents whose "head" is a context window.
+
+  Much of the cast already exists in embryo, which is evidence the
+  shape is right: the sandbox roles (implementer / reviewer /
+  cartographer, ADR-018/M8) are proto-roles with role-shaped mounts and
+  policy; `hobbes review` plus the unified checker are the
+  deterministic half of the verifier; the escalation queue is the
+  boss's approval surface; and ADR-047's contract applies *per role* —
+  every role's derived context carries its complement, and the
+  verifier's derived policy is the narrowest of all.
+
+  **The hard part is the role taxonomy** — how many roles, which ones,
+  what types. Max's proposed method: map a relational system between
+  software companies and their roles, if public data exists (it does in
+  usable forms — published engineering ladders, org-topology
+  literature, job taxonomies). Two notes to carry into that study.
+  *The filter is the design work:* companies hold roles that exist for
+  human constraints (coordination overhead, careers, throughput) and
+  roles that encode a genuine **verification or context boundary**;
+  only the second kind should map onto agents, and telling them apart
+  is the actual decision. *The org chart should be derived, not
+  authored:* Hobbes already refuses authored config wherever the fact
+  is derivable (§3.7, no `hobbes.yaml`), and the same instinct says the
+  per-task role structure — how many specialists, split along what
+  seams — should be computed from the graph (size, structure, the
+  change's blast radius). "Depends on the size of the codebase" is that
+  requirement, stated plainly. Parked with the derivation milestone;
+  deep extraction testing remains the named current work.
