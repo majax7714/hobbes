@@ -447,3 +447,22 @@ surfaced per file rather than silent.)*
   a change-spec approval marker (plan-review approval is out-of-band;
   the decisions ledger is the natural home), and rendering plans in
   the web surface beside the blind-spot views this file already parks.
+
+- **The benchmark harness** (Max, 2026-08-19; ADR-052 — direction and
+  preregistration only, deliberately not started). Verify Hobbes by
+  running it as a harness over known benchmarks against pure-model
+  baselines; hypotheses H1–H3 preregistered with metrics and
+  falsifiers in `docs/benchmark-hypotheses.md`, where results will
+  land. What a real run needs, in dependency order: **D2** (nothing
+  consumes a change-spec yet — see the D2 entry above); a **benchmark
+  adapter** (instance → repo checkout + issue text in, candidate
+  patch out, the benchmark's own tests as the verdict); **seed
+  extraction from prose** (C-36 will bite first — benchmark issues
+  rarely name identifiers; the parked generative planner is the
+  expected response, and the lexical miss rate on real instances is
+  itself worth recording); **token/latency/cost accounting** per
+  instance across both arms (the recorder's partition record covers
+  the harness arm; the pure arm needs the same meter); and an
+  **instance-selection protocol** that respects training-set
+  contamination (post-cutoff or held-out sets, recorded with the
+  results). Opens when Max names it, after D1's review.

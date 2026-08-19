@@ -161,7 +161,13 @@ registered constraints, seven of them since lifted, each naming where a
 user meets the limit — and
 [`docs/extraction-evidence.md`](docs/extraction-evidence.md) is the
 standing record of every repo the extraction layer has been tested
-against, with its measured numbers and what was and was not verified. One worth knowing before you ingest strangers' code:
+against, with its measured numbers and what was and was not verified.
+Its forward-looking counterpart is
+[`docs/benchmark-hypotheses.md`](docs/benchmark-hypotheses.md): the
+preregistered, falsifiable claims the derivation layer will be tested
+against (Hobbes as a benchmark harness vs pure models — ADR-052),
+written down with their metrics *before* any run so results cannot
+re-scope them. Nothing there is measured yet, and it says so. One worth knowing before you ingest strangers' code:
 **indexing a Rust repo executes its `build.rs` and proc macros** (C-29 —
 disclosed on stderr at every rust ingest; ingest an untrusted Rust repo
 only if you would also build it).

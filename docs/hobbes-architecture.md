@@ -102,6 +102,21 @@ agent is a triple *(context slice, policy profile, verification
 obligations)*, and the number of agents is the partition's output, never
 a parameter.
 
+**Verification is a benchmark harness (ADR-052).** The derivation's
+claims about itself are falsifiable, and the plan is to falsify them:
+run Hobbes as a harness under known benchmarks (instance in → ingest →
+plan → per-unit execution → verify → patch out) against the same
+models run pure, and let the error stream drive the adjustment — every
+failed instance feeds exactly the numbers C-35 calls guesses. Three
+hypotheses are preregistered in
+[`benchmark-hypotheses.md`](benchmark-hypotheses.md), each with its
+metric and falsifier stated before any run: **H1** derived context
+substitutes for model size; **H2** per-unit regenerated context
+flattens the accuracy-vs-depth curve; **H3** cheaper and quicker per
+solved task, as a byproduct. Not started, deliberately: end-to-end
+runs need D2, and the point of writing the hypotheses first is that
+results cannot re-scope them.
+
 **The derivation contract (ADR-047).** When per-task derivation is built,
 derived context has two mandatory halves: the captured fraction — graph,
 tests, docs, everything citable — and the **stated complement**: what
@@ -785,6 +800,7 @@ The v2 extraction programme — **complete and fully reviewed as of
 |---|---|---|
 | **D1** — the plan derivation | built, **awaiting review** | ADR-051: `hobbes plan` — impact, partition, contracts, manifests with enforced complements, the plan-review gate; C-35..C-37 registered surfaced |
 | **D2** — execution | not started | spawning the per-unit sessions, context faults, the recorder's partition record; scope parked in `future_additions.md` |
+| **Benchmark verification** | preregistered, not started | ADR-052: Hobbes as a harness under known benchmarks vs pure-model baselines; H1–H3 with metrics and falsifiers in [`benchmark-hypotheses.md`](benchmark-hypotheses.md); end-to-end needs D2 |
 
 Sequencing rules carry from v1 unchanged: deterministic before generative,
 each milestone exits on a real repo, **one milestone active at a time**, and
