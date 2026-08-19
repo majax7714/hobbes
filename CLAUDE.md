@@ -219,9 +219,34 @@ thats actually what were handling now." **The derivation programme
 opened on 2026-08-19 at Max's direction** — he added
 `docs/agent-mapping.md` and named the build; D1 (the plan derivation)
 is built and awaiting his review, and D2 (execution) starts only after
-that review, per milestone discipline. The build plan
+that review, per milestone discipline. **The named verification method
+is the benchmark harness** (Max, 2026-08-19, ADR-052): Hobbes run as a
+harness over known benchmarks vs pure-model baselines, hypotheses
+H1–H3 preregistered in `docs/benchmark-hypotheses.md` — testing itself
+deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
+
+**2026-08-19 (benchmark hypotheses preregistered, ADR-052 — docs
+only):** Max named the verification course for the derivation
+programme: use Hobbes as a harness under known benchmarks — the error
+stream drives adjustment (C-35's loss loop gets its data), and known
+benchmarks supply the pure-model baseline pool. Three hypotheses
+preregistered in `docs/benchmark-hypotheses.md` with metrics and
+falsifiers stated before any run (P11 applied forward): **H1** derived
+context substitutes for model size (harnessed small ≥ pure large);
+**H2** regenerated per-unit context flattens accuracy-vs-depth;
+**H3** cheaper and quicker per *solved* task as a byproduct — the
+multi-unit coordination counter-pressure stated up front. Doc records
+the current gaps honestly: end-to-end runs need D2, C-36 (prose
+issues, lexical seeds) is the predicted first friction, instance
+selection must respect training-set contamination. **Testing
+deliberately not introduced** — the harness scope (benchmark adapter,
+prose seed extraction, dual-arm cost accounting, instance protocol)
+is parked in future_additions; opens when Max names it. Architecture:
+"Where this is going" names the verification path; §8's D-table gains
+the preregistered row. README links the doc as extraction-evidence's
+forward-looking counterpart.
 
 **2026-08-19 (D1 — the plan derivation, ADR-051 — built, awaiting
 Max's review):** Max added `docs/agent-mapping.md` (phases not

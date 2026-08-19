@@ -3088,3 +3088,61 @@ future_additions with dependency order.
 688 pytest green (48 new across test_derive / test_changespec; Go,
 web, tsextract, scip untouched). D1 exits to Max's review before D2
 starts.
+
+---
+
+## 2026-08-19 (twenty-seventh) — the benchmark hypotheses, preregistered
+
+Max named the verification course for the derivation programme: put
+Hobbes through benchmark testing **as a harness** — "this works in our
+favor of adjusting based on the produced errors and gives a large pure
+model pool due to being used known benchmarks." Testing itself is
+deliberately not introduced today; what this session adds is the
+discipline around it, and the documentation now reflects the project
+as it stands.
+
+**`docs/benchmark-hypotheses.md` — created (ADR-052).** The standing
+preregistration: three hypotheses, each with the metric that decides
+it and what falsifies it, written *before* any run so results cannot
+re-scope them — the register's honesty mechanism applied forward, and
+the same pattern as extraction-evidence.md (results will land in the
+doc beside their hypothesis, dated, naming benchmark / instance set /
+models / numbers).
+
+- **H1 — derived context substitutes for model size.** Harnessed
+  smaller models perform to the degree of, if not better than, larger
+  pure models. Metric: how much of the pure small→large solve-rate
+  gap the harness closes, across a model ladder on the same instances.
+- **H2 — depth stops costing accuracy.** Context regenerated per unit
+  rather than accumulated per session flattens the accuracy-vs-depth
+  curve. Metric: solve-rate slope against depth buckets (edit spread,
+  chain length), pure vs harnessed, same model.
+- **H3 — cheaper and quicker, as a byproduct.** Fewer tokens consumed
+  and produced per **solved** instance (never per attempt — a cheap
+  failure is not efficiency), at equal or better solve rate. The
+  counter-pressure is stated up front: multi-unit plans add
+  coordination cost, and the per-depth cost curve settles whether the
+  deterministic savings dominate.
+
+The doc also states the current gaps a run has to cross, because
+"reflect current status" means the blockers too: **D2 is not built**
+(nothing consumes a change-spec — the solve rate is unmeasurable
+end-to-end until it is), **C-36 bites first** (benchmark issues are
+prose; the lexical miss rate on real instances is itself a number to
+record, and the parked generative seed layer is the expected
+response), and **instance selection must respect contamination**
+(memorized answers bias against the harness, not for it —
+post-cutoff or held-out sets, recorded with results).
+
+Threaded through the record: architecture "Where this is going" names
+the verification path and §8's derivation table gains the
+"preregistered, not started" row; future_additions parks the harness
+scope in dependency order (benchmark adapter, prose seed extraction,
+dual-arm token/latency/cost accounting, instance protocol); README
+links the doc as extraction-evidence's forward-looking counterpart;
+CLAUDE.md status updated. No constraints added — nothing here
+concedes information; it schedules the measurement of concessions
+already registered (C-35, C-36).
+
+Docs only; no code, no suites affected. The benchmark milestone opens
+when Max names it, after D1's review.
