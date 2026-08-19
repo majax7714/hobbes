@@ -3019,3 +3019,72 @@ no-`hobbes.yaml` instinct applied to the fan-out.
 
 No code, no suites run. The derivation milestone stays deferred; deep
 extraction testing remains the named current work.
+
+---
+
+## 2026-08-19 (twenty-sixth) — D1: the plan derivation
+
+Max reframed yesterday's entry ("current work structure could be
+viewed as economical more than efficient"), added
+`docs/agent-mapping.md` — phases not personas; an agent is (context
+slice, policy profile, verification obligations); the mapping is an
+algorithm over existing artifacts and the org chart is its output —
+and directed the build: reference the doc, build the system, register
+the concessions.
+
+**Built: `hobbes plan "<proposal>"` (ADR-051), the derivation
+programme's first milestone.** `pipeline/src/hobbes/derive/` in
+pipeline order: `impact` (lexical seeds — exact matches only,
+unmatched code-shaped terms reported not guessed; max-product
+expansion with tier/type weights and a per-hop decay), `cochange`
+(200-commit co-occurrence window, bulk commits skipped, unreadable
+history degrades to structure-only with a stated warning),
+`partition` (node weight = module + guarding tests + module doc in
+estimated tokens; coupling = tier × type × refs × co-change;
+agglomerative merge under a 60k default budget; over-decomposition
+merges, oversize flags), `contracts` (cut edges pinned to declaration
+sites with owner = definition side and in-scope invariants),
+`manifests` (context: interior full / boundary contracts /
+one-hop signatures / **complement always** — serialization refuses a
+manifest without it, ADR-047 enforced in code; policy: read-only
+floor, interior-only write mounts, P10 guarantees emitted first and
+raising rather than absorbing, human-first units get no write mounts),
+`changespec` (content-hash task ids, byte-deterministic YAML into
+`.hobbes/plans/`, and the plan-review gate judging `--adds` edges
+against confirmed forbidden-import invariants — exit 1 at planning
+cost instead of PR cost, with what the gate cannot check stated).
+
+**The exit check earned its keep twice.** First dogfood run: one seed
+(`hobbes.review`) produced **33 units — the whole connected
+component** — because a chain of semantic calls propagated at factor
+1.0 forever; "tier-weighted decay" with no per-hop term is not decay.
+Added HOP_DECAY 0.55 (pinned in ADR-051's table, owned by C-35);
+the same seed now yields **3 units / 12 contracts**, each contract
+carrying a real declaration site (`hobbes.review →
+hobbes.graphdiff.diff_graphs [uses/semantic] … graphdiff.py:54-79`).
+Second: the gate run — `--adds "hobbes.derive.impact ->
+ext:tree_sitter"` **fails citing I-4** (exit 1) while
+`hobbes.extract.pysource -> ext:tree_sitter` passes as the roster
+exception; a planned violation of the parser-ownership invariant now
+dies before any code exists. Two identical runs write byte-identical
+specs (sha256-verified).
+
+Register: **C-35** (partition quality unvalidated — the design's §6
+registration obligation, honored on day one; surfaced on every run and
+in every spec), **C-36** (lexical seeds — surfaced as
+`unresolved_terms` + the exit-2 hint), **C-37** (a pin is a
+declaration site, not a signature — surfaced inline in every contract
+entry). Architecture: new §6 "Derivation — the task mapping",
+§§6–9 renumbered §§7–10 (internal refs and CLAUDE.md's §9 pointer
+fixed), "Where this is going" now says the fourth piece is begun, §8
+gains the D-programme table. agent-mapping.md restamped as design
+record. `.hobbes/plans/` gitignored here (an unapproved plan committed
+would put Max's name on decisions he never made; the C-20 shape).
+**D2 (execution) deliberately not built** — spawning from manifests,
+context faults, the recorder's partition record and loss fitting,
+renegotiation, a generative planner above the seeds — parked in
+future_additions with dependency order.
+
+688 pytest green (48 new across test_derive / test_changespec; Go,
+web, tsextract, scip untouched). D1 exits to Max's review before D2
+starts.

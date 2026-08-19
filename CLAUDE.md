@@ -67,7 +67,10 @@ the interactive graph.
   layer, ADR-035 — four packs in a code tuple, activated by detection, and
   the only path by which route/CLI/Terraform knowledge reaches the
   artifacts), the Mermaid export (`src/hobbes/render.py`),
-  the graph-diff engine (`src/hobbes/graphdiff.py`), and the M5 narrative
+  the graph-diff engine (`src/hobbes/graphdiff.py`), the D1 plan
+  derivation (`src/hobbes/derive/`: impact → cochange → partition →
+  contracts → manifests → changespec, behind `hobbes plan`, ADR-051),
+  and the M5 narrative
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
   behind `hobbes narrate` / `hobbes docs status`). `extract/tssource.py`
@@ -167,6 +170,11 @@ uv run hobbes review main..my-branch --soft   # + reviewer sessions (quota)
 # Lane agreement (V2.M3, §3.4) — a command and a CI check
 uv run hobbes lanes                           # exits 1 if the lanes disagree
 uv run hobbes lanes --json
+
+# Plan derivation (D1, ADR-051) — deterministic, quota-free
+uv run hobbes plan "proposal text" --seed some.module   # → .hobbes/plans/
+uv run hobbes plan "..." --adds "a -> b"      # gate-checks the declared edge;
+                                              # exits 1 on an invariant hit
 ```
 
 ## Conventions
@@ -207,12 +215,43 @@ ADR-040) passed 2026-08-16, closing the v2 extraction programme.**
 
 **The named current work is deep extraction testing** (Max,
 2026-08-18): "theres not been enough extraction testing to clear and
-thats actually what were handling now." The derivation milestone is
-deliberately deferred until it is done. The build plan
+thats actually what were handling now." **The derivation programme
+opened on 2026-08-19 at Max's direction** — he added
+`docs/agent-mapping.md` and named the build; D1 (the plan derivation)
+is built and awaiting his review, and D2 (execution) starts only after
+that review, per milestone discipline. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
-`docs/future_additions.md` (P10 checker groundwork, criterion benches,
-decision portability, the lane-disagreement tab, and now the C-33
-cross-unit moniker join) stays parked unless Max names an item.
+`docs/future_additions.md` stays parked unless Max names an item.
+
+**2026-08-19 (D1 — the plan derivation, ADR-051 — built, awaiting
+Max's review):** Max added `docs/agent-mapping.md` (phases not
+personas; agent = (context slice, policy profile, verification
+obligations); the mapping as an algorithm, the org chart as output)
+and directed the build. `hobbes plan "<proposal>"` now derives a
+change-spec deterministically and quota-free:
+`pipeline/src/hobbes/derive/` (impact with lexical seeds + per-hop
+decay, git co-change coupling, budgeted agglomerative partition,
+cut-edge contracts pinned to declaration sites, per-unit context
+manifests that **refuse to serialize without their ADR-047
+complement**, derived policy manifests whose P10 guarantees raise
+rather than absorb, and a plan-review gate that judges `--adds`
+edges against confirmed forbidden-import invariants — exit 1 at
+planning cost, not PR cost). Specs land in `.hobbes/plans/<hash>/`
+(not derived/ — approved, not regenerable; gitignored here).
+ADR-051 answers agent-mapping §9's open questions and pins every
+parameter as a declared guess. Register: **C-35** (partition quality
+unvalidated — printed on every run), **C-36** (lexical seeds),
+**C-37** (a pin is a declaration site), all surfaced on day one;
+architecture gains §6 (Derivation) with §§6–9 renumbered §§7–10.
+Exit-checked on the dogfood repo: seed `hobbes.review` → 3 units /
+12 contracts with real declaration sites; the gate fails
+`hobbes.derive.impact -> ext:tree_sitter` citing I-4 and passes the
+pysource exception; two runs byte-identical. The first run also
+found and fixed a real flaw: without per-hop decay, one seed pulled
+the whole connected component (33 units). **D2 (execution: spawning
+from manifests, context faults, the recorder's partition record) is
+deliberately not built** — parked in future_additions with scope.
+688 pytest green (48 new).
 
 **2026-08-19 (the company-shaped derivation workflow — written down,
 docs-only):** Max brought a direction for the unbuilt derivation
@@ -577,7 +616,7 @@ anything else.
    was a thought i had wanting it less and less but maybe one day."
    `docs/m9-application-mode.md` is kept as the record of the thought, not
    as a roadmap item. **Hobbes stays local**: on the box, against a repo on
-   disk (architecture §9). Do not start it, and do not design toward it.
+   disk (architecture §10). Do not start it, and do not design toward it.
 
 **Box note (2026-08-13):** `go.mod` needs Go ≥ 1.26 and Fedora ships
 1.25, so `~/.local/go/bin` must precede `/usr/bin` on `PATH` — fixed in
