@@ -2926,3 +2926,63 @@ README counts corrected (33 registered / 7 lifted) and the evidence
 log linked.
 
 628 pytest / 25 scip / 29 tsextract — green.
+
+---
+
+## 2026-08-18 (twenty-fourth) — node dependencies without touching the repo
+
+Max's direction: TS/JS is the weakest lane across three repos — "look
+for any workaround from node that is not invasive to the repos. if
+none then add the lever." A non-invasive workaround exists and is
+built (ADR-050); the lever was not needed.
+
+**Two mechanisms, one rule: the repo is never written.**
+
+1. **Per-file dependency links** (`zone_dependency_links`). TS
+   resolution walks up from the importing *file*, but the stage linked
+   only the zone root's nearest `node_modules` — so this repo's
+   tsconfig-less `tsextract/` and `scip/` (root zone) indexed without
+   the trees sitting beside their own files, while lane A, reading the
+   real repo, resolved them fine. A silent lane asymmetry, found by
+   asking why hobbes sat at 61.6% *with* everything installed. Now
+   every `node_modules` on any zone file's walk-up path is linked at
+   its repo-relative position.
+2. **Lockfile-pinned provisioning** (`provision_node_modules`). When
+   the repo has no tree at all: install into
+   `~/.hobbes/cache/npm/<hash-of-manifests>` — `npm ci` for
+   package-lock, corepack-run classic yarn (version pinned in code)
+   for v1 yarn.lock — `--ignore-scripts` always, symlinked into the
+   stage like a repo-owned tree. **Lockfile-pinned or declined**: an
+   unpinned install is the registry's answer of the day and would
+   break P1, so no-lockfile, pnpm, and Berry zones are declined *by
+   name* in per-zone degradation records. C-23 narrowed; **C-34**
+   registers the boundary (registry needed, the npm sibling of C-30).
+
+**Measured across the three repos Max named:**
+
+- **hobbes**: ts/js **61.6% → 67.0%**; the tsextract zone 27.7% →
+  58.8%, its 131 external-origin sites resolving — links alone, no
+  install.
+- **kbet**: **72.1%** — already the handled shape (per-package
+  tsconfig, tree beside it); residue is third-party external-origin
+  calls, not dependencies.
+- **dagger**: ts/js **18.8% → 27.9%**; `sdk/typescript` **63.7% →
+  70.3%**; the docs zone (yarn v1, docusaurus) **indexes instead of
+  failing** — 8 trees provisioned (~833 MB cache). What stays dark is
+  honest: docs/versioned_docs (4.5%) is example snippets importing
+  `@dagger.io/dagger`, which **no package.json declares** —
+  undeclarable, not unprovisioned — and testdata zones without
+  lockfiles, each carrying its C-34 reason.
+
+**Lanes as watchdog:** 36,703 dual-resolved sites, 258 disagree — the
++120 over the last run are *all* the TS decorator line-convention
+off-by-one (131 total now; both lanes cite the same declaration, lane
+A at the decorator line, SCIP at the name line), multiplied because
+far more TS has semantics. One genuinely new disagreement. The
+convention fix (tssource emits the name line) is future_additions —
+a tsextract facts change deserving its own pass, not a tolerance
+bolted onto the checker.
+
+Suites: 640 pytest / 29 tsextract / 25 scip green. Evidence log
+updated with all three repos' rows; architecture §3.2 amended;
+`_nearest_node_modules` removed (subsumed).

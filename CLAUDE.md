@@ -214,6 +214,25 @@ deliberately deferred until it is done. The build plan
 decision portability, the lane-disagreement tab, and now the C-33
 cross-unit moniker join) stays parked unless Max names an item.
 
+**2026-08-18 (node dependencies non-invasively, ADR-050 — built,
+awaiting Max's review):** TS/JS was the weakest lane; Max asked for a
+node workaround "not invasive to the repos". Built two: **per-file
+dependency links** (every node_modules on a zone file's walk-up path is
+linked into the stage — hobbes' tsconfig-less tsextract/scip zones were
+indexing without the trees beside their own files) and
+**lockfile-pinned provisioning** into `~/.hobbes/cache/npm/<hash>`
+(`npm ci` / corepack-pinned classic yarn for v1 locks,
+`--ignore-scripts` always; no-lockfile/pnpm/Berry **declined by name**
+per zone — an unpinned install breaks P1). C-23 narrowed, **C-34**
+added (registry + lockfile boundary, surfaced per zone). Measured:
+hobbes ts/js **61.6→67.0%**, kbet holds **72.1%**, dagger ts/js
+**18.8→27.9%** (`sdk/typescript` **70.3%**; docs zone indexes instead
+of failing; the dark remainder is example snippets whose deps *no*
+package.json declares — undeclarable). Lanes watchdog: +120
+disagreements are all the TS decorator line-convention off-by-one
+(now 131 — tssource emitting the name line is the future_additions
+fix); 1 genuinely new. 640 pytest / 29 tsextract / 25 scip.
+
 **2026-08-18 (the cross-unit join + the evidence log, ADR-049 — built,
 awaiting Max's review):** Max directed the C-33 candidate fix and a
 standing test-evidence doc. `docs/extraction-evidence.md` is the
