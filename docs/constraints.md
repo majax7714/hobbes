@@ -727,6 +727,79 @@ information appears in both, and the entries cross-reference.
 - **Source:** ADR-026, `future_additions.md`. Instance recorded
   2026-08-15; surfaced by ADR-042 (2026-08-16).
 
+## Derivation — the plan mapping (D1)
+
+### C-35 — Partition quality is unvalidated
+- **Cannot tell you:** that a change-spec's partition is a *good* one —
+  that its units minimize rework, that its contracts hold through
+  implementation, or that its budget and thresholds fit any repo but
+  the ones it was sketched against. Every number the mapping runs on
+  (tier and edge-type weights, the 0.55 per-hop decay, the 0.2
+  threshold, the 60k budget, the 200-commit window, the 300-token
+  contract overhead, the human-first threshold) is a declared guess
+  from ADR-051's pinned table.
+- **Because:** the design (agent-mapping §6) defines partition quality
+  as a *measured* number — rework, contract failures, context-fault
+  rate, tokens, wall time from the flight recorder — and nothing
+  records those yet: the execution milestone that spawns per-unit
+  sessions is not built. Claiming quality before measuring it would be
+  the P11 mistake at mapping scale. One parameter already earned its
+  place the hard way: the per-hop decay exists because the dogfood
+  exit check measured its absence (one seed → 33 units, the whole
+  connected component).
+- **Bites at:** every `hobbes plan` run — the partition may split what
+  should stay together or bundle what should split, and the spec
+  cannot warn you beyond its flags (`oversize`,
+  `coordination-heavy`, `human-first`).
+- **You find out:** **surfaced** — every plan run prints the C-35
+  statement and every change-spec carries it in its `validation`
+  field; the flags name the shapes the mapping itself distrusts.
+- **Source:** ADR-051 (2026-08-19); the lift path is the parked
+  recorder milestone (`future_additions.md`).
+
+### C-36 — Seed resolution is lexical, not understood
+- **Cannot tell you:** what a proposal *means*. Seeds resolve by exact
+  (case-insensitive) match of proposal terms against node ids, path
+  stems, and symbol names — plus explicit `--seed` values. A proposal
+  whose intent is clear to a human but whose words match no identifier
+  seeds nothing; a prose word that happens to equal a symbol name
+  seeds spuriously (stopword-guarded, not solved).
+- **Because:** the mapping is deterministic and quota-free by design
+  (P5): a generative planner interpreting prose would make the impact
+  set a model opinion, unreproducible between runs. The honest
+  deterministic reading is exact match plus a refusal to guess —
+  unmatched code-shaped terms are reported, never inferred into the
+  graph's nearest neighbor.
+- **Bites at:** plans phrased in domain language rather than code
+  names ("the checkout flow" seeds nothing unless a node is named
+  that), and renamed concepts whose old name still matches something.
+- **You find out:** **surfaced** — `hobbes plan` errors with the
+  `--seed` hint when nothing resolves (exit 2), and every change-spec
+  lists `unresolved_terms` with the C-36 note; resolved seeds show
+  which term hit them, so a spurious seed is visible in the spec.
+- **Source:** ADR-051 (2026-08-19).
+
+### C-37 — A pinned contract is a declaration site, not a signature
+- **Cannot tell you:** a cross-unit interface's parameter types,
+  return type, or semantic contract. A contract pins the target's
+  identity, kind, file and line range, tier, owner, and in-scope
+  invariants — the graph carries no richer signature to pin
+  (symbols are id/kind/range; SCIP descriptor filtering is C-9).
+- **Because:** inventing a signature from source text would be a
+  second parser outside the owning lane (I-4's rule) and a guess at
+  exactly the moment agents need a fact — two implementers building
+  against a paraphrased interface is the rework the contract exists
+  to prevent. A pin that says "the function at this site, as it is"
+  is smaller and true.
+- **Bites at:** contract renegotiation — an agent cannot tell from
+  the spec alone whether its counterpart changed a signature, only
+  that the declaration site moved; the far side must be read at its
+  cited lines (which the pin makes one hop away).
+- **You find out:** **surfaced** — every contract entry in every
+  change-spec carries `pin: declaration-site, not a type signature
+  (C-37)` inline.
+- **Source:** ADR-051 (2026-08-19).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language
@@ -964,8 +1037,10 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Four of **thirty-four** entries are **unsurfaced** (C-4, C-19 — narrowed
-to two tools — C-20, and C-31). **Seven are lifted**, C-33 fastest of
+Four of **thirty-seven** entries are **unsurfaced** (C-4, C-19 — narrowed
+to two tools — C-20, and C-31). The three derivation entries (C-35..C-37,
+ADR-051) landed surfaced on day one — the statement prints on every
+`hobbes plan` run and rides every change-spec. **Seven are lifted**, C-33 fastest of
 all: registered from the dagger measurement (ADR-048) and lifted one
 session later (ADR-049) when Max reviewed the candidate fix and
 directed it — the register working as intended, a finding becoming a

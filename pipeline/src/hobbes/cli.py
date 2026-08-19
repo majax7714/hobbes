@@ -567,6 +567,46 @@ def _cmd_review(args: argparse.Namespace) -> int:
     return 1 if review.needs_attention else 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """`hobbes plan`: proposal → change-spec (ADR-051, D1).
+
+    Deterministic and quota-free: the mapping from agent-mapping.md's
+    §3–§5 over the ingested artifacts. Writes
+    .hobbes/plans/<task>/change-spec.yaml and prints the summary a
+    human reviews. Exit 0 gate pass, 1 gate fail, 2 trouble.
+    """
+    from hobbes.derive import DeriveError, derive_plan, format_spec, spec_to_dict, write_spec
+    from hobbes.derive.impact import SeedError
+    from hobbes.derive.manifests import GuaranteeError
+    from hobbes.invariants import ValidationError
+
+    repo_root = _repo_root_from(args)
+    try:
+        spec = derive_plan(
+            repo_root,
+            args.proposal,
+            seeds=args.seed or [],
+            adds=args.adds or [],
+            budget=args.budget,
+        )
+    except (artifacts.ArtifactError, SeedError, DeriveError, GuaranteeError) as exc:
+        print(f"hobbes plan: {exc}", file=sys.stderr)
+        return 2
+    except ValidationError as exc:
+        print("hobbes plan: invalid invariant records", file=sys.stderr)
+        for problem in exc.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 2
+
+    path = write_spec(repo_root, spec)
+    if args.json:
+        print(json.dumps(spec_to_dict(spec), indent=2, sort_keys=True))
+    else:
+        print(format_spec(spec), end="")
+        print(f"\nchange-spec: {path.relative_to(repo_root)}")
+    return 1 if spec.gate.result == "fail" else 0
+
+
 def _cmd_up(args: argparse.Namespace) -> int:
     """`hobbes up`: bring Hobbes up on a repo and hold for decisions (ADR-026).
 
@@ -865,6 +905,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="report what is owed and exit instead of serving (exit 1 if not ready)",
     )
 
+    plan_parser = sub.add_parser(
+        "plan",
+        help="derive a change-spec from a proposal: units, contracts, manifests",
+        description=(
+            "The plan derivation (ADR-051): proposal → impact set → partition "
+            "→ contracts → per-unit context and policy manifests, each carrying "
+            "its stated complement (ADR-047). Writes "
+            ".hobbes/plans/<task>/change-spec.yaml. The plan-review gate judges "
+            "declared edges (--adds) against confirmed forbidden-import "
+            "invariants before any code exists; exit 1 on a violation. "
+            "Deterministic and quota-free."
+        ),
+    )
+    plan_parser.add_argument("proposal", help="the proposed change, free text")
+    plan_parser.add_argument(
+        "--seed",
+        action="append",
+        help="a node id, symbol, or file the change starts from (repeatable)",
+    )
+    plan_parser.add_argument(
+        "--adds",
+        action="append",
+        help="a dependency the plan will introduce, as 'from -> to' (repeatable);"
+        " checked against the invariants at plan time",
+    )
+    plan_parser.add_argument(
+        "--budget",
+        type=int,
+        default=60_000,
+        help="per-unit context budget in estimated tokens (default: 60000)",
+    )
+    plan_parser.add_argument(
+        "--repo", help="repo root (default: auto-detected via .git)"
+    )
+    plan_parser.add_argument(
+        "--json", action="store_true", help="machine-readable output"
+    )
+
     review_parser = sub.add_parser(
         "review",
         help="concept-level review of a range: delta, invariants, coverage",
@@ -974,6 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
         "docs": _cmd_docs_status,
         "invariants": _cmd_invariants,
         "review": _cmd_review,
+        "plan": _cmd_plan,
         "up": _cmd_up,
         "policy": _cmd_policy_resolve,
     }

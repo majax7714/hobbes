@@ -3,7 +3,7 @@
 **This is the running architecture** (ADR-033). It describes Hobbes as it is
 now, not as of a version, and it carries no version number for that reason.
 When the design moves, this file moves with it *in the same commit* — the
-rule is in §8 and it is what keeps the file true. It is the source-of-truth
+rule is in §9 and it is what keeps the file true. It is the source-of-truth
 context for build sessions: read it fully, alongside CLAUDE.md and the last
 two BUILDLOG entries, before writing code.
 
@@ -88,12 +88,19 @@ thereby **identified** — the dynamic, unique, or special parts of the
 repo, pointed at as needing care rather than papered over. The register
 (P8) is what keeps the boundary between the two honest.
 
-Three of the four pieces exist. The graph makes the derivation possible
-(§3), invariants make the result checkable (§5), and the policy engine and
-sandbox already make it enforceable (§6). What is **not** built is the
-derivation itself — policy and context generated *from* the architecture for
-one task. It is not a milestone yet and nothing here should be designed in a
-way that makes it harder to reach.
+Three of the four pieces existed first. The graph makes the derivation
+possible (§3), invariants make the result checkable (§5), and the policy
+engine and sandbox already make it enforceable (§7). **The fourth is
+begun (ADR-051):** the *mapping* half of the derivation — proposal to
+change-spec, with per-agent context and policy manifests — is running
+code (§6, `hobbes plan`). The *execution* half — spawning the per-unit
+sessions those manifests describe, serving context faults, recording
+partition quality — is not built, and is the derivation programme's next
+milestone. The design the mapping implements is
+[`agent-mapping.md`](agent-mapping.md): **phases, not personas** — an
+agent is a triple *(context slice, policy profile, verification
+obligations)*, and the number of agents is the partition's output, never
+a parameter.
 
 **The derivation contract (ADR-047).** When per-task derivation is built,
 derived context has two mandatory halves: the captured fraction — graph,
@@ -107,12 +114,14 @@ the known half has recreated the confident-surface-over-quiet-gap failure
 (P8) at the exact layer built to prevent it. Derived **policy** meets the
 same data from the enforcement side: where the graph cannot see, there is
 less evidence to widen permissions on, and staying narrow — or
-escalating — is the honest default. These are requirements on the unbuilt
-milestone, not aspirations: a derivation that does not carry the
-complement is not done.
+escalating — is the honest default. These are requirements the built
+mapping now enforces in code, not aspirations: a change-spec refuses to
+serialize a context manifest without its stated complement, and a
+blind-spot-heavy unit gets a narrower sandbox and a human-first flag
+(§6). A derivation that does not carry the complement is not done.
 
 **Local, deliberately.** Hobbes runs on the box, against a repo on disk. It
-is not a hosted product, an application to log into, or an IDE plugin (§9).
+is not a hosted product, an application to log into, or an IDE plugin (§10).
 
 ---
 
@@ -380,7 +389,7 @@ Consequences, stated honestly because the plan claimed more:
   moniker-keyed nodes make a merge a graph union rather than a migration.
   With path-based ids that no longer follows: two repos can both hold
   `src/util`, and the merge would need a repo-scoping pass the current ids
-  do not have. Nothing is lost that was ever built — but §9's "monikers
+  do not have. Nothing is lost that was ever built — but §10's "monikers
   prepare it" is weaker than it reads, and this is the note that says so.
 
 ### 3.4 Graph builder
@@ -648,7 +657,71 @@ guarded_by: [test_token_boundary]
 
 ---
 
-## 6. Carried subsystems (v1, condensed)
+## 6. Derivation — the task mapping (D1)
+
+Built at D1 (ADR-051), designed in [`agent-mapping.md`](agent-mapping.md).
+`hobbes plan "<proposal>"` derives a **change-spec** — the plan phase's
+artifact and the unit of concept-level review — deterministically and
+without quota: same graph, same proposal, same flags, byte-identical
+output. It lives at `.hobbes/plans/<task-id>/change-spec.yaml` (an
+approved artifact, not a regenerable one, so not under `derived/`; the
+task id is a content hash of the proposal, ADR-026's keying discipline).
+
+The mapping, in pipeline order (`pipeline/src/hobbes/derive/`):
+
+- **Impact** — seeds resolve *lexically* (explicit `--seed`, plus exact
+  matches of proposal terms against node ids, path stems, and symbol
+  names; unmatched code-shaped terms are reported, never guessed —
+  C-36), then max-product expansion over the module-projected graph
+  with tier- and type-weighted decay and a per-hop damping term, both
+  directions. Distance always attenuates — the first dogfood run
+  measured what its absence does (one seed → the connected component).
+- **Partition** — node weight is representation cost (module + guarding
+  tests + module doc, estimated tokens); edge weight is coupling (tier
+  × type × reference count × co-change from bounded git history);
+  agglomerative merge under a per-unit budget. **Agent count is the
+  output, not a parameter** — a contained change is one unit, and the
+  one-agent case is the same code path with a partition of size one
+  (P6's no-second-code-path rule). Over-decomposed units merge into
+  their strongest neighbor; a module bigger than the budget is flagged
+  `oversize`, not split — the grain is the module (a stated D1 limit).
+- **Contracts** — every cut edge is pinned before implementation:
+  target, kind, declaration site, tier, in-scope invariants, and the
+  owning side (the definition side owns migration). A pin is a
+  declaration site, not a type signature (C-37, stated inline in every
+  entry). Contracts are the only interface between agents.
+- **Context manifests** — resolution decays with distance: interior at
+  full resolution, boundary as contracts, neighborhood one hop out as
+  signatures, nothing beyond. **The stated complement is mandatory and
+  enforced**: serialization refuses a manifest without it (ADR-047),
+  and it carries the unit-scoped capture rollup, each present tail
+  class with its register meaning, environment gaps, and degradations.
+- **Policy manifests** — evidence widens, gaps narrow: a read-only,
+  escalate-by-default floor; write mounts only over the unit's interior
+  and guarding tests; and the specific guarantees emitted first and
+  impossible to widen past — the generator names them and raises rather
+  than absorbing them (P10, ADR-036's lesson). A blind-spot-heavy unit
+  is **human-first**: no write mounts and a faster path to a human.
+- **The plan-review gate** — declared future edges (`--adds "a -> b"`)
+  are judged against the confirmed forbidden-import invariants before
+  any code exists; an importer the graph does not know is a module the
+  plan will create, and a scope cannot exclude it. Exit 1 on a
+  violation — invariant cost paid at planning time, not PR time. The
+  gate states what it checked and what it cannot check (never a false
+  pass).
+
+Every weight and threshold is pinned in ADR-051's table and **declared
+a guess** — partition quality is a number the flight recorder will
+measure, not a claim this section makes (C-35, printed on every run).
+What D1 deliberately does not build, parked with reasoning in
+`future_additions.md`: spawning the per-unit sessions the manifests
+describe, context-fault serving and logging, the recorder's partition
+record and loss fitting, the renegotiation flow, and a generative
+planner above the lexical seeds.
+
+---
+
+## 7. Carried subsystems (v1, condensed)
 
 - **Policy engine (Go, single implementation)** — box → repo → folder merge,
   deny-overrides-allow, `allow | deny | escalate`; used by CLI and daemon.
@@ -677,7 +750,7 @@ maintained middle.
 
 ---
 
-## 7. Build programme — status
+## 8. Build programme — status
 
 The file-level plan, exit criteria, estimates and the reasoning behind every
 deviation live in **[`hobbes-build-plan-v2.md`](hobbes-build-plan-v2.md)**;
@@ -705,13 +778,21 @@ The v2 extraction programme — **complete and fully reviewed as of
 | **V2.M6** — unified invariant checker | done, **reviewed 2026-08-15** | ADR-039: `check: graph|emit|soft`, tier-aware verdicts with the lane-A-only carve-out; lint-imports executed for the first time and found an emitter bug; soft verdicts source-based (C-18 lifted) |
 | **V2.M7** — Rust proof | done, **reviewed 2026-08-16** | ADR-040: rust-analyzer's native SCIP export + `rustsource`; zero builder/join/schema lines — P7 proven twice. Call sites inside macro token trees; the dup-moniker drop removed two false Go edges standing since V2.M5; I-4 turned red on cue and was amended |
 
+**The derivation programme (D)** — begun 2026-08-19, designed in
+[`agent-mapping.md`](agent-mapping.md):
+
+| Milestone | State | What it settled |
+|---|---|---|
+| **D1** — the plan derivation | built, **awaiting review** | ADR-051: `hobbes plan` — impact, partition, contracts, manifests with enforced complements, the plan-review gate; C-35..C-37 registered surfaced |
+| **D2** — execution | not started | spawning the per-unit sessions, context faults, the recorder's partition record; scope parked in `future_additions.md` |
+
 Sequencing rules carry from v1 unchanged: deterministic before generative,
 each milestone exits on a real repo, **one milestone active at a time**, and
 exits stop for human review rather than rolling on.
 
 ---
 
-## 8. Using this document in build sessions
+## 9. Using this document in build sessions
 
 Session context = this file + CLAUDE.md + the last two BUILDLOG entries.
 
@@ -734,7 +815,7 @@ session; tests with the code they test; conventional commits; never read
 and hand the wheel to the human — spot-checks and walkthroughs are theirs to
 run.
 
-## 9. Out of scope
+## 10. Out of scope
 
 Deliberately not built, and not deferred-with-intent unless said so:
 
