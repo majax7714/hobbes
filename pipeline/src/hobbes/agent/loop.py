@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -49,10 +50,38 @@ Use the tools to read code, change it, and run commands; do the task
 in the prompt and nothing else. Work in small verified steps: read
 before you edit, run the relevant tests after you edit. When the task
 is done, reply with a short plain-text summary of what you changed
-and what you could not verify, and stop calling tools.
+and what you could not verify, and stop calling tools. Call tools
+through the tool-calling interface, never by writing JSON in your
+message.
 """
 
 READ_ONLY_ROLES = {"reviewer", "verifier"}
+
+_FENCED = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```|<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+
+
+def text_tool_calls(content: str) -> list[dict]:
+    """Tool calls a model wrote *as text* — a fenced JSON object or a
+    ``<tool_call>`` block with ``name`` and ``arguments`` — in the
+    shape of structured ones. Small models do this; refusing them
+    would measure the chat template, not the model. The loop counts
+    how often it happened (``text_tool_calls`` in the envelope) so the
+    accommodation is visible in every record."""
+    out = []
+    for n, match in enumerate(_FENCED.finditer(content or "")):
+        raw = match.group(1) or match.group(2)
+        try:
+            doc = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(doc, dict) or not isinstance(doc.get("name"), str):
+            continue
+        args = doc.get("arguments", doc.get("parameters", {}))
+        if not isinstance(args, dict):
+            continue
+        out.append({"id": f"text_{n}", "type": "function",
+                    "function": {"name": doc["name"], "arguments": json.dumps(args)}})
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -265,7 +294,7 @@ def run(args: argparse.Namespace) -> dict:
     messages = [{"role": "system", "content": SYSTEM_PROMPT.format(workdir=workdir)},
                 {"role": "user", "content": prompt}]
     usage = {"input_tokens": 0, "output_tokens": 0}
-    turns, tool_calls_made, final, error = 0, 0, "", ""
+    turns, tool_calls_made, text_calls, final, error = 0, 0, 0, "", ""
     try:
         while turns < args.max_turns:
             turns += 1
@@ -275,6 +304,9 @@ def run(args: argparse.Namespace) -> dict:
             usage["output_tokens"] += int(u.get("completion_tokens") or 0)
             message = (reply.get("choices") or [{}])[0].get("message") or {}
             calls = message.get("tool_calls") or []
+            if not calls:
+                calls = text_tool_calls(message.get("content") or "")
+                text_calls += len(calls)
             messages.append({"role": "assistant", "content": message.get("content") or "",
                              **({"tool_calls": calls} if calls else {})})
             if not calls:
@@ -309,7 +341,8 @@ def run(args: argparse.Namespace) -> dict:
     return {
         "type": "result", "subtype": "success" if not error else "error",
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
-        "tool_calls": tool_calls_made, "result": final or error, "model": args.model,
+        "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
+        "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,
     }
 

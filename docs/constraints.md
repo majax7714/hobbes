@@ -918,6 +918,32 @@ information appears in both, and the entries cross-reference.
   endpoint host is in `future_additions.md`.
 - **Source:** ADR-056 (2026-08-21).
 
+### C-42 — A benchmark session runs under the solo floor, not the repo's intent
+- **Cannot tell you:** that a benchmark session's permissions match what
+  the repo owner would allow. A benchmark checkout is a committed-only
+  clone, so the repo policy and the role policies (untracked under
+  `.hobbes/`, ADR-012) never reach the session's worktree — only the
+  derived agent policy and the shipped **solo box policy**
+  (`bench/bench.box.policy`) apply. That box grants a lone implementer
+  the tests-and-commit it needs with no human to approve; it is the
+  *benchmark's* floor, not the target repo's intent.
+- **Because:** benchmarks run Hobbes alone (no plan-review, no
+  escalation approver — ADR-054's direction), and without this a
+  needed `pytest`/`git commit` escalates and expire-denies after 30
+  minutes of dead time, starving the arm under test (the ADR-057
+  finding). The specific guarantees still win by deny-overrides
+  (`*.tfstate*`, `git push*`, `git add *.hobbes/derived*`), and the OS
+  sandbox is unchanged — the real boundary is the mounts and the
+  network (C-41), not this file.
+- **Bites at:** reading a benchmark session's allowed commands as if
+  they were the repo owner's policy; they are not, and a real
+  deployment of the execution path (not the benchmark) would load the
+  repo and role policies instead.
+- **You find out:** **surfaced** — `run.json` records the box and the
+  escalation timeout; `hobbes-session --dry-run` prints the box path;
+  the policy file is committed and commented with exactly this scope.
+- **Source:** ADR-057 (2026-08-21).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

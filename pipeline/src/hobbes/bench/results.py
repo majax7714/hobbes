@@ -23,7 +23,7 @@ from pathlib import Path
 
 from hobbes.bench.accounting import Usage
 from hobbes.bench.arms import ArmResult
-from hobbes.bench.instances import DEPTH_BUCKETS, Instance
+from hobbes.bench.instances import COMPLEX_BANDS, DEPTH_BUCKETS, DIFFICULTY_BANDS, Instance
 
 RECORDS = "records.jsonl"
 
@@ -135,12 +135,18 @@ def report(records: list[Record]) -> dict:
         h1[model]["gap_closed_vs"] = best_pure
         h1[model]["gap_closed"] = gap
 
+    # H2's axis: the rated bands when the records carry them, else the proxy.
+    rated = any(r.depth_bucket in DIFFICULTY_BANDS for r in records)
+    names = list(DIFFICULTY_BANDS) if rated else [n for n, _, _ in DEPTH_BUCKETS]
     h2 = {}
     for (arm, model), rs in sorted(groups.items()):
-        buckets = {name: _rate([r for r in rs if r.depth_bucket == name]) for name, _, _ in DEPTH_BUCKETS}
-        first, last = buckets[DEPTH_BUCKETS[0][0]]["rate"], buckets[DEPTH_BUCKETS[-1][0]]["rate"]
-        h2[f"{arm}/{model}"] = {"buckets": buckets,
-                                "slope": round(last - first, 4) if first is not None and last is not None else None}
+        buckets = {name: _rate([r for r in rs if r.depth_bucket == name]) for name in names}
+        present = [buckets[n]["rate"] for n in names if buckets[n]["rate"] is not None]
+        h2[f"{arm}/{model}"] = {
+            "buckets": buckets,
+            "slope": round(present[-1] - present[0], 4) if len(present) >= 2 else None,
+            "complex": _rate([r for r in rs if r.depth_bucket in COMPLEX_BANDS]) if rated else None,
+        }
 
     h3 = {f"{arm}/{model}": _per_solved(rs) for (arm, model), rs in sorted(groups.items())}
 
@@ -155,7 +161,8 @@ def report(records: list[Record]) -> dict:
         "H1": h1, "H2": h2, "H3": h3, "outcomes": outcomes,
         "notes": [
             "rates are over judged records only; unjudged records are counted, not rated",
-            "depth is the gold-patch file count — a proxy (H2)",
+            "depth is the rated difficulty band where the dataset has one, else the gold-patch file count — a proxy (H2)",
+            "the owner's bar (H1, rung form): harnessed rung N ≈ pure rung N+1 on the complex multi-step set",
             "H3 means are per solved instance over records whose term was observed; "
             "unobserved counts are stated, never imputed",
             "contamination is bounded by the selection's cutoff, not proven (C-39)",
@@ -180,11 +187,17 @@ def format_report(doc: dict) -> str:
         lines.append(f"  {model} | {_pct(p['rate'])} ({p['solved']}/{p['judged']}) | "
                      f"{_pct(h['rate'])} ({h['solved']}/{h['judged']}) | {delta} | {gap}")
     lines.append("")
-    lines.append("H2 — solve rate by depth (gold-patch files, a proxy); slope = last bucket − first")
+    rated = any(row.get("complex") is not None for row in doc["H2"].values())
+    lines.append("H2 — solve rate by depth (" + ("rated difficulty" if rated else "gold-patch files, a proxy")
+                 + "); slope = deepest bucket − shallowest")
     for key, row in doc["H2"].items():
         cells = ", ".join(f"{b} {_pct(v['rate'])} ({v['solved']}/{v['judged']})" for b, v in row["buckets"].items())
         slope = "—" if row["slope"] is None else f"{100 * row['slope']:+.1f} pts"
-        lines.append(f"  {key}: {cells}; slope {slope}")
+        extra = ""
+        if row.get("complex"):
+            c = row["complex"]
+            extra = f"; complex multi-step {_pct(c['rate'])} ({c['solved']}/{c['judged']})"
+        lines.append(f"  {key}: {cells}; slope {slope}{extra}")
     lines.append("")
     lines.append("H3 — per solved instance (means over observed terms)")
     for key, row in doc["H3"].items():

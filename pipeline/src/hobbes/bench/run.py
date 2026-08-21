@@ -108,7 +108,8 @@ def run(
     return results.load(run_dir)
 
 
-def evaluate(run_dir: Path, dataset: str, max_workers: int = 1, timeout: float | None = None, log=print) -> list[results.Record]:
+def evaluate(run_dir: Path, dataset: str, max_workers: int = 1, timeout: float | None = None,
+             modal: bool = False, log=print) -> list[results.Record]:
     """Judge every unjudged record through the benchmark's evaluator,
     one call per (arm, model), and write verdicts back."""
     run_dir = Path(run_dir)
@@ -130,7 +131,8 @@ def evaluate(run_dir: Path, dataset: str, max_workers: int = 1, timeout: float |
         log(f"evaluating {len(rows)} {arm}/{model or 'default'} patches ({name}) …")
         try:
             verdicts = verdict.evaluate(dataset, preds, run_id, name, [r.instance_id for r in rs],
-                                        cwd=run_dir / "eval", max_workers=max_workers, timeout=timeout)
+                                        cwd=run_dir / "eval", max_workers=max_workers, timeout=timeout,
+                                        modal=modal)
         except verdict.VerdictError as exc:
             log(f"  evaluator failed: {exc}")
             continue

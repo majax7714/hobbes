@@ -422,3 +422,85 @@ class TestCLI:
         path = tmp_path / "i.jsonl"
         path.write_text(json.dumps(row()) + "\n")
         assert cli.main(["bench", "run", str(path), "--cutoff", "2030-01-01", "--out", str(tmp_path / "o")]) == 2
+
+
+class TestDifficulty:
+    def test_rated_band_is_the_depth_axis_and_complex_is_the_upper_two(self):
+        hard = instances.parse_instance(row("h", difficulty="1-4 hours"))
+        easy = instances.parse_instance(row("e", difficulty="<15 min fix"))
+        unrated = instances.parse_instance(row("u"))
+        assert hard.depth_bucket == "1-4 hours" and hard.complex
+        assert easy.depth_bucket == "<15 min fix" and not easy.complex
+        assert unrated.depth_bucket == "2-3 files" and not unrated.complex
+        sel = instances.select([hard, easy, unrated], difficulty=["complex"])
+        assert [i.instance_id for i in sel.selected] == ["h"] and sel.dropped == {"difficulty": 2}
+        text = instances.format_selection(sel)
+        assert "depth (rated difficulty)" in text and "complex multi-step (1-4 hours, >4 hours): 1" in text
+
+    def test_report_buckets_by_band_and_states_the_complex_rate(self):
+        def rec(iid, arm, band, v):
+            r = _rec(iid, arm, "m", v)
+            r.depth_bucket = band
+            return r
+        recs = [rec("a", "pure", "<15 min fix", "resolved"), rec("b", "pure", "1-4 hours", "unresolved"),
+                rec("c", "pure", ">4 hours", "unresolved"), rec("d", "harness", "1-4 hours", "resolved")]
+        doc = results.report(recs)
+        assert doc["H2"]["pure/m"]["slope"] == -1.0
+        assert doc["H2"]["pure/m"]["complex"] == {"n": 2, "judged": 2, "solved": 0, "rate": 0.0}
+        assert doc["H2"]["harness/m"]["complex"]["rate"] == 1.0
+        text = results.format_report(doc)
+        assert "rated difficulty" in text and "complex multi-step 100.0% (1/1)" in text
+
+
+class TestSecretsAndModalEval:
+    def test_secrets_map_known_names_and_refuse_unknown(self, tmp_path):
+        from hobbes.bench import secrets
+        f = tmp_path / "s.txt"
+        f.write_text("daytona_key=d1\nmodal_key_id=m1\nmodal_key_secret=m2\nllm_key=l1\n")
+        env = {"MODAL_TOKEN_ID": "already"}
+        assert secrets.export(f, env) == ["DAYTONA_API_KEY", "MODAL_TOKEN_SECRET", "HOBBES_LLM_API_KEY"]
+        assert env["MODAL_TOKEN_ID"] == "already" and env["HOBBES_LLM_API_KEY"] == "l1"
+        f.write_text("aws_key=x\n")
+        with pytest.raises(secrets.SecretsError, match="unknown key"):
+            secrets.read(f)
+        f.write_text("llm_key=\n")
+        with pytest.raises(secrets.SecretsError, match="empty"):
+            secrets.read(f)
+
+    def test_modal_evaluator_command(self, monkeypatch, tmp_path):
+        monkeypatch.delenv(verdict.CMD_ENV, raising=False)
+        cmd = verdict.evaluator_command("ds", tmp_path / "p.json", "r", ["a"], modal=True)
+        assert f"swebench[modal]=={verdict.SWEBENCH_VERSION}" in cmd and "--modal" in cmd
+        assert "--modal" not in verdict.evaluator_command("ds", tmp_path / "p.json", "r", ["a"])
+
+
+class TestSoloPolicy:
+    def test_bench_box_grants_tests_and_commit_and_keeps_guarantees(self):
+        """The shipped policy resolves the way the solo path needs (ADR-057)."""
+        import shutil
+        import subprocess as sp
+        from hobbes.bench.arms import BENCH_BOX
+        binary = shutil.which("hobbes-policy") or "../go/bin/hobbes-policy"
+        if not shutil.which(binary) and not __import__("os").path.exists(binary):
+            import pytest as _pt
+            _pt.skip("hobbes-policy not built")
+        def decide(cmd):
+            out = sp.run([binary, "resolve", "--box", str(BENCH_BOX), cmd],
+                         capture_output=True, text=True)
+            return json.loads(out.stdout)["decision"]
+        assert decide("pytest test_x.py") == "allow"
+        assert decide("git add a && git commit -m y") == "allow"
+        assert decide("pip install -e .") == "allow"
+        assert decide("git push origin main") == "deny"
+        assert decide("cat prod.tfstate") == "deny"
+        assert decide("curl http://evil") == "escalate"
+
+    def test_solo_session_args_default_and_override(self):
+        from hobbes.bench.arms import BENCH_BOX, BENCH_ESCALATION, solo_session_args
+        args = solo_session_args(["--model", "m"])
+        assert "--box" in args and str(BENCH_BOX) in args
+        assert "--escalation-timeout" in args and BENCH_ESCALATION in args
+        # a caller's own --box wins; no second one is added
+        override = solo_session_args(["--box", "/my/policy", "--escalation-timeout", "1m"])
+        assert override.count("--box") == 1 and "/my/policy" in override
+        assert "5s" not in override

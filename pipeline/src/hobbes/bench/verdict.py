@@ -59,28 +59,33 @@ def write_predictions(path: Path, rows: list[dict]) -> Path:
 
 
 def evaluator_command(dataset: str, predictions: Path, run_id: str, instance_ids: list[str],
-                      max_workers: int = 1) -> list[str]:
+                      max_workers: int = 1, modal: bool = False) -> list[str]:
     """The subprocess argv. The prefix defaults to a pinned, isolated
-    ``swebench`` via uv; ``HOBBES_SWEBENCH_CMD`` replaces it."""
+    ``swebench`` via uv; ``HOBBES_SWEBENCH_CMD`` replaces it. With
+    *modal*, the evaluator builds and runs the instance images on Modal
+    (its own ``--modal`` mode; ``MODAL_TOKEN_ID``/``_SECRET`` must be in
+    the environment) instead of a local Docker-API engine."""
     prefix = os.environ.get(CMD_ENV)
     head = shlex.split(prefix) if prefix else [
-        "uv", "run", "--no-project", "--with", f"swebench=={SWEBENCH_VERSION}",
+        "uv", "run", "--no-project", "--with", f"swebench[modal]=={SWEBENCH_VERSION}" if modal
+        else f"swebench=={SWEBENCH_VERSION}",
         "python", "-m", "swebench.harness.run_evaluation",
     ]
     return head + [
         "--dataset_name", dataset, "--predictions_path", str(predictions),
         "--max_workers", str(max_workers), "--run_id", run_id,
+        *(["--modal", "true"] if modal else []),
         "--instance_ids", *instance_ids,
     ]
 
 
 def evaluate(dataset: str, predictions: Path, run_id: str, name: str, instance_ids: list[str],
-             cwd: Path, max_workers: int = 1, timeout: float | None = None) -> dict[str, str]:
+             cwd: Path, max_workers: int = 1, timeout: float | None = None, modal: bool = False) -> dict[str, str]:
     """Run the evaluator; return ``instance_id -> verdict`` for every id
     asked about (``unjudged`` when the report does not mention one)."""
     cwd = Path(cwd)
     cwd.mkdir(parents=True, exist_ok=True)
-    cmd = evaluator_command(dataset, predictions, run_id, instance_ids, max_workers)
+    cmd = evaluator_command(dataset, predictions, run_id, instance_ids, max_workers, modal=modal)
     try:
         proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:

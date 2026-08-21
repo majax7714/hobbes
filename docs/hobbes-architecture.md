@@ -852,10 +852,20 @@ stdio fake proxy for the owned loop, the ADR-054 stand-in session —
 the harness arm through a real ingest and plan — and a fake evaluator).
 The owner's course (2026-08-21) is small open models served from his
 own compute: Modal for serving and the evaluator, Daytona for
-sandboxes. A live session then needs a route to the model endpoint,
-which is the one thing the sandbox's enforcement story said was absent
-— **C-41** states it (egress present, the endpoint token the one secret
-a session carries, narrowing owed).
+sandboxes (ADR-057). The ladder's 7B rung is deployed and one instance
+has run live, both arms — which surfaced two things now handled. A live
+session needs a route to the model endpoint, the one thing the
+sandbox's enforcement story said was absent — **C-41** (egress present,
+the endpoint token the one secret a session carries). And a benchmark
+checkout is a committed-only clone, so the repo and role policies never
+reach it and a solo agent's `pytest`/`git commit` would escalate with
+no approver; the **solo box policy** (`bench/bench.box.policy`, passed
+via `--box` with a short `--escalation-timeout`) grants those inside
+the sealed sandbox while the guarantees stay denied — **C-42**. The
+focus benchmark is SWE-bench Verified on the Qwen2.5-Coder 7B→32B
+ladder, the bar being harnessed-N ≈ pure-(N+1) on the rated complex
+multi-step set; the first full run is the next session's
+(`docs/bench-run-handoff.md`).
 
 ---
 

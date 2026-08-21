@@ -3366,3 +3366,56 @@ the script entrypoint, the pure arm on the loop) / Go +2. 762 pytest /
 Go green; `hobbes-session` rebuilt. No endpoint exists yet, so nothing
 live ran; step 2 is next — a vLLM app on Modal (first rung
 Qwen2.5-Coder-7B-Instruct) and the evaluator on Modal.
+
+## 2026-08-21 (thirty-second) — small-model ladder, live, and the solo policy (ADR-057)
+
+Max: run the focus benchmark on small open models on his own compute
+(no paid APIs), which also sharpens H1 — the 7B rung has no published
+Verified score and is discouraged for multi-step work. Bar set in rung
+form: harnessed rung N ≈ pure rung N+1 on the complex multi-step set
+(Hobbes-7B vs pure-32B, then 32B vs the next), measured on Verified's
+own `difficulty` label.
+
+**Built and deployed.** Steps 2 of ADR-056's plan: `scripts/modal_vllm.py`
+(one vLLM OpenAI app per rung, pinned table, scale-to-zero; 7B on A10G
+live, 32B on A100 pinned; vLLM 0.10.1.1 + transformers<5 — 5.x broke
+the tokenizer, found on the first cold start). `hobbes bench
+--difficulty complex` (Verified's rated bands are the depth axis; the
+45 `1-4 hours`/`>4 hours` instances are the focus set), `--eval-modal`
+(swebench on Modal), `--secrets FILE` (the owner's key file → env,
+unknown names refused, values never printed). Keys verified usable
+first (Daytona 200, Modal profile resolves); `secrets.txt` gitignored
+and untracked throughout.
+
+**First live instance** (`psf__requests-1142`, 7B, both arms, real
+podman sandbox over pasta). Pure arm completed empty-patch (4 tool
+calls, all text-embedded — the loop now parses and counts fenced-JSON
+tool calls, `text_tool_calls`; one edit missed, then a prose plan).
+**Harness arm stalled** and I stopped it: a benchmark checkout is a
+committed-only clone, so the repo/role policies (untracked under
+`.hobbes/`) never reach the session — only the agent policy (default
+escalate) and the box floor. With no human approver, `pytest
+test_requests.py` and `git add && git commit` escalated and
+expire-denied after 30 min each, so the arm could never commit. Run
+killed rather than left to finish a meaningless empty patch.
+
+**Fix — the solo policy (the real deliverable of this session).**
+`src/hobbes/bench/bench.box.policy`, passed automatically via
+`hobbes-session --box` with `--escalation-timeout 5s` (both overridable
+by `--session-arg`): allows a lone implementer the test runners,
+`pip install`, and `git add`/`commit` (compound forms included) while
+the guarantees stay denied and win by deny-overrides (tfstate, push,
+derived-add); unlisted still escalates, now fast. The OS sandbox is
+unchanged and remains the boundary. Added `hobbes-session
+--escalation-timeout`. Register: **C-42** (a benchmark session runs
+under the solo floor, not the repo's intent — surfaced in run.json and
+the dry run). C-41 is its egress twin.
+
+**Handoff written** for a fresh session: `docs/bench-run-handoff.md` —
+the endpoint, the exact run command for the complex set, how to watch
+it, what is already known (the finding, text-tool-calls, C-36 on real
+prose, cost), and where results go. Context this session got large
+after the debugging, so the first full run is deliberately handed off.
+
+769 pytest (+7 across bench/loop) / Go green. 7B endpoint live;
+nothing else run — the complex-set run is the next session's.

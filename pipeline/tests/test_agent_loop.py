@@ -179,6 +179,22 @@ class TestNativeLoop:
         env = accounting.find_envelope(proc.stdout)
         assert env and env["result"] == "hello" and env["runtime"] == "hobbes-agent-loop"
 
+    def test_text_embedded_tool_calls_are_executed_and_counted(self, tree):
+        """A small model that writes the call as a fenced JSON block (seen
+        live on Qwen2.5-Coder-7B, ADR-057) still gets its tool run."""
+        model = ScriptedModel([
+            'I will read it:\n```json\n{"name": "read_file", "arguments": {"path": "README"}}\n```',
+            '<tool_call>\n{"name": "edit_file", "arguments": {"path": "README", "old_text": "hi", "new_text": "yo"}}\n</tool_call>',
+            "```json\n{\"not\": \"a call\"}\n```\ndone",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert env["tool_calls"] == 2 and env["text_tool_calls"] == 2 and env["num_turns"] == 3
+        assert (tree / "README").read_text() == "yo\n"
+        assert env["result"].endswith("done")
+
     def test_stdlib_only(self):
         """The sandbox image has python3 and nothing else; the loop must
         import nothing outside the standard library."""

@@ -35,6 +35,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/hobbes"]
 
+# The benchmark session policy is data beside the code that reads it
+# (ADR-057); keep it in the wheel.
+[tool.hatch.build.targets.wheel.force-include]
+"src/hobbes/bench/bench.box.policy" = "hobbes/bench/bench.box.policy"
+
 [tool.pytest.ini_options]
 markers = ["lane_b: exercises lane B, which shells out to a SCIP indexer"]
 testpaths = ["tests"]

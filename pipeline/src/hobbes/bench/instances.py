@@ -14,10 +14,13 @@ is bound the set by ``created_at`` against a stated cutoff and record
 every drop by reason, so the selection is reproducible and the claim
 it licenses is scoped (P11).
 
-**Depth** is H2's axis. The benchmark carries no depth label, so the
-harness uses a proxy: the number of files the *gold* patch touches.
-It is declared a proxy in every report; a reader who wants edit spread
-measured differently changes one function.
+**Depth** is H2's axis. SWE-bench Verified carries a human-rated
+``difficulty`` per instance (``<15 min fix``, ``15 min - 1 hour``,
+``1-4 hours``, ``>4 hours``) — that is the axis when present, and the
+two upper bands are the **complex multi-step** set the owner's bar is
+set on (benchmark-hypotheses.md, H1's rung form). Datasets without it
+fall back to a proxy: the number of files the *gold* patch touches,
+declared a proxy in every report.
 """
 
 from __future__ import annotations
@@ -30,8 +33,14 @@ from pathlib import Path
 #: The fields an instance must carry to run at all.
 REQUIRED = ("instance_id", "repo", "base_commit", "problem_statement")
 
-#: H2's depth buckets over the gold-patch file count — a proxy, stated.
+#: H2's depth buckets over the gold-patch file count — the proxy, used
+#: when the dataset rates no difficulty.
 DEPTH_BUCKETS = (("1 file", 1, 1), ("2-3 files", 2, 3), ("4+ files", 4, None))
+
+#: Verified's human-rated difficulty bands, in order; the last two are
+#: the complex multi-step set.
+DIFFICULTY_BANDS = ("<15 min fix", "15 min - 1 hour", "1-4 hours", ">4 hours")
+COMPLEX_BANDS = DIFFICULTY_BANDS[2:]
 
 _DIFF_HEADER = re.compile(r"^diff --git a/(\S+) b/(\S+)$", re.MULTILINE)
 
@@ -55,6 +64,7 @@ class Instance:
     fail_to_pass: list[str] = field(default_factory=list)
     pass_to_pass: list[str] = field(default_factory=list)
     hints_text: str = ""
+    difficulty: str = ""
 
     @property
     def gold_files(self) -> list[str]:
@@ -67,7 +77,14 @@ class Instance:
 
     @property
     def depth_bucket(self) -> str:
-        return depth_bucket(self.depth)
+        """The rated difficulty band when the dataset has one, else the
+        gold-patch proxy."""
+        return self.difficulty if self.difficulty in DIFFICULTY_BANDS else depth_bucket(self.depth)
+
+    @property
+    def complex(self) -> bool:
+        """In the complex multi-step set (rated ``1-4 hours`` or ``>4 hours``)."""
+        return self.difficulty in COMPLEX_BANDS
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -115,6 +132,7 @@ def parse_instance(row: dict) -> Instance:
         fail_to_pass=_as_list(row.get("FAIL_TO_PASS")),
         pass_to_pass=_as_list(row.get("PASS_TO_PASS")),
         hints_text=row.get("hints_text") or "",
+        difficulty=str(row.get("difficulty") or ""),
     )
 
 
@@ -153,6 +171,7 @@ class Selection:
     selected: list[Instance]
     dropped: dict[str, int]
     created_range: tuple[str, str] | None
+    difficulty: list[str] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -161,6 +180,7 @@ class Selection:
             "repos": self.repos,
             "ids": self.ids,
             "limit": self.limit,
+            "difficulty": self.difficulty,
             "selected": [i.instance_id for i in self.selected],
             "dropped": self.dropped,
             "created_range": list(self.created_range) if self.created_range else None,
@@ -168,7 +188,8 @@ class Selection:
                 "bounded by created_at against the stated cutoff, not proven: "
                 "an instance may still be in a model's training data (C-39)"
             ),
-            "depth": "gold-patch file count — a proxy for task depth (H2), declared",
+            "depth": ("rated difficulty band where the dataset carries one (Verified), "
+                      "else gold-patch file count — a proxy, declared"),
         }
 
 
@@ -179,21 +200,30 @@ def select(
     repos: list[str] | None = None,
     ids: list[str] | None = None,
     limit: int | None = None,
+    difficulty: list[str] | None = None,
 ) -> Selection:
     """Apply the protocol. *cutoff* is an ISO date; instances created on
     or before it are dropped (``created_at`` missing counts as a drop
     too — an undated instance cannot be placed against a cutoff).
-    Order is the dataset's, so a limit is a prefix, not a sample."""
-    dropped = {"before_cutoff": 0, "undated": 0, "repo": 0, "id": 0, "limit": 0}
+    *difficulty* keeps only the named bands (``complex`` expands to the
+    two upper ones). Order is the dataset's, so a limit is a prefix,
+    not a sample."""
+    dropped = {"before_cutoff": 0, "undated": 0, "repo": 0, "id": 0, "difficulty": 0, "limit": 0}
     kept: list[Instance] = []
     repos = repos or []
     ids = ids or []
+    bands: list[str] = []
+    for band in difficulty or []:
+        bands += list(COMPLEX_BANDS) if band == "complex" else [band]
     for inst in instances:
         if ids and inst.instance_id not in ids:
             dropped["id"] += 1
             continue
         if repos and inst.repo not in repos:
             dropped["repo"] += 1
+            continue
+        if bands and inst.difficulty not in bands:
+            dropped["difficulty"] += 1
             continue
         if cutoff:
             if not inst.created_at:
@@ -211,6 +241,7 @@ def select(
         source=source, cutoff=cutoff, repos=repos, ids=ids, limit=limit,
         selected=kept, dropped={k: v for k, v in dropped.items() if v},
         created_range=(dates[0], dates[-1]) if dates else None,
+        difficulty=bands or None,
     )
 
 
@@ -228,6 +259,11 @@ def format_selection(sel: Selection) -> str:
     for inst in sel.selected:
         buckets[inst.depth_bucket] = buckets.get(inst.depth_bucket, 0) + 1
     if buckets:
-        lines.append("  depth (gold-patch files, a proxy): "
-                     + ", ".join(f"{b} {n}" for b, n in sorted(buckets.items())))
+        rated = any(i.difficulty in DIFFICULTY_BANDS for i in sel.selected)
+        label = "depth (rated difficulty)" if rated else "depth (gold-patch files, a proxy)"
+        order = {b: n for n, b in enumerate(DIFFICULTY_BANDS)}
+        lines.append(f"  {label}: " + ", ".join(
+            f"{b} {n}" for b, n in sorted(buckets.items(), key=lambda kv: (order.get(kv[0], 99), kv[0]))))
+        if rated:
+            lines.append(f"  complex multi-step (1-4 hours, >4 hours): {sum(1 for i in sel.selected if i.complex)}")
     return "\n".join(lines)

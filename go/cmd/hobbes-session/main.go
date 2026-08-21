@@ -50,6 +50,9 @@ flags:
                    $HOBBES_LLM_API_KEY on the host, if set, reaches the
                    session as the endpoint's bearer token (C-41)
   --llm-base-url U OpenAI-compatible API root the runtime talks to
+  --escalation-timeout D  how long an escalated command parks before it
+                   expires to deny (e.g. 5s); 0 = proxy default (30m). A
+                   solo/benchmark run wants this short — no human approves
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
   --image IMG      session image (default hobbes-session:local)
@@ -91,6 +94,7 @@ type options struct {
 	repo, role, task, session, ref string
 	agentDir, model                string
 	runtime, llmBaseURL            string
+	escalation                     time.Duration
 	image, network, box            string
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
@@ -219,6 +223,7 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		Runtime:      runtimePath(opt.runtime, opt.session),
 		LLMBaseURL:   opt.llmBaseURL,
 		LLMKey:       os.Getenv("HOBBES_LLM_API_KEY"),
+		Escalation:   opt.escalation,
 		Network:      opt.network,
 		HostWorktree: worktree,
 		HostSessions: opt.sessions,
@@ -377,6 +382,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.model, "model", "", "")
 	fs.StringVar(&opt.runtime, "runtime", "", "")
 	fs.StringVar(&opt.llmBaseURL, "llm-base-url", "", "")
+	fs.DurationVar(&opt.escalation, "escalation-timeout", 0, "")
 	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")

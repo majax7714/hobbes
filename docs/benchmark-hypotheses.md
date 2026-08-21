@@ -39,6 +39,39 @@ Why benchmarks rather than more dogfooding:
   register entry, and a repo shape that breaks extraction extends
   `extraction-evidence.md`.
 
+## The focus benchmark and the bar (Max, 2026-08-21 — preregistered)
+
+**SWE-bench Verified is the focus benchmark**, run on a ladder of
+small open models served from the owner's compute (ADR-056/057) —
+Qwen2.5-Coder **7B → 32B**, then the family's next rung above 32B
+(pinned when taken). Why this ladder and this set: the 7B rung has
+**no published Verified score** and is generally discouraged for
+multi-step agentic work — exactly the regime derived context is meant
+to help — and Verified carries a human-rated `difficulty` per
+instance, so "complex multi-step" is the dataset's own label
+(`1-4 hours` 42, `>4 hours` 3 of 500), not our proxy.
+
+**The bar, in rung form (H1′):** *harnessed rung N performs comparably
+to pure rung N+1 on the complex multi-step set* — Hobbes-on-7B ≈
+pure-32B, Hobbes-on-32B ≈ pure-next. "Comparably" is stated before the
+run: the harnessed N solve rate on the complex set is within the
+binomial 95% interval of pure N+1's on the same instances — at 45
+instances that interval is wide, and the report prints the counts so
+the width is visible, never hidden in a percentage.
+
+- **Falsified if** harnessed 7B does not close a meaningful fraction
+  of the 7B→32B gap on the complex set, or closes it only on instances
+  pure 7B already solves.
+- **Known biases, both against the harness:** Verified is entirely
+  pre-cutoff for these models (C-39 — contamination helps the pure arm
+  more: a memorised answer needs no context); and the harness arm's
+  lexical seeding (C-36) fails closed, so a `no-seed` instance counts
+  as a harness loss.
+- **Cost shape:** the complex set is 45 instances × 2 arms per rung;
+  the 7B rung fits the free Modal credit comfortably, the 32B rung
+  (A100-80GB) is the first thing that may not — the run records
+  GPU-seconds per arm so the H3 cost row is real, not estimated.
+
 ## The hypotheses
 
 Each is stated with the metric that decides it and what failure looks
@@ -124,11 +157,11 @@ cannot bend them:
 - **H3 is per solved instance over observed terms.** A session that
   emitted no usage envelope is recorded unobserved and the row says how
   many; a zero is never shown for a number nobody saw.
-- **Depth is a proxy** — the gold patch's file count, bucketed
-  1 / 2–3 / 4+ — and every report says so. On SWE-bench Verified the
-  buckets hold 429 / 61 / 10 of 500, so H2's slope there would rest on
-  ten instances at the deep end; a set with more spread is preferable
-  and the choice is recorded with the results.
+- **Depth is the rated band where the dataset has one** (Verified's
+  `difficulty`: `<15 min fix` 194, `15 min - 1 hour` 261, `1-4 hours`
+  42, `>4 hours` 3), else the gold-patch file-count proxy, and every
+  report says which. `hobbes bench select --difficulty complex` is the
+  45-instance focus set.
 
 ## What has to be true before a run — the current gaps
 

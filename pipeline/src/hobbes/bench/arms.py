@@ -42,6 +42,17 @@ from hobbes.narrate.runner import CLAUDE_BIN_ENV
 #: The owned agent loop (ADR-056): one stdlib-only file, run by the host
 #: python for the pure arm and copied into the sandbox for the harness arm.
 LOOP_PATH = Path(__file__).resolve().parent.parent / "agent" / "loop.py"
+
+#: The solo/benchmark session floor (ADR-057): a benchmark checkout is a
+#: committed-only clone, so the repo and role policies never reach the
+#: session, and there is no human to approve escalations. This box policy
+#: grants a solo implementer the tests-and-commit it needs while the
+#: specific guarantees stay denied — passed to ``hobbes-session --box``.
+BENCH_BOX = Path(__file__).resolve().parent / "bench.box.policy"
+
+#: How long an escalated command parks before expire-to-deny on the solo
+#: path. Short by design: no human approves, so parking is dead time.
+BENCH_ESCALATION = "5s"
 RUNTIMES = ("claude", "openai")
 
 
@@ -220,7 +231,7 @@ def run_harness_arm(
         "human_first": [c.unit for c in spec.contexts if c.human_first],
         "gate": spec.gate.result,
     }
-    session_args = list(extra_session_args or []) + runtime.session_args()
+    session_args = solo_session_args(extra_session_args) + runtime.session_args()
     if model:
         session_args += ["--model", model]
     try:
@@ -251,6 +262,19 @@ def run_harness_arm(
     branch = record.get("integration", {}).get("branch")
     patch = candidate_patch(workspace, instance.base_commit, ref=branch) if branch and _ref_exists(workspace, branch) else ""
     return ArmResult("harness", model, _classify_patch(patch), patch=patch, usage=usage, detail=detail)
+
+
+def solo_session_args(extra: list[str] | None) -> list[str]:
+    """The benchmark session's floor and escalation backstop, unless the
+    caller already set them (a --session-arg wins, so a run can override
+    the policy or the timeout deliberately)."""
+    args = list(extra or [])
+    joined = " ".join(args)
+    if "--box" not in joined:
+        args += ["--box", str(BENCH_BOX)]
+    if "--escalation-timeout" not in joined:
+        args += ["--escalation-timeout", BENCH_ESCALATION]
+    return args
 
 
 def _ref_exists(repo: Path, ref: str) -> bool:

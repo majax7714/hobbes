@@ -263,6 +263,23 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
+**2026-08-21 (small-model ladder live + the solo policy, ADR-057):**
+Focus benchmark set: **SWE-bench Verified, complex multi-step set** (45
+instances rated 1-4h/>4h via Verified's own `difficulty`), on the
+**Qwen2.5-Coder 7B→32B** ladder served from Max's Modal (no paid APIs).
+Bar: harnessed rung N ≈ pure rung N+1 (7B-harness vs 32B-pure). Built:
+`scripts/modal_vllm.py` (vLLM per rung; **7B live**, vLLM 0.10.1.1 +
+transformers<5), `hobbes bench --difficulty complex --eval-modal
+--secrets`. **First live instance surfaced the blocker Max predicted:**
+a benchmark checkout is a committed-only clone, so repo/role policies
+never reach the session — `pytest`/`git commit` escalated and
+expire-denied at 30 min with no approver. **Fixed** with the **solo box
+policy** (`bench/bench.box.policy`, auto-passed via `--box` +
+`--escalation-timeout 5s`): allows a lone implementer tests+commit,
+guarantees stay denied by deny-overrides, sandbox unchanged. C-42
+registered. **The first full complex-set run is handed off to a fresh
+session — see `docs/bench-run-handoff.md`.** 769 pytest / Go green.
+
 **2026-08-21 (the owned agent runtime, ADR-056 — step 1 of 3):** Max
 redirected the ladder to small open models on his own compute (Modal
 serving + evaluator, Daytona sandboxes, Kaggle spare; no paid APIs).

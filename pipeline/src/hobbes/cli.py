@@ -745,6 +745,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     selection = inst.select(
         loaded, source=str(args.instances), cutoff=args.cutoff,
         repos=args.repo or [], ids=args.id or [], limit=args.limit,
+        difficulty=args.difficulty or [],
     )
     if args.bench_command == "select":
         if args.json:
@@ -752,10 +753,19 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         else:
             print(inst.format_selection(selection))
             for i in selection.selected:
-                print(f"  {i.instance_id}  {i.created_at[:10] or 'undated':10}  depth {i.depth}")
+                print(f"  {i.instance_id}  {i.created_at[:10] or 'undated':10}  {i.depth_bucket}")
         return 0
 
+    from hobbes.bench import secrets
     from hobbes.bench.arms import Runtime
+
+    if args.secrets:
+        try:
+            names = secrets.export(Path(args.secrets))
+        except secrets.SecretsError as exc:
+            print(f"hobbes bench run: {exc}", file=sys.stderr)
+            return 2
+        print(f"secrets: exported {', '.join(names) if names else 'nothing new'} from {args.secrets}")
 
     which = ["pure", "harness"] if args.arm == "both" else [args.arm]
     models = args.model or [""]
@@ -783,7 +793,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     if args.evaluate:
         dataset = args.dataset or str(args.instances)
         before = sum(1 for r in records if r.solved is None)
-        records = bench_run.evaluate(run_dir, dataset, max_workers=args.workers)
+        records = bench_run.evaluate(run_dir, dataset, max_workers=args.workers, modal=args.eval_modal)
         failed = sum(1 for r in records if r.solved is None) == before and before > 0
     print()
     print(results.format_report(results.report(records)))
@@ -1201,6 +1211,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--cutoff", help="drop instances created on or before this ISO date (contamination bound, C-39)")
         p.add_argument("--repo", action="append", help="keep only this owner/name (repeatable)")
         p.add_argument("--id", action="append", help="keep only this instance id (repeatable)")
+        p.add_argument("--difficulty", action="append",
+                       help="keep only this rated band (repeatable): '<15 min fix', '15 min - 1 hour', "
+                       "'1-4 hours', '>4 hours', or 'complex' for the last two")
         p.add_argument("--limit", type=int, help="keep at most N (a prefix of the dataset order, not a sample)")
         p.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -1225,6 +1238,10 @@ def build_parser() -> argparse.ArgumentParser:
                              help="judge the patches with the pinned swebench evaluator (needs a container engine)")
     brun_parser.add_argument("--dataset", help="dataset name or file for the evaluator (default: the instances file)")
     brun_parser.add_argument("--workers", type=int, default=1, help="evaluator parallelism (default 1)")
+    brun_parser.add_argument("--eval-modal", action="store_true",
+                             help="run the evaluator's instance images on Modal (swebench --modal) instead of a local engine")
+    brun_parser.add_argument("--secrets", help="the owner's name=value key file; known names are exported to the "
+                             "environment the tools read (values never printed)")
     brun_parser.add_argument("--timeout", type=float, default=3600.0, help="per-arm wall clock in seconds (default 3600)")
     brun_parser.add_argument("--budget", type=int, help="per-unit context budget for the harness arm's plan")
     brun_parser.add_argument("--session-bin", help="hobbes-session binary for the harness arm")
