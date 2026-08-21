@@ -74,6 +74,9 @@ the interactive graph.
   policy, standing context, inbox) → orchestrate (spawn per unit in
   contract order, harvest, integrate, review, partition record) +
   roles + mail, behind `hobbes run` / `hobbes mail`, ADR-054),
+  the owned agent runtime (`src/hobbes/agent/loop.py`: a stdlib-only
+  tool loop over an OpenAI-compatible endpoint, run inside the sandbox
+  via `hobbes-session --runtime`, ADR-056),
   the benchmark harness (`src/hobbes/bench/`: instances + protocol →
   workspace → two arms → one meter → the benchmark's verdict →
   report, behind `hobbes bench`, ADR-055; `scripts/bench_fetch.py`
@@ -197,6 +200,10 @@ uv run hobbes bench run v.jsonl --model claude-sonnet-5 --limit 5 --evaluate
                                               # spends quota on BOTH arms —
                                               # Max names the first set
 uv run hobbes bench report ~/.hobbes/bench/run
+# small-model ladder on an OpenAI-compatible endpoint (ADR-056):
+HOBBES_LLM_API_KEY=… uv run hobbes bench run v.jsonl --runtime openai \
+    --llm-base-url https://…/v1 --model Qwen/Qwen2.5-Coder-7B-Instruct \
+    --session-arg=--network=pasta     # a live session needs egress (C-41)
 ```
 
 ## Conventions
@@ -255,6 +262,23 @@ H1–H3 preregistered in `docs/benchmark-hypotheses.md` — testing itself
 deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
+
+**2026-08-21 (the owned agent runtime, ADR-056 — step 1 of 3):** Max
+redirected the ladder to small open models on his own compute (Modal
+serving + evaluator, Daytona sandboxes, Kaggle spare; no paid APIs).
+Built `src/hobbes/agent/loop.py` — stdlib-only tool loop over any
+OpenAI-compatible endpoint, identical on both arms (harness: tools
+listed from the proxy + confined file tools, **no bash**; pure: bash +
+file tools), printing Claude Code's envelope so one meter reads both.
+`hobbes-session --runtime FILE --llm-base-url URL --model NAME` copies
+the loop + brief into the session dir and runs it with the image's
+python3; `hobbes bench run --runtime openai --llm-base-url URL`. C-41:
+a live session has egress + the endpoint token (`HOBBES_LLM_API_KEY`
+from the host env; redacted in dry runs). Keys live in `secrets.txt`
+(gitignored; format `daytona_key=…`, `modal_key_id=…`,
+`modal_key_secret=…`); both verified usable. **Next: step 2** — vLLM
+on Modal (Qwen2.5-Coder-7B first) + `swebench --modal`; then step 3,
+Daytona as a session backend. 762 pytest / Go green.
 
 **2026-08-21 (D2 passed; the benchmark harness built, ADR-055 — no
 live run):** Max passed D2 and directed the harness. Built quota-free

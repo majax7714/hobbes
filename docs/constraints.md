@@ -894,6 +894,30 @@ information appears in both, and the entries cross-reference.
   counted in the output, none folded into another.
 - **Source:** ADR-055 (2026-08-21).
 
+### C-41 — A live session has egress, and carries the model credential
+- **Cannot tell you:** that a running session could not reach the
+  network. The architecture's enforcement text says a forbidden route
+  is *absent*, and for every session so far it was (`--network none`).
+  A session driven by a model served off-box must reach that endpoint,
+  so a live session runs with a network, and the endpoint's bearer
+  token rides into it as `HOBBES_LLM_API_KEY` — the one secret a
+  session carries. Nothing narrows the egress to the endpoint host yet.
+- **Because:** the small-model ladder is served from the owner's
+  compute (ADR-056), not from a binary in the image; the model is a
+  network service by construction. The shell is still only reachable
+  through the policy-checked `exec`, the mounts are unchanged, and the
+  loop offers no `bash` when an MCP config is present — what changed is
+  one reachable host, stated rather than hidden.
+- **Bites at:** a session that exfiltrates through the model endpoint
+  or anywhere else reachable on the session network; a leaked endpoint
+  token (scope it per run — a Modal proxy token, revocable).
+- **You find out:** **surfaced** — `hobbes-session --dry-run` prints
+  the network mode and the runtime line (`runtime: … → <endpoint>`)
+  with the token redacted; `hobbes bench run` prints `runtime openai @
+  <endpoint>`; `run.json` records the endpoint. Narrowing egress to the
+  endpoint host is in `future_additions.md`.
+- **Source:** ADR-056 (2026-08-21).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

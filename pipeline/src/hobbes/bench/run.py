@@ -62,13 +62,16 @@ def run(
     budget: int | None = None,
     clean: bool = False,
     timeout: float = 3600.0,
+    runtime: arms.Runtime | None = None,
     log=print,
 ) -> list[results.Record]:
     """Run every (instance, model, arm) not yet recorded; return all records."""
     run_dir = Path(run_dir)
+    runtime = runtime or arms.Runtime()
     write_manifest(run_dir, selection, models, list(which), {
         "session_bin": session_bin, "session_args": session_args or [], "budget": budget,
         "timeout": timeout, "clean": clean,
+        "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns},
     })
     done = {(r.instance_id, r.arm, r.model) for r in results.load(run_dir)}
     for instance in selection.selected:
@@ -85,11 +88,11 @@ def run(
                                             error=f"checkout: {exc}")
                 else:
                     if arm == "pure":
-                        result = arms.run_pure_arm(instance, ws, model, timeout=timeout)
+                        result = arms.run_pure_arm(instance, ws, model, timeout=timeout, runtime=runtime)
                     else:
                         result = arms.run_harness_arm(
                             instance, ws, model, session_bin=session_bin, sessions_root=sessions_root,
-                            extra_session_args=session_args, budget=budget,
+                            extra_session_args=session_args, budget=budget, runtime=runtime,
                         )
                 record = results.make_record(instance, result)
                 results.append(run_dir, record)

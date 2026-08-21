@@ -366,3 +366,39 @@ func TestDefaultCommandPinsModelAndEmitsJSONEnvelope(t *testing.T) {
 		t.Error("no model configured must leave the choice to Claude Code")
 	}
 }
+
+// ADR-056: the owned agent loop replaces Claude Code as the loop. It gets
+// the brief as a file, the same MCP config, the role, and no bash; the
+// credential rides as env and never appears in the dry run.
+func TestRuntimeCommandReplacesClaudeAndRedactsTheKey(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Runtime = "/sessions/S-x/agent.py"
+	cfg.LLMBaseURL = "https://llm.example/v1"
+	cfg.Model = "qwen2.5-coder-7b"
+	cfg.LLMKey = "sk-secret-123"
+	p, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := strings.Join(p.command(), " ")
+	for _, want := range []string{"python3 /sessions/S-x/agent.py", "--base-url https://llm.example/v1",
+		"--model qwen2.5-coder-7b", "--prompt-file", "/brief.md", "--mcp-config", "--role implementer", "--workdir /work"} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("runtime command missing %q in %q", want, cmd)
+		}
+	}
+	if strings.Contains(cmd, "claude") {
+		t.Error("runtime must replace Claude Code")
+	}
+	args := strings.Join(p.PodmanArgs(), " ")
+	if !strings.Contains(args, "--env HOBBES_LLM_API_KEY=sk-secret-123") {
+		t.Error("the credential must reach the session as env")
+	}
+	if dry := p.DryRun(); strings.Contains(dry, "sk-secret-123") || !strings.Contains(dry, "<redacted>") {
+		t.Error("the dry run must redact the credential")
+	}
+	cfg.LLMBaseURL = ""
+	if _, err := NewPlan(cfg); err == nil {
+		t.Error("a runtime without an endpoint must be refused")
+	}
+}

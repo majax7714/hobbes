@@ -42,8 +42,14 @@ flags:
   --repo DIR       repo to spawn a session from (required)
   --role ROLE      session role (required)
   --task TEXT      the implementer's prompt (default Claude Code command)
-  --model NAME     pin the Claude Code model for the default command
-                   (ADR-055: the harness arm names its model like the pure arm)
+  --model NAME     the model: pins Claude Code's, or names the one the
+                   agent runtime asks the endpoint for (ADR-055/056)
+  --runtime FILE   run the owned agent loop (ADR-056) instead of Claude
+                   Code: FILE is copied into the session dir and run with
+                   the image's python3; needs --llm-base-url and --model.
+                   $HOBBES_LLM_API_KEY on the host, if set, reaches the
+                   session as the endpoint's bearer token (C-41)
+  --llm-base-url U OpenAI-compatible API root the runtime talks to
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
   --image IMG      session image (default hobbes-session:local)
@@ -84,6 +90,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 type options struct {
 	repo, role, task, session, ref string
 	agentDir, model                string
+	runtime, llmBaseURL            string
 	image, network, box            string
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
@@ -209,6 +216,9 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		Image:        opt.image,
 		Task:         opt.task,
 		Model:        opt.model,
+		Runtime:      runtimePath(opt.runtime, opt.session),
+		LLMBaseURL:   opt.llmBaseURL,
+		LLMKey:       os.Getenv("HOBBES_LLM_API_KEY"),
 		Network:      opt.network,
 		HostWorktree: worktree,
 		HostSessions: opt.sessions,
@@ -227,6 +237,25 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 	if err := os.WriteFile(plan.MCPConfigHostPath(), []byte(plan.MCPConfig()), 0o600); err != nil {
 		cleanup()
 		return nil, "", "", noop, err
+	}
+	if opt.runtime != "" {
+		// The runtime and the brief travel through the session dir
+		// (ADR-056): the loop file the host tested is the one the
+		// sandbox runs, and the brief is a file rather than an argv
+		// so a long one cannot hit the arg limit.
+		src, err := os.ReadFile(opt.runtime)
+		if err != nil {
+			cleanup()
+			return nil, "", "", noop, fmt.Errorf("--runtime: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(sessionDir, "agent.py"), src, 0o600); err != nil {
+			cleanup()
+			return nil, "", "", noop, err
+		}
+		if err := os.WriteFile(filepath.Join(sessionDir, "brief.md"), []byte(opt.task), 0o600); err != nil {
+			cleanup()
+			return nil, "", "", noop, err
+		}
 	}
 	return plan, worktree, startRef, cleanup, nil
 }
@@ -285,6 +314,17 @@ func seedDerived(repo, worktree string) {
 	}
 }
 
+// runtimePath is the in-container path of the copied agent loop
+// (ADR-056) — the session dir is mounted at SessionsRoot, so the copy
+// the wrapper writes host-side is visible there — or "" when Claude
+// Code runs.
+func runtimePath(runtime, session string) string {
+	if runtime == "" {
+		return ""
+	}
+	return sandbox.SessionsRoot + "/" + session + "/agent.py"
+}
+
 // derivedMount is the host repo's .hobbes/derived when it exists. A
 // session's worktree is a fresh checkout and derived/ is gitignored, so
 // without this the knowledge tools have nothing to read and a reviewer
@@ -335,6 +375,8 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.task, "task", "", "")
 	fs.StringVar(&opt.agentDir, "agent-dir", "", "")
 	fs.StringVar(&opt.model, "model", "", "")
+	fs.StringVar(&opt.runtime, "runtime", "", "")
+	fs.StringVar(&opt.llmBaseURL, "llm-base-url", "", "")
 	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")

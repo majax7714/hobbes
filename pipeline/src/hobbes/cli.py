@@ -755,11 +755,20 @@ def _cmd_bench(args: argparse.Namespace) -> int:
                 print(f"  {i.instance_id}  {i.created_at[:10] or 'undated':10}  depth {i.depth}")
         return 0
 
+    from hobbes.bench.arms import Runtime
+
     which = ["pure", "harness"] if args.arm == "both" else [args.arm]
     models = args.model or [""]
+    try:
+        runtime = Runtime(kind=args.runtime, base_url=args.llm_base_url or "",
+                          api_key_env=args.llm_key_env, max_turns=args.max_turns)
+    except ValueError as exc:
+        print(f"hobbes bench run: {exc}", file=sys.stderr)
+        return 2
     run_dir = Path(args.out) if args.out else Path.home() / ".hobbes" / "bench" / args.name
     print(inst.format_selection(selection))
-    print(f"run: {run_dir} — arms {', '.join(which)}; models {', '.join(m or 'default' for m in models)}")
+    print(f"run: {run_dir} — arms {', '.join(which)}; models {', '.join(m or 'default' for m in models)}; "
+          f"runtime {runtime.kind}" + (f" @ {runtime.base_url}" if runtime.base_url else ""))
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)
         return 2
@@ -768,7 +777,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         session_bin=args.session_bin,
         sessions_root=Path(args.sessions) if args.sessions else None,
         session_args=args.session_arg or [], budget=args.budget,
-        clean=args.clean, timeout=args.timeout,
+        clean=args.clean, timeout=args.timeout, runtime=runtime,
     )
     failed = False
     if args.evaluate:
@@ -1202,7 +1211,14 @@ def build_parser() -> argparse.ArgumentParser:
     _selection_flags(brun_parser)
     brun_parser.add_argument("--arm", choices=["both", "pure", "harness"], default="both")
     brun_parser.add_argument("--model", action="append",
-                             help="Claude model for both arms (repeatable — the H1 ladder)")
+                             help="model for both arms (repeatable — the H1 ladder)")
+    brun_parser.add_argument("--runtime", choices=["claude", "openai"], default="claude",
+                             help="the loop both arms run on: Claude Code, or the owned loop against an "
+                             "OpenAI-compatible endpoint (ADR-056)")
+    brun_parser.add_argument("--llm-base-url", help="the endpoint for --runtime openai, e.g. https://host/v1")
+    brun_parser.add_argument("--llm-key-env", default="HOBBES_LLM_API_KEY",
+                             help="env var holding the endpoint's bearer token (default HOBBES_LLM_API_KEY)")
+    brun_parser.add_argument("--max-turns", type=int, default=60, help="turn budget per session for the owned loop")
     brun_parser.add_argument("--name", default="run", help="run name under ~/.hobbes/bench/ (default: run)")
     brun_parser.add_argument("--out", help="run directory (default: ~/.hobbes/bench/<name>)")
     brun_parser.add_argument("--evaluate", action="store_true",

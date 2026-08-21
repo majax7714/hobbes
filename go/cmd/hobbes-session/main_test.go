@@ -293,3 +293,29 @@ func TestModelFlagPinsTheSessionModel(t *testing.T) {
 		t.Errorf("model not in plan:\n%s", stdout)
 	}
 }
+
+// ADR-056: --runtime copies the loop and the brief into the session dir
+// and the plan runs them in place of Claude Code.
+func TestRuntimeFlagCopiesLoopAndBriefIntoTheSessionDir(t *testing.T) {
+	repo := gitRepo(t)
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+	loop := filepath.Join(t.TempDir(), "loop.py")
+	os.WriteFile(loop, []byte("print('loop')\n"), 0o644)
+	sessions := t.TempDir()
+	code, stdout, stderr := cli("start", "--repo", repo, "--role", "implementer",
+		"--session", "S-rt", "--proxy-bin", fakeProxy, "--sessions", sessions,
+		"--runtime", loop, "--llm-base-url", "http://llm/v1", "--model", "m", "--task", "the brief", "--dry-run")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "python3 /sessions/S-rt/agent.py") {
+		t.Errorf("runtime not in plan:\n%s", stdout)
+	}
+	if b, err := os.ReadFile(filepath.Join(sessions, "S-rt", "agent.py")); err != nil || string(b) != "print('loop')\n" {
+		t.Errorf("loop not copied: %v %q", err, b)
+	}
+	if b, err := os.ReadFile(filepath.Join(sessions, "S-rt", "brief.md")); err != nil || string(b) != "the brief" {
+		t.Errorf("brief not written: %v %q", err, b)
+	}
+}

@@ -836,15 +836,26 @@ interprets nothing.
 - **Depth is a declared proxy**: the gold patch's file count, bucketed
   1 / 2–3 / 4+ for H2's slope.
 
+- **The runtime is owned for the small-model ladder (ADR-056).**
+  `pipeline/src/hobbes/agent/loop.py` is a stdlib-only tool loop over
+  any OpenAI-compatible endpoint, identical on both arms: in the
+  harness arm its tools are *listed from the hobbes-proxy* (exec, the
+  knowledge tools, reflect) plus confined file tools and **no bash**;
+  in the pure arm, bash plus the same file tools. `hobbes-session
+  --runtime` copies it into the session dir and runs it with the
+  image's `python3`; it prints Claude Code's result envelope, so one
+  meter reads both. Claude Code remains the other runtime.
+
 **No live run has happened.** The harness is exercised end to end by
-stand-ins (a fake `claude`, the ADR-054 stand-in session — the harness
-arm through a real ingest and plan — and a fake evaluator). What the
-first live run needs is listed in ADR-055's consequences, first among
-them a session image that can run Claude Code at all: today's is
-Alpine, the `claude` binary is glibc-linked and not mounted, and the
-session network is `none` — a route to the network is exactly what the
-sandbox's enforcement story says is absent, so granting one is the
-owner's decision and a register entry when taken.
+stand-ins (a fake `claude`, a scripted OpenAI-compatible server and a
+stdio fake proxy for the owned loop, the ADR-054 stand-in session —
+the harness arm through a real ingest and plan — and a fake evaluator).
+The owner's course (2026-08-21) is small open models served from his
+own compute: Modal for serving and the evaluator, Daytona for
+sandboxes. A live session then needs a route to the model endpoint,
+which is the one thing the sandbox's enforcement story said was absent
+— **C-41** states it (egress present, the endpoint token the one secret
+a session carries, narrowing owed).
 
 ---
 

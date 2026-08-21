@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,35 @@ from hobbes.bench import accounting
 from hobbes.bench.instances import Instance
 from hobbes.bench.workspace import candidate_patch
 from hobbes.narrate.runner import CLAUDE_BIN_ENV
+
+#: The owned agent loop (ADR-056): one stdlib-only file, run by the host
+#: python for the pure arm and copied into the sandbox for the harness arm.
+LOOP_PATH = Path(__file__).resolve().parent.parent / "agent" / "loop.py"
+RUNTIMES = ("claude", "openai")
+
+
+@dataclass
+class Runtime:
+    """Which loop the arms run on. ``claude`` is Claude Code; ``openai``
+    is :mod:`hobbes.agent.loop` against an OpenAI-compatible endpoint
+    (``base_url`` required) — the small-model ladder's runtime."""
+
+    kind: str = "claude"
+    base_url: str = ""
+    api_key_env: str = "HOBBES_LLM_API_KEY"
+    max_turns: int = 60
+
+    def __post_init__(self) -> None:
+        if self.kind not in RUNTIMES:
+            raise ValueError(f"runtime must be one of {RUNTIMES}, not {self.kind!r}")
+        if self.kind == "openai" and not self.base_url:
+            raise ValueError("the openai runtime needs a base_url")
+
+    def session_args(self) -> list[str]:
+        """Flags for ``hobbes-session`` so the harness arm runs the same loop."""
+        if self.kind != "openai":
+            return []
+        return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url]
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
 HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error")
@@ -86,14 +116,23 @@ def run_pure_arm(
     timeout: float = 3600.0,
     permission_mode: str = "acceptEdits",
     allowed_tools: str = "Bash,Edit,Write,Read,Glob,Grep",
+    runtime: Runtime | None = None,
 ) -> ArmResult:
-    """Claude Code, pure, on *workspace*. ``HOBBES_CLAUDE_BIN`` names the
-    binary (the narrate runner's precedent — and the tests' stand-in)."""
+    """The model, pure, on *workspace*: Claude Code (``HOBBES_CLAUDE_BIN``
+    names the binary — the narrate runner's precedent and the tests'
+    stand-in), or the owned loop with bash and file tools when
+    *runtime* is ``openai``."""
+    runtime = runtime or Runtime()
     bin_ = os.environ.get(CLAUDE_BIN_ENV, "claude")
-    cmd = [bin_, "-p", pure_prompt(instance), "--output-format", "json",
-           "--permission-mode", permission_mode, "--allowedTools", allowed_tools]
-    if model:
-        cmd += ["--model", model]
+    if runtime.kind == "openai":
+        cmd = [sys.executable, str(LOOP_PATH), "--base-url", runtime.base_url, "--model", model,
+               "--api-key-env", runtime.api_key_env, "--prompt", pure_prompt(instance),
+               "--workdir", str(workspace), "--max-turns", str(runtime.max_turns)]
+    else:
+        cmd = [bin_, "-p", pure_prompt(instance), "--output-format", "json",
+               "--permission-mode", permission_mode, "--allowedTools", allowed_tools]
+        if model:
+            cmd += ["--model", model]
     started = time.monotonic()
     try:
         proc = subprocess.run(cmd, cwd=str(workspace), capture_output=True, text=True, timeout=timeout)
@@ -110,7 +149,7 @@ def run_pure_arm(
     (Path(workspace) / ".hobbes" / "pure-arm.log").write_text(proc.stdout + proc.stderr)
     patch = candidate_patch(workspace, instance.base_commit)
     result = ArmResult("pure", model, _classify_patch(patch), patch=patch, usage=usage,
-                       detail={"exit": proc.returncode, "turns": usage.turns})
+                       detail={"exit": proc.returncode, "turns": usage.turns, "runtime": runtime.kind})
     if proc.returncode != 0:
         result.outcome = "claude-error" if not patch.strip() else result.outcome
         result.error = (proc.stderr or proc.stdout).strip()[-400:]
@@ -126,8 +165,12 @@ def run_harness_arm(
     extra_session_args: list[str] | None = None,
     budget: int | None = None,
     seeds: list[str] | None = None,
+    runtime: Runtime | None = None,
 ) -> ArmResult:
-    """``ingest`` → ``plan`` → ``run`` → patch on *workspace*."""
+    """``ingest`` → ``plan`` → ``run`` → patch on *workspace*. The
+    sessions run on *runtime* (Claude Code, or the owned loop through
+    ``hobbes-session --runtime``)."""
+    runtime = runtime or Runtime()
     from hobbes import artifacts
     from hobbes.derive import DeriveError, derive_plan, write_spec
     from hobbes.derive.changespec import ComplementError
@@ -140,7 +183,7 @@ def run_harness_arm(
     from hobbes.run import RunError, run_task
 
     workspace = Path(workspace)
-    detail: dict = {"model": model}
+    detail: dict = {"model": model, "runtime": runtime.kind}
     started = time.monotonic()
     try:
         ingest(workspace)
@@ -177,7 +220,7 @@ def run_harness_arm(
         "human_first": [c.unit for c in spec.contexts if c.human_first],
         "gate": spec.gate.result,
     }
-    session_args = list(extra_session_args or [])
+    session_args = list(extra_session_args or []) + runtime.session_args()
     if model:
         session_args += ["--model", model]
     try:

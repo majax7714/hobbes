@@ -470,4 +470,10 @@ surfaced per file rather than silent.)*
   **Evaluation at scale** — `--workers` exists; SWE-bench images are
   large and the first pulls are slow. **`hobbes bench` in the web
   surface** — the report is CLI-only, like plans and partition
-  records.
+  records. *(Amended 2026-08-21, ADR-056: the owned runtime removes
+  the "image cannot run Claude Code" item for the small-model ladder;
+  what remains of it is **egress narrowing** — restrict the live
+  session's network to the model endpoint host (C-41) — and **steps
+  2–3**: a vLLM app on Modal plus `swebench --modal`, then Daytona as a
+  `hobbes-session` backend with the sandbox's mount/env guarantees
+  re-expressed and registered, and the pure arm in a Daytona sandbox.)*

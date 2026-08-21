@@ -3329,3 +3329,40 @@ ingest and plan of a local repo.
 753 pytest (+30) / Go green (+2) / `hobbes-session` rebuilt. No
 quota spent, no sandbox session spawned. **Next:** Max's decisions in
 ADR-055's list, then the first live instance set.
+
+## 2026-08-21 (thirty-first) — the owned agent runtime (ADR-056, step 1 of 3)
+
+Max's direction after the harness report: use smaller open models on
+compute he already has — Modal, Daytona, Kaggle as spare — rather than
+paid APIs, which also sharpens H1. Assessment given first: both arms
+ran through Claude Code, whose prompt and tool surface are sized for a
+frontier model, so a 7B model through a gateway would measure runtime
+fit, not Hobbes; the honest runtime for a small-model ladder is a
+minimal loop we own, identical on both arms. Plan agreed in three
+steps: (1) the runtime, (2) Modal serving + `swebench --modal`, (3)
+Daytona as a session backend. Keys verified usable before building
+(`secrets.txt`, gitignored and untracked, checked first; Daytona
+`GET /api/sandbox` 200; `modal profile current` → Max's workspace;
+no key value printed at any point).
+
+**Built: `hobbes/agent/loop.py`** — one stdlib-only file (a test
+asserts the import set), OpenAI-compatible chat with tool calls; MCP
+tools listed from the proxy over stdio, confined file tools, `bash`
+only when no MCP config is given, no write tools for read-only roles;
+prints Claude Code's result envelope so `bench/accounting` reads both
+runtimes. **`hobbes-session --runtime FILE --llm-base-url URL`** copies
+the loop and the brief into the session dir and runs
+`python3 /sessions/<id>/agent.py …` in place of Claude Code; the
+endpoint token rides as env from the host's `HOBBES_LLM_API_KEY` and
+the dry run redacts it. **`hobbes bench run --runtime openai
+--llm-base-url URL`** puts both arms on the loop; `run.json` and every
+record carry the runtime. Register: **C-41** — a live session has
+egress and carries the model credential, narrowing owed.
+
+Tests: 9 new (`test_agent_loop.py`: a scripted OpenAI-compatible
+server on loopback and a stdio fake proxy — routing, confinement,
+unique edits, read-only roles, budget and HTTP errors in the envelope,
+the script entrypoint, the pure arm on the loop) / Go +2. 762 pytest /
+Go green; `hobbes-session` rebuilt. No endpoint exists yet, so nothing
+live ran; step 2 is next — a vLLM app on Modal (first rung
+Qwen2.5-Coder-7B-Instruct) and the evaluator on Modal.

@@ -30,15 +30,24 @@ const (
 
 // Config is the wrapper's validated input.
 type Config struct {
-	SessionID    string // generated when empty
-	Role         string // required
-	Image        string // session image (default hobbes-session:local)
-	Task         string // the implementer's prompt (for the default cmd)
+	SessionID string // generated when empty
+	Role      string // required
+	Image     string // session image (default hobbes-session:local)
+	Task      string // the implementer's prompt (for the default cmd)
 	// Model pins the Claude Code model for the default command (ADR-055:
 	// the benchmark harness runs a model ladder, so the harness arm must
 	// name its model the way the pure arm does). "" leaves the choice to
 	// Claude Code.
 	Model string
+	// Runtime is the in-container path of the owned agent loop
+	// (ADR-056), copied into the session dir by the wrapper; "" runs
+	// Claude Code. LLMBaseURL is the OpenAI-compatible endpoint it
+	// talks to, and LLMKey the bearer token passed through as the
+	// HOBBES_LLM_API_KEY env var — the one secret a live session
+	// carries, stated in C-41.
+	Runtime      string
+	LLMBaseURL   string
+	LLMKey       string
 	Network      string // podman --network (default "none")
 	HostWorktree string // absolute host path of the session worktree
 	HostSessions string // absolute host ~/.hobbes/sessions
@@ -98,6 +107,9 @@ func NewPlan(cfg Config) (*Plan, error) {
 	}
 	if cfg.Network == "" {
 		cfg.Network = "none"
+	}
+	if cfg.Runtime != "" && (cfg.LLMBaseURL == "" || cfg.Model == "") {
+		return nil, fmt.Errorf("sandbox: the agent runtime needs --llm-base-url and --model")
 	}
 	return &Plan{cfg: cfg}, nil
 }
@@ -259,10 +271,33 @@ func (p *Plan) DefaultCommand() []string {
 	return cmd
 }
 
-// command is the in-container command: the override, or the default.
+// RuntimeCommand is the owned agent loop's invocation (ADR-056): the
+// image's python3 over the copied loop, the brief from the session dir,
+// the same MCP config Claude Code would get, and the role so a
+// read-only role gets no write tools. Bash is not offered at all — the
+// loop withholds it whenever an MCP config is present, so the shell is
+// reachable only through the policy-checked exec tool.
+func (p *Plan) RuntimeCommand() []string {
+	cmd := []string{
+		"python3", p.cfg.Runtime,
+		"--base-url", p.cfg.LLMBaseURL,
+		"--model", p.cfg.Model,
+		"--prompt-file", p.sessionHome() + "/brief.md",
+		"--mcp-config", p.mcpConfigContainerPath(),
+		"--role", p.cfg.Role,
+		"--workdir", WorkDir,
+	}
+	return cmd
+}
+
+// command is the in-container command: the override, the owned runtime,
+// or the default Claude Code call.
 func (p *Plan) command() []string {
 	if len(p.cfg.Command) > 0 {
 		return p.cfg.Command
+	}
+	if p.cfg.Runtime != "" {
+		return p.RuntimeCommand()
 	}
 	return p.DefaultCommand()
 }
@@ -278,11 +313,28 @@ func (p *Plan) PodmanArgs() []string {
 		"--env", "PATH=/usr/local/bin:/usr/bin:/bin",
 		"--workdir", WorkDir,
 	}
+	if p.cfg.Runtime != "" && p.cfg.LLMKey != "" {
+		// The model credential: the one secret a live session carries
+		// (C-41). Passed as env rather than a file so it never lands in
+		// the session dir, which outlives the container.
+		args = append(args, "--env", "HOBBES_LLM_API_KEY="+p.cfg.LLMKey)
+	}
 	for _, m := range p.mounts() {
 		args = append(args, "-v", m)
 	}
 	args = append(args, p.cfg.Image)
 	args = append(args, p.command()...)
+	return args
+}
+
+// redactedArgs is PodmanArgs with the model credential masked.
+func (p *Plan) redactedArgs() []string {
+	args := p.PodmanArgs()
+	for i, a := range args {
+		if strings.HasPrefix(a, "HOBBES_LLM_API_KEY=") {
+			args[i] = "HOBBES_LLM_API_KEY=<redacted>"
+		}
+	}
 	return args
 }
 
@@ -296,7 +348,11 @@ func (p *Plan) DryRun() string {
 	if p.cfg.HostAgentDir != "" {
 		fmt.Fprintf(&b, "agent:    %s (ro at %s)\n", p.cfg.HostAgentDir, AgentDir)
 	}
-	b.WriteString("\npodman " + strings.Join(p.PodmanArgs(), " ") + "\n")
+	if p.cfg.Runtime != "" {
+		fmt.Fprintf(&b, "runtime:  %s → %s (%s)\n", p.cfg.Runtime, p.cfg.LLMBaseURL, p.cfg.Model)
+	}
+	// The dry run never prints the credential.
+	b.WriteString("\npodman " + strings.Join(p.redactedArgs(), " ") + "\n")
 	b.WriteString("\nMCP config (" + p.MCPConfigHostPath() + "):\n")
 	b.WriteString(p.MCPConfig() + "\n")
 	return b.String()
