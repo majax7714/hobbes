@@ -232,6 +232,7 @@ for line in sys.stdin:
         r = {"tools": [
             {"name": "exec", "description": "run", "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
             {"name": "who_calls", "description": "callers", "inputSchema": {"type": "object", "properties": {"target": {"type": "string"}}}},
+            {"name": "reflect", "description": "handoff", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "kind": {"type": "string"}}, "required": ["text"]}},
         ]}
     elif m == "tools/call":
         p = msg["params"]; log.write(json.dumps(p) + "\\n"); log.flush()
@@ -278,6 +279,61 @@ class TestMCPLoop:
         assert "not available in this session; use the exec tool" in tool_msgs[2]["content"]
         assert tool_msgs[3]["content"].startswith("ERROR: denied")
         assert "hi" in tool_msgs[4]["content"]  # native read still works beside MCP
+
+
+class TestReadOnlyRoleDiscipline:
+    """Harness restructure, phase 1: a read-only role's deliverable is a
+    reflect handoff — the discipline nudges toward it and never toward
+    an edit, and a handoff counts as acting."""
+
+    def test_planner_gets_no_write_tools_and_is_nudged_toward_reflect(self, tree, mcp_config):
+        cfg, log = mcp_config
+        model = ScriptedModel([
+            "Plan: change src/a.py f() to return 2; run tests/test_a.py.",   # prose, no handoff
+            [("reflect", {"text": "files: src/a.py; approach: return 2", "kind": "handoff"})],
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--mcp-config", str(cfg), "--role", "planner")
+        finally:
+            model.close()
+        names = [t["function"]["name"] for t in model.requests[0]["body"]["tools"]]
+        assert "reflect" in names and "write_file" not in names and "edit_file" not in names
+        assert env["nudges"] == 1 and env["reflected"] is True and env["edited"] is False
+        assert not env["is_error"] and env["role"] == "planner"
+        nudge = [m for m in model.requests[1]["body"]["messages"] if m["role"] == "user"][-1]["content"]
+        assert "reflect" in nudge and "write_file" not in nudge
+
+    def test_a_progress_reflection_is_not_the_handoff(self, tree, mcp_config):
+        cfg, _ = mcp_config
+        model = ScriptedModel([
+            [("reflect", {"text": "looking", "kind": "progress"})],
+            [("read_file", {"path": "README"})],
+            [("read_file", {"path": "src/a.py"})],
+            [("who_calls", {"target": "x"})],
+            [("who_calls", {"target": "y"})],
+            [("who_calls", {"target": "z"})],
+        ])
+        try:
+            env = run_loop(model, tree, "--mcp-config", str(cfg), "--role", "verifier",
+                           "--max-nudges", "0", "--stall-after", "4", "--max-turns", "20")
+        finally:
+            model.close()
+        assert env["is_error"] and "without a handoff" in env["result"]
+        assert env["reflected"] is False
+
+    def test_implementer_discipline_is_unchanged_by_reflect(self, tree, mcp_config):
+        cfg, _ = mcp_config
+        model = ScriptedModel([
+            [("reflect", {"text": "I would change f", "kind": "handoff"})],
+            "all done",
+        ])
+        try:
+            env = run_loop(model, tree, "--mcp-config", str(cfg), "--max-nudges", "1")
+        finally:
+            model.close()
+        # an implementer that only reflects is still nudged toward editing
+        assert env["nudges"] == 1 and env["edited"] is False
 
 
 class TestBenchRuntime:

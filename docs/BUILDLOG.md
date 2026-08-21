@@ -3610,3 +3610,18 @@ gold test; 13398's U8 is `builtin_frames/itrs`, U9 `hadec` +
 `icrs_observed_transforms`. Oversize single-module units remain
 (`units.quantity`, `wcs.wcs` — C-35's grain). **805 pytest / Go
 green.** Proxy rebuilt (static + sandbox copy). Next: phase 1.
+
+## 2026-08-22 (thirty-eighth) — phase 1: roles first-class
+
+`planner` joins `reviewer`/`verifier` as a read-only role in the Go
+sandbox (`ReadOnlyRoles`), the owned loop (`READ_ONLY_ROLES`) and the
+role templates (`planner`, `reviewer` scaffolded). The loop's
+discipline is role-aware: for a read-only role *acted* means a
+`reflect` with `kind: handoff` — the nudge says "call reflect now",
+the stall reads "without a handoff", the envelope reports
+`reflected` and `role`; an implementer's discipline is unchanged (a
+handoff without an edit is still nudged). Every read-only session
+gets `PYTHONDONTWRITEBYTECODE=1` so the repo's tests can import on the
+ro mount. The plan's verifier-env classification moves to phase 2,
+where the verifier session that produces the output exists (no orphan
+code). pytest +3, Go +1: **808 / Go green**; `hobbes-session` rebuilt.

@@ -2,9 +2,11 @@
 
 The owner's structure gives every agent a policy made of the shared
 repo policy plus a **per-role** policy. Roles here are the phases of
-agent-mapping §2, not personas: ``implementer`` (one per unit, writes
-inside its unit), ``verifier`` (reads the integrated result, writes
-nothing), ``orchestrator`` (sequences and arbitrates, owns no code).
+agent-mapping §2, not personas: ``planner`` (breaks the proposal down,
+hands off, writes nothing), ``reviewer`` (judges a plan or a range),
+``implementer`` (one per unit, writes inside its unit), ``verifier``
+(reads the integrated result, writes nothing), ``orchestrator``
+(sequences and arbitrates, owns no code).
 The files live at ``.hobbes/policies/roles/<role>.policy`` with
 ``scope: role``; the Go engine loads the one matching the session's
 role between the repo policy and any folder policy.
@@ -45,6 +47,40 @@ rules:
   - pattern: "git rebase*"
     decision: deny
     reason: "history on a session branch is the audit trail"
+""",
+    "planner": """\
+# Role policy: planner (harness restructure, phase 1). Reads the repo and
+# the derived context, breaks the proposal down, and hands off — its
+# worktree is mounted read-only and its deliverable is a reflect handoff
+# (files, symbols, approach, tests to run). Every write is denied here
+# too, so a refusal carries a reason instead of an EROFS.
+version: 1
+scope: role
+default: escalate
+
+rules:
+  - pattern: "git commit*"
+    decision: deny
+    reason: "a planner plans; it does not change the tree"
+  - pattern: "git add *"
+    decision: deny
+    reason: "a planner plans; it does not change the tree"
+""",
+    "reviewer": """\
+# Role policy: reviewer (M8 / harness restructure, phase 1). Reviews a
+# plan or a range and reports; worktree read-only, writes denied with a
+# reason.
+version: 1
+scope: role
+default: escalate
+
+rules:
+  - pattern: "git commit*"
+    decision: deny
+    reason: "a reviewer reports; it does not change the tree"
+  - pattern: "git add *"
+    decision: deny
+    reason: "a reviewer reports; it does not change the tree"
 """,
     "verifier": """\
 # Role policy: verifier (ADR-054). Reads the integrated result and

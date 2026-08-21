@@ -344,6 +344,28 @@ func TestVerifierIsReadOnlyLikeAReviewer(t *testing.T) {
 	}
 }
 
+// Harness restructure, phase 1: a planner is a read-only role whose job
+// is a handoff, and every read-only role runs python without bytecode
+// writes so its tests can run on the ro mount.
+func TestPlannerIsReadOnlyAndReadOnlyRolesSkipBytecode(t *testing.T) {
+	p := planFor(t, "planner")
+	if p.WorktreeMode() != "ro" {
+		t.Errorf("planner worktree mode = %s, want ro", p.WorktreeMode())
+	}
+	tools := strings.Join(p.allowedTools(), ",")
+	if strings.Contains(tools, "Edit") || strings.Contains(tools, "mcp__hobbes__exec") || !strings.Contains(tools, "mcp__hobbes__reflect") {
+		t.Errorf("planner tools = %s", tools)
+	}
+	for _, role := range []string{"planner", "verifier", "reviewer"} {
+		if args := strings.Join(planFor(t, role).PodmanArgs(), " "); !strings.Contains(args, "--env PYTHONDONTWRITEBYTECODE=1") {
+			t.Errorf("%s: no PYTHONDONTWRITEBYTECODE in %s", role, args)
+		}
+	}
+	if args := strings.Join(planFor(t, "implementer").PodmanArgs(), " "); strings.Contains(args, "PYTHONDONTWRITEBYTECODE") {
+		t.Errorf("implementer got the read-only env: %s", args)
+	}
+}
+
 // ADR-055: the harness arm runs a model ladder and meters its sessions,
 // so the default command pins the model when asked and always asks for
 // the JSON result envelope (usage, cost, turns, wall time).

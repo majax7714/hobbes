@@ -187,8 +187,11 @@ func (p *Plan) MCPConfig() string {
 // agent might talk its way around.
 //
 // verifier is D2's verify phase (ADR-054): it judges a merged result and
-// owns no code, so it reads like a reviewer.
-var ReadOnlyRoles = map[string]bool{"reviewer": true, "verifier": true}
+// owns no code, so it reads like a reviewer. planner (harness
+// restructure) breaks a proposal down and hands off through reflect —
+// its deliverable is short memory for the next agent, never an edit.
+// Mirrored by READ_ONLY_ROLES in the owned loop.
+var ReadOnlyRoles = map[string]bool{"reviewer": true, "verifier": true, "planner": true}
 
 // WorktreeMode is "ro" or "rw" for this session's role.
 func (p *Plan) WorktreeMode() string {
@@ -353,6 +356,12 @@ func (p *Plan) PodmanArgs() []string {
 	}
 	for _, kv := range p.cfg.Env {
 		args = append(args, "--env", kv)
+	}
+	if ReadOnlyRoles[p.cfg.Role] {
+		// A read-only worktree still has to run the repo's tests
+		// (verifier): python must not try to write __pycache__ into
+		// it, or every import is a noisy EROFS before the test runs.
+		args = append(args, "--env", "PYTHONDONTWRITEBYTECODE=1")
 	}
 	if p.cfg.Runtime != "" && p.cfg.LLMKey != "" {
 		// The model credential: the one secret a live session carries

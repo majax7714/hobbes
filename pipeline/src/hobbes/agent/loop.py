@@ -55,7 +55,10 @@ through the tool-calling interface, never by writing JSON in your
 message.
 """
 
-READ_ONLY_ROLES = {"reviewer", "verifier"}
+#: Roles whose worktree is read-only and whose *job is a handoff*: they
+#: do their work through reflect, never through an edit (harness
+#: restructure, phase 1). Mirrors go/internal/sandbox ReadOnlyRoles.
+READ_ONLY_ROLES = {"reviewer", "verifier", "planner"}
 
 _FENCED = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```|<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
@@ -263,6 +266,15 @@ NUDGE = (
     "write_file or edit_file tool (and run the guarding tests with the "
     "exec tool). Do not reply with a summary until the files are edited."
 )
+#: The same nudge for a read-only role: its deliverable is a reflect
+#: handoff, and a prose reply that never reaches the orchestrator is the
+#: same failure as a prose plan that never edits.
+NUDGE_READ_ONLY = (
+    "You have not sent your result yet — you only described it. A reply "
+    "the orchestrator never receives is not a result. Call the reflect "
+    "tool now with kind \"handoff\" and your complete answer as the text. "
+    "Do not reply with a summary until reflect has been called."
+)
 #: Returned in place of re-running a tool the model already called with
 #: the exact same arguments (ADR-058, sixth finding — a 7B unit called
 #: one read-only tool 55 times). The pipeline refuses the repeat rather
@@ -383,6 +395,8 @@ def run(args: argparse.Namespace) -> dict:
     usage = {"input_tokens": 0, "output_tokens": 0}
     turns, tool_calls_made, text_calls, final, error = 0, 0, 0, "", ""
     edited, nudges_left, nudges = False, args.max_nudges, 0
+    reflected = False
+    nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
     repeats, dry_turns = 0, 0
     try:
@@ -425,6 +439,11 @@ def run(args: argparse.Namespace) -> dict:
                         if not is_err and mutating:
                             edited = True
                             productive = True
+                        if not is_err and name.endswith("reflect") and targs.get("kind") == "handoff":
+                            # A read-only role's deliverable (planner, verifier):
+                            # the handoff is its edit.
+                            reflected = True
+                            productive = True
                 tool_calls_made += 1
                 print(f"[turn {turns}] {name}({json.dumps(targs)[:160]}) → {'error' if is_err else 'ok'}",
                       file=sys.stderr, flush=True)
@@ -434,21 +453,25 @@ def run(args: argparse.Namespace) -> dict:
             # "dry". Nudge toward acting; once nudges are spent, a run of
             # dry turns is a stall, not progress — stop with a reason
             # rather than burn the turn budget (the 55-identical-calls loop).
+            # For a read-only role the deliverable is a handoff reflection,
+            # so "acted" means reflected, not edited.
+            acted = reflected if read_only else edited
             if productive:
                 dry_turns = 0
             else:
                 dry_turns += 1
-                if not edited and nudges_left > 0 and (not calls or dry_turns >= args.nudge_after):
+                if not acted and nudges_left > 0 and (not calls or dry_turns >= args.nudge_after):
                     nudges_left -= 1
                     nudges += 1
                     dry_turns = 0
-                    messages.append({"role": "user", "content": NUDGE})
+                    messages.append({"role": "user", "content": nudge_text})
                     continue
                 if not calls:
                     final = message.get("content") or ""
                     break
-                if not edited and dry_turns >= args.stall_after:
-                    error = f"no progress: {dry_turns} turns without an edit after {nudges} nudge(s)"
+                if not acted and dry_turns >= args.stall_after:
+                    what = "a handoff" if read_only else "an edit"
+                    error = f"no progress: {dry_turns} turns without {what} after {nudges} nudge(s)"
                     break
         else:
             error = f"turn budget ({args.max_turns}) exhausted"
@@ -463,7 +486,8 @@ def run(args: argparse.Namespace) -> dict:
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
         "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
         "context_fitted": endpoint.fitted, "context_elided": endpoint.elided,
-        "nudges": nudges, "edited": edited, "repeats_refused": repeats,
+        "nudges": nudges, "edited": edited, "reflected": reflected, "repeats_refused": repeats,
+        "role": args.role,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,
     }
@@ -478,7 +502,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     g.add_argument("--prompt")
     g.add_argument("--prompt-file")
     p.add_argument("--mcp-config", help="the session's mcp.json; tools come from its server, bash is withheld")
-    p.add_argument("--role", default="implementer")
+    p.add_argument("--role", default="implementer",
+                   help="the session role; a read-only role (planner, reviewer, verifier) gets no write "
+                        "tools and is disciplined toward a reflect handoff instead of an edit")
     p.add_argument("--workdir", default=".")
     p.add_argument("--max-turns", type=int, default=60)
     p.add_argument("--max-tokens", type=int, default=4096)

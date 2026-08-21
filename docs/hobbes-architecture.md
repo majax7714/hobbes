@@ -763,8 +763,14 @@ owner's structure (2026-08-21):
 - **Policy is layered per agent.** The chain is floor → box → repo →
   **role** → folder → **agent** (`go/internal/policy`). The role layer
   (`.hobbes/policies/roles/<role>.policy`) is standing: versioned,
-  changed only by commits; `implementer`, `verifier`, `orchestrator`
-  are phases, not personas, scaffolded once and never overwritten. The
+  changed only by commits; `planner`, `reviewer`, `implementer`,
+  `verifier`, `orchestrator` are phases, not personas, scaffolded once
+  and never overwritten. `planner`, `reviewer` and `verifier` are
+  **read-only roles** in all three layers — the worktree mount (Go),
+  the tool list, and the owned loop's discipline, which for them
+  counts a `reflect` handoff as acting and nudges toward it, never
+  toward an edit; they run python with bytecode writes off so the
+  repo's tests can run on the ro mount. The
   agent layer is derived from the unit's policy manifest
   (`<agent-dir>/policy.yaml`): the P10 guarantees first as denies, the
   unit's guarding tests as allows, every write denied for a
