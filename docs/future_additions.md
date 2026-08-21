@@ -497,6 +497,17 @@ surfaced per file rather than silent.)*
   the execution-side twin of D1's partition quality (C-35) and the
   thing that most reduces the harness's per-instance weight below.
 
+  **Measured 2026-08-21 (strict-pipeline run):** on `astropy-13579`,
+  **only 2 of ~9 spawned units edited** (U3, U7); the other seven
+  stalled out with "no progress" — spurious units with interiors the
+  proposal never touches. The discipline (ADR-058 sixth finding) bounds
+  each to ~12 turns, but they still cost a session spawn + round-trips
+  each, and they are the bulk of the ~20-min harness arm. A first cut
+  at selection: **do not spawn a unit whose interior has no
+  seed-reachable node** — it entered the plan only through co-change /
+  partition merging, not through the change. Full design still open
+  (the signal, whether unselected units feed neighbours' context).
+
 - **Re-evaluate the harness if its weight stays this high** (Max,
   2026-08-21). The first 7B run measured the harness arm at ~40–50 min
   on heavy repos (ingest + plan + one session per unit) against ~1 min
