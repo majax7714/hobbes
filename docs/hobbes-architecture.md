@@ -704,7 +704,15 @@ The mapping, in pipeline order (`pipeline/src/hobbes/derive/`):
 - **Impact** — seeds resolve *lexically* (explicit `--seed`, plus exact
   matches of proposal terms against node ids, path stems, and symbol
   names; unmatched code-shaped terms are reported, never guessed —
-  C-36), then max-product expansion over the module-projected graph
+  C-36), filtered by two **seed-hygiene** rules that only fire when
+  better evidence exists (a package node is set aside once any module
+  seeded — the root package is the whole tree; a prose-shaped word
+  that equals a symbol name is set aside once a code-shaped term
+  seeded, unless the proposal names it as code — every set-aside seed
+  recorded in the spec as `seeds_rejected` with its reason; the first
+  live astropy run had seeded the root package and fourteen prose
+  words and the impact set was the repository), then max-product
+  expansion over the module-projected graph
   with tier- and type-weighted decay and a per-hop damping term, both
   directions. Distance always attenuates — the first dogfood run
   measured what its absence does (one seed → the connected component).
@@ -768,9 +776,15 @@ owner's structure (2026-08-21):
   The **short-term** context is mail: `inbox.jsonl` per agent, pushed
   by the orchestrator or a human (`hobbes mail post`), carried in full
   by the brief at spawn; the agent answers through the proxy's
-  `reflect` tool, and reflections fold back into the orchestrator's
-  inbox. When the orchestrator needs a specific, it posts and reads
-  the reflection — nothing is a transcript.
+  `reflect` tool (`kind: progress | handoff`), and only the **handoff**
+  — the last one so marked, else the last reflection — folds back into
+  the orchestrator's inbox, with the count of progress lines not
+  forwarded stated; the full list stays in the partition record. When
+  the orchestrator needs a specific, it posts and reads the handoff —
+  nothing is a transcript (the first live 7B run reflected 123 lines
+  from one unit). The brief renders interior modules **path first**
+  and says a module id is never a path — a session once created a
+  file named `.:conftest`.
 - **Context faults are tagged, never refused.** The agent dir is
   mounted ro at `/agent`; the proxy reads `context.json` (interior,
   boundary, neighborhood, paths) and marks any knowledge query outside
@@ -878,9 +892,13 @@ argv and recorded per arm with the image digest; its edge — a change
 needing a rebuild of a compiled extension is not seen by the
 in-session tests — is **C-43**. And a **unit cap** (`--max-units`,
 default 20) bounds how many sessions one instance may spawn after a
-plan reached 210 units on astropy; units merged past the budget to
-fit are flagged `capped` — **C-44**, a count decision, not a
-partition improvement (C-35 stands). Every session clone now carries
+plan reached 210 units on astropy; the cap **selects** — the
+lowest-impact units are deferred and listed in the spec, never a
+seed-bearing one, and seed units merged to fit are flagged `capped`
+— **C-44**, a count decision, not a partition improvement (C-35
+stands). The first cap had merged to fit and fused 300 modules into
+one unit; re-planned under selection, `astropy-13579`'s ten units
+include one that is exactly the gold file and its test. Every session clone now carries
 a commit identity, which no sandbox had.
 
 ---

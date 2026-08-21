@@ -8,7 +8,7 @@ import pytest
 from hobbes.derive import cochange, impact, partition
 from hobbes.derive.contracts import build_contracts
 from hobbes.derive.impact import SeedError, build_impact, resolve_seeds
-from hobbes.derive.partition import Unit, build_units, guarding_tests, unit_modules
+from hobbes.derive.partition import Unit, build_units, guarding_tests, is_deferred, unit_modules
 from hobbes.invariants.schema import Invariant
 
 
@@ -112,6 +112,36 @@ class TestSeeds:
             graph_fixture(), "make app.core resilient tomorrow", []
         )
         assert unresolved == []
+
+    def test_prose_hits_are_set_aside_when_code_shaped_seeds_exist(self):
+        # "handle" and "token" are prose words that equal symbol names; with
+        # a code-shaped seed present they are set aside and said so (C-36).
+        graph = graph_fixture()
+        graph["nodes"].append({"id": "app", "kind": "package", "path": "src/app/__init__.py"})
+        result = build_impact(graph, "make billing.charge handle token refresh in app", [])
+        assert "billing" in result.seeds
+        assert "app.core" not in result.seeds and "app.auth" not in result.seeds
+        assert "prose-shaped term 'handle'" in result.seeds_rejected["app.core"]
+        # the package node is the whole tree, not the change
+        assert "package node" in result.seeds_rejected["app"]
+        assert "app" not in result.seeds
+
+    def test_prose_hits_stay_when_named_as_code(self):
+        result = build_impact(graph_fixture(), "billing.charge must call `handle` twice", [])
+        assert "app.core" in result.seeds and result.seeds_rejected == {}
+        result = build_impact(graph_fixture(), "billing.charge must call handle() twice", [])
+        assert "app.core" in result.seeds
+
+    def test_prose_hits_seed_alone_when_nothing_better_exists(self):
+        result = build_impact(graph_fixture(), "make handle retry", [])
+        assert result.seeds == {"app.core": "handle"} and result.seeds_rejected == {}
+
+    def test_explicit_seeds_are_never_set_aside(self):
+        graph = graph_fixture()
+        graph["nodes"].append({"id": "app", "kind": "package", "path": "src/app/__init__.py"})
+        result = build_impact(graph, "billing.charge", ["app", "handle"])
+        assert {"app", "app.core", "billing"} <= set(result.seeds)
+        assert result.seeds_rejected == {}
 
     def test_nothing_seeds_is_an_error_naming_the_fix(self):
         with pytest.raises(SeedError, match="--seed"):
@@ -296,36 +326,57 @@ class TestContracts:
 
 
 class TestUnitCap:
-    """ADR-058: the unit cap merges past the budget, flags what it merged."""
+    """ADR-058, restated by the harness restructure: the cap selects —
+    defers the lowest-impact units — and merges only seed-bearing ones."""
+
+    def test_cap_defers_the_lowest_impact_units_never_a_seed(self):
+        weights = {"a": 50, "b": 50, "c": 50, "d": 10}
+        scores = {"a": 1.0, "b": 0.3, "c": 0.55, "d": 0.2}
+        units = build_units(list(weights), weights, {}, budget=60, max_units=2, scores=scores)
+        kept = [u for u in units if not is_deferred(u)]
+        deferred = [u for u in units if is_deferred(u)]
+        assert [u.modules for u in kept] == [["a"], ["c"]]
+        assert [u.modules for u in deferred] == [["b"], ["d"]]
+        assert deferred[0].name == "D1" and "best impact score 0.300" in deferred[0].flags[0]
+        assert not any(f.startswith("capped") for u in kept for f in u.flags)
+
+    def test_seed_units_merge_when_they_alone_exceed_the_cap(self):
+        weights = {"a": 50, "b": 50, "c": 50, "d": 10}
+        scores = {"a": 1.0, "b": 1.0, "c": 1.0, "d": 0.2}
+        coupling = {("a", "b"): 5.0}
+        units = build_units(list(weights), weights, coupling, budget=60, max_units=2, scores=scores)
+        kept = [u for u in units if not is_deferred(u)]
+        assert [u.modules for u in kept] == [["a", "b"], ["c"]]
+        assert any(f.startswith("capped") for f in kept[0].flags)
+        assert [u.modules for u in units if is_deferred(u)] == [["d"]]
 
     def test_no_cap_leaves_the_budgeted_partition_alone(self):
         weights = {"a": 50, "b": 50, "c": 50, "d": 50}
         assert len(build_units(list(weights), weights, {}, budget=60)) == 4
         assert len(build_units(list(weights), weights, {}, budget=60, max_units=None)) == 4
 
-    def test_cap_merges_strongest_coupling_first_then_lightest(self):
+    def test_without_scores_the_lightest_are_deferred(self):
         weights = {"a": 50, "b": 50, "c": 50, "d": 10}
-        coupling = {("a", "b"): 5.0}
-        units = build_units(list(weights), weights, coupling, budget=60, max_units=2)
-        assert len(units) == 2
-        members = [u.modules for u in units]
-        assert ["a", "b"] in members          # coupled pair merged past the budget
-        assert ["c", "d"] in members          # then the lightest uncoupled pair
-        assert all(any(f.startswith("capped") for f in u.flags) for u in units)
+        units = build_units(list(weights), weights, {("a", "b"): 5.0}, budget=60, max_units=2)
+        kept = [u.modules for u in units if not is_deferred(u)]
+        assert kept == [["a"], ["b"]]
+        assert [u.modules for u in units if is_deferred(u)] == [["c"], ["d"]]
 
-    def test_cap_flags_only_the_units_it_touched(self):
+    def test_cap_flags_only_the_seed_units_it_merged(self):
         weights = {"a": 50, "b": 50, "c": 50}
-        units = build_units(list(weights), weights, {("a", "b"): 1.0}, budget=60, max_units=2)
+        scores = {"a": 1.0, "b": 1.0, "c": 1.0}
+        units = build_units(list(weights), weights, {("a", "b"): 1.0}, budget=60, max_units=2, scores=scores)
         flagged = {tuple(u.modules): any(f.startswith("capped") for f in u.flags) for u in units}
         assert flagged == {("a", "b"): True, ("c",): False}
 
     def test_cap_is_deterministic(self):
         weights = {f"m{i}": 30 for i in range(12)}
+        scores = {f"m{i}": 1.0 if i % 4 == 0 else 0.3 for i in range(12)}
         coupling = {("m1", "m5"): 2.0, ("m2", "m9"): 2.0, ("m0", "m11"): 0.5}
-        one = build_units(list(weights), weights, coupling, budget=40, max_units=3)
-        two = build_units(list(weights), weights, coupling, budget=40, max_units=3)
+        one = build_units(list(weights), weights, coupling, budget=40, max_units=3, scores=scores)
+        two = build_units(list(weights), weights, coupling, budget=40, max_units=3, scores=scores)
         assert [u.modules for u in one] == [u.modules for u in two]
-        assert len(one) == 3
+        assert len([u for u in one if not is_deferred(u)]) == 3
 
     def test_cap_below_one_is_ignored(self):
         weights = {"a": 50, "b": 50}
@@ -343,4 +394,4 @@ class TestUnitCap:
         )
         assert changespec.spec_to_dict(spec)["max_units"] == 1
         text = changespec.format_spec(spec)
-        assert "1-unit cap (1 capped, C-44)" in text
+        assert "1-unit cap (1 capped, 0 deferred, C-44)" in text

@@ -141,9 +141,12 @@ def render_context(spec: dict, unit: str) -> str:
                  + f"; plan {spec['task']}. This context moves only when a "
                  "commit changes the graph and it is re-ingested.")
     lines.append("")
-    lines.append("## Interior (full resolution — yours to change)")
+    lines.append("## Interior (full resolution — yours to change; edit by the file path)")
     for m in context.get("modules", []):
-        lines.append(f"- `{m['id']}` — {m.get('path') or 'no path'}")
+        if m.get("path"):
+            lines.append(f"- {m['path']} (module `{m['id']}`)")
+        else:
+            lines.append(f"- module `{m['id']}` — no file path: not a file you can edit")
     lines.append("")
     lines.append("## Guarding tests (run these; they are the behaviors you can break)")
     lines += [f"- {t}" for t in context.get("guarding_tests", [])] or ["- none recorded — this code is unguarded"]
@@ -272,8 +275,11 @@ def render_brief(spec: dict, unit: str, role: str, inbox: list[dict], session: s
         "- The knowledge tools answer for any node; outside your manifest "
         "the answer is still served, and logged as a context fault. Use "
         "them — the faults are how the allocator learns.",
-        "- When done, `reflect` a two-line summary: what changed, and what "
-        "you could not verify.",
+        "- Module names like `pkg.mod` are graph ids, never file paths: "
+        "edit the paths listed under Interior.",
+        "- When done, `reflect` with kind `handoff`: two lines — what "
+        "changed, and what you could not verify. Only the handoff is "
+        "forwarded; progress reflections stay in the record.",
         "",
         "## Short-term context (your inbox, newest last)",
     ]

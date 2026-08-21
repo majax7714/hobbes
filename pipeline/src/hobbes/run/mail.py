@@ -63,9 +63,33 @@ def reflections(session_dir: Path) -> list[dict]:
     return out
 
 
+HANDOFF = "handoff"
+
+
+def handoff(reflected: list[dict]) -> tuple[dict | None, int]:
+    """The one reflection that is the agent's *job for the next agent*:
+    the last one sent with ``kind: handoff``, else the last reflection
+    at all. Returns it and how many others were set aside. A session
+    that reflects a hundred progress lines (the first live 7B run: U2
+    ×123) hands forward one message, not a transcript."""
+    if not reflected:
+        return None, 0
+    marked = [m for m in reflected if m.get("kind") == HANDOFF]
+    chosen = marked[-1] if marked else reflected[-1]
+    return chosen, len(reflected) - 1
+
+
 def fold_back(orchestrator_dir: Path, unit: str, reflected: list[dict]) -> int:
-    """Deliver a unit's reflections into the orchestrator's inbox, one
-    message each, sender ``<unit>``; returns how many were delivered."""
-    for message in reflected:
-        post(orchestrator_dir, unit, message.get("text", ""), kind="reflection")
-    return len(reflected)
+    """Deliver a unit's handoff into the orchestrator's inbox, sender
+    ``<unit>``, stating how many progress reflections were not
+    forwarded; returns 1 when something was delivered, else 0. The full
+    list stays in the partition record — the inbox is short memory, not
+    the record."""
+    chosen, dropped = handoff(reflected)
+    if chosen is None:
+        return 0
+    text = chosen.get("text", "")
+    if dropped:
+        text += f" ({dropped} earlier reflection(s) not forwarded)"
+    post(orchestrator_dir, unit, text, kind=HANDOFF)
+    return 1

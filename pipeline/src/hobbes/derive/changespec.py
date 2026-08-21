@@ -99,6 +99,12 @@ class ChangeSpec:
     validation: str = VALIDATION
     #: The unit cap the partition ran under (ADR-058), None when uncapped.
     max_units: int | None = None
+    #: Resolved seeds set aside by :func:`impact.filter_seeds`, with the
+    #: reason each — visible, so a rejected seed can be named back in.
+    seeds_rejected: dict[str, str] = field(default_factory=dict)
+    #: Units the cap set aside (``deferred``): in the impact set, no seed,
+    #: lowest-ranked — recorded so the selection is visible, never spawned.
+    units_deferred: list[partition.Unit] = field(default_factory=list)
 
 
 def task_id(proposal: str) -> str:
@@ -190,7 +196,10 @@ def derive_plan(
 
     weights = partition.node_weights(repo_root, graph, tests)
     coupling = partition.module_coupling(graph, modules, history)
-    units = partition.build_units(modules, weights, coupling, budget, max_units=max_units)
+    all_units = partition.build_units(modules, weights, coupling, budget, max_units=max_units,
+                                      scores=impact_set.scores)
+    units = [u for u in all_units if not partition.is_deferred(u)]
+    deferred = [u for u in all_units if partition.is_deferred(u)]
 
     guards = partition.guarding_tests(graph, tests)
     pinned = contracts_mod.build_contracts(graph, units, invariants)
@@ -215,6 +224,8 @@ def derive_plan(
         gate=gate,
         warnings=warnings,
         max_units=max_units,
+        seeds_rejected=dict(sorted(impact_set.seeds_rejected.items())),
+        units_deferred=deferred,
     )
 
 
@@ -255,6 +266,9 @@ def format_spec(spec: ChangeSpec) -> str:
     lines.append(f"  proposal: {spec.proposal}")
     seeded = ", ".join(f"{node} (← {term})" for node, term in spec.seeds.items())
     lines.append(f"  seeds: {seeded}")
+    if spec.seeds_rejected:
+        for node, reason in spec.seeds_rejected.items():
+            lines.append(f"  seed set aside: {node} — {reason}")
     if spec.unresolved_terms:
         lines.append(
             "  unmatched code-shaped terms (C-36, not guessed at): "
@@ -266,7 +280,8 @@ def format_spec(spec: ChangeSpec) -> str:
     capped = sum(1 for u in spec.units if any(f.startswith("capped") for f in u.flags))
     lines.append(
         f"\n{len(spec.units)} unit(s) under a {spec.budget:,}-token budget "
-        + (f"and a {spec.max_units}-unit cap ({capped} capped, C-44) " if spec.max_units else "")
+        + (f"and a {spec.max_units}-unit cap ({capped} capped, "
+           f"{len(spec.units_deferred)} deferred, C-44) " if spec.max_units else "")
         + "— the partition's output, not a parameter:"
     )
     contexts = {c.unit: c for c in spec.contexts}

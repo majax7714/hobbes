@@ -788,7 +788,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
              "target's dependencies, which neither has")
           + f"; network {args.network}")
     print(f"  unit cap: {args.max_units if args.max_units else 'none'}"
-          + (" — units merged past the budget to fit are flagged `capped` (C-44)" if args.max_units else "")
+          + (" — the lowest-impact units are deferred (never a seed-bearing one); seed units merged to fit are flagged `capped` (C-44)" if args.max_units else "")
           + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else 'none'}")
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)

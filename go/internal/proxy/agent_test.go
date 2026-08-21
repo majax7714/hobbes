@@ -112,12 +112,15 @@ func TestReflectAppendsMailAndLogs(t *testing.T) {
 	repo := testRepo(t)
 	s, logPath, sessionDir := agentServer(t, repo, map[string]string{})
 
-	if out := s.reflect("  "); !out.IsError {
+	if out := s.reflect("  ", ""); !out.IsError {
 		t.Errorf("empty reflect accepted")
 	}
-	s.reflect("K1 pins a site that moved")
-	out := s.reflect("done: 2 commits")
-	if out.IsError || !strings.Contains(text(out), "#2") {
+	if out := s.reflect("x", "verdict"); !out.IsError {
+		t.Errorf("unknown reflect kind accepted")
+	}
+	s.reflect("K1 pins a site that moved", "")
+	out := s.reflect("done: 2 commits", ReflectHandoff)
+	if out.IsError || !strings.Contains(text(out), "handoff (#2)") {
 		t.Errorf("second reflect = %q", text(out))
 	}
 	data, err := os.ReadFile(filepath.Join(sessionDir, "mail.jsonl"))
@@ -125,12 +128,13 @@ func TestReflectAppendsMailAndLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], `"seq":1`) || !strings.Contains(lines[1], `"seq":2`) ||
+	if len(lines) != 2 || !strings.Contains(lines[0], `"seq":1`) || !strings.Contains(lines[0], `"kind":"progress"`) ||
+		!strings.Contains(lines[1], `"seq":2`) || !strings.Contains(lines[1], `"kind":"handoff"`) ||
 		!strings.Contains(lines[1], `"role":"implementer"`) || !strings.Contains(lines[1], "done: 2 commits") {
 		t.Errorf("mail.jsonl = %q", string(data))
 	}
 	evs := events(t, logPath)
-	if len(evs) != 2 || evs[0].Tool != "reflect" || evs[0].PolicyRule != "builtin:mail" || evs[0].Argv[0] != "K1 pins a site that moved" {
+	if len(evs) != 2 || evs[0].Tool != "reflect" || evs[0].PolicyRule != "builtin:mail" || evs[0].Argv[1] != "K1 pins a site that moved" {
 		t.Errorf("reflect events = %+v", evs)
 	}
 }

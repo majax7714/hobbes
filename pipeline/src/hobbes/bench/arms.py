@@ -252,6 +252,7 @@ def run_harness_arm(
         "units": len(spec.units),
         "max_units": max_units,
         "capped": sum(1 for u in spec.units if any(f.startswith("capped") for f in u.flags)),
+        "deferred": len(spec.units_deferred),
         "contracts": len(spec.contracts),
         "human_first": [c.unit for c in spec.contexts if c.human_first],
         "gate": spec.gate.result,

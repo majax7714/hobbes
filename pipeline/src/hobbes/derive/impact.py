@@ -88,6 +88,9 @@ class ImpactSet:
     #: code-shaped proposal terms that matched nothing (C-36) — reported,
     #: never guessed at.
     unresolved_terms: list[str] = field(default_factory=list)
+    #: node id -> why a resolved seed was set aside (:func:`filter_seeds`);
+    #: recorded in the spec so the decision is visible, never silent.
+    seeds_rejected: dict[str, str] = field(default_factory=dict)
 
 
 def module_of_symbols(graph: dict) -> dict[str, str]:
@@ -241,6 +244,58 @@ def expand(graph: dict, seeds: dict[str, str]) -> dict[str, float]:
     return scores
 
 
+def _in_code_context(term: str, proposal: str) -> bool:
+    """Whether the proposal names *term* as code somewhere: inside
+    backticks, or called (``term(``). A prose word that is also a
+    symbol name seeds only on this evidence once better seeds exist."""
+    if re.search(r"`[^`\n]*\b" + re.escape(term) + r"\b[^`\n]*`", proposal):
+        return True
+    return re.search(r"\b" + re.escape(term) + r"\(", proposal) is not None
+
+
+def filter_seeds(
+    graph: dict, proposal: str, seeds: dict[str, str], explicit: list[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Seed hygiene (harness restructure, phase 0): returns (kept,
+    rejected-with-reason). Two deterministic rules, both conditional on
+    better evidence existing, so the filter can never empty the set:
+
+    1. a **package** node is set aside when any module-level seed
+       remains — the root package is the whole repo, never the change;
+    2. a **prose-shaped** hit (a lowercase single word that equals a
+       symbol or file stem — ``input``, ``open``, ``check``) is set
+       aside when the proposal also seeded through a *code-shaped* term
+       (``AltAz``, ``astropy.coordinates.baseframe``), unless the
+       proposal names it as code (backticks, or a call).
+
+    Explicit ``--seed`` values are never rejected: the human named them.
+    The first live astropy run seeded the root package plus fourteen
+    prose words and the impact set became the repository (C-36).
+    """
+    kinds = {n["id"]: n.get("kind") for n in graph.get("nodes", [])}
+    explicit_set = set(explicit)
+    kept, rejected = dict(seeds), {}
+    # Rule 2 first: the more specific reason wins when both apply.
+    if any(kinds.get(n) != "package" for n in kept):
+        for node, term in list(kept.items()):
+            if term in explicit_set or kinds.get(node) != "package":
+                continue
+            rejected[node] = (f"package node seeded by {term!r} while module seeds exist: "
+                              "a package is the whole tree, not the change")
+            del kept[node]
+    code_evidence = any(
+        term in explicit_set or _code_shaped(term) for term in kept.values()
+    )
+    if code_evidence:
+        for node, term in list(kept.items()):
+            if term in explicit_set or _code_shaped(term) or _in_code_context(term, proposal):
+                continue
+            rejected[node] = (f"prose-shaped term {term!r} while code-shaped seeds exist "
+                              "(C-36); name it as code or with --seed if it matters")
+            del kept[node]
+    return kept, rejected
+
+
 def build_impact(graph: dict, proposal: str, explicit: list[str]) -> ImpactSet:
     """Seeds plus expansion; raises :class:`SeedError` when nothing seeds.
 
@@ -257,5 +312,6 @@ def build_impact(graph: dict, proposal: str, explicit: list[str]) -> ImpactSet:
             "no proposal term matches any node, symbol, or file in the "
             f"graph{hint} — name a starting point with --seed"
         )
+    seeds, rejected = filter_seeds(graph, proposal, seeds, explicit)
     return ImpactSet(scores=expand(graph, seeds), seeds=seeds,
-                     unresolved_terms=unresolved)
+                     unresolved_terms=unresolved, seeds_rejected=rejected)

@@ -791,6 +791,16 @@ information appears in both, and the entries cross-reference.
   `--seed` hint when nothing resolves (exit 2), and every change-spec
   lists `unresolved_terms` with the C-36 note; resolved seeds show
   which term hit them, so a spurious seed is visible in the spec.
+  *Amended 2026-08-22 (harness restructure, phase 0): the first live
+  astropy run seeded the root package (`astropy`) plus fourteen prose
+  words (`input`, `open`, `check`, `unit`, …) and the impact set was
+  the repository — the candidate patch overlapped the gold files in
+  zero places. Two deterministic hygiene rules now set such seeds
+  aside when better evidence exists (`impact.filter_seeds`), and the
+  spec lists each under `seeds_rejected` with its reason; `hobbes
+  plan` prints them. The rules narrow spurious seeding; they do not
+  read prose — the generative planner above this layer is the
+  restructure's phase 2.*
 - **Source:** ADR-051 (2026-08-19).
 
 ### C-37 — A pinned contract is a declaration site, not a signature
@@ -968,25 +978,34 @@ information appears in both, and the entries cross-reference.
   pre-command; `hobbes-session --dry-run` prints all of them.
 - **Source:** ADR-058 (2026-08-21).
 
-### C-44 — A capped unit was merged for count, not coupling
-- **Cannot tell you:** that the modules in a `capped` unit belong
-  together. The benchmark unit cap (`--max-units`, default 20,
-  ADR-058) merges the budgeted partition past its context budget —
-  strongest coupling first, then the lightest units regardless of
-  coupling — until the count fits. A unit the cap touched may carry
-  an over-budget context or unrelated modules; the number of sessions
-  was the decision, not the partition.
+### C-44 — The unit cap decides which units run, not which belong together
+- **Cannot tell you:** that a deferred unit did not need a session, or
+  that the modules in a `capped` unit belong together. The benchmark
+  unit cap (`--max-units`, default 20, ADR-058; restated 2026-08-22 by
+  the harness restructure) **selects**: units are ranked by the best
+  impact score in their interior, then weight, and the lowest-ranked
+  are **deferred** — recorded in the spec under `units_deferred` with
+  their score, never spawned. A seed-bearing unit (score 1.0) is
+  never deferred; when those alone exceed the cap they **merge** past
+  the context budget — strongest coupling first, then lightest — and
+  are flagged `capped`. Either way the number of sessions was the
+  decision, not the partition.
 - **Because:** one instance's plan reached 210 units on a large repo
-  under lexical seeds (C-35/C-36), at ~7.5 minutes a session; the cap
-  bounds the run's cost while the partition's quality is still
-  unvalidated. It does not improve the partition.
+  under lexical seeds (C-35/C-36); the first cap (merge-to-fit) then
+  fused 300 modules into one 17M-token unit whose brief was cut by
+  418 KB — the gold files inside it, the unit that edited nothing.
+  The cap bounds the run's cost; deferring keeps the units it does
+  run the partition's own. It does not improve the partition.
 - **Bites at:** reading a capped plan's unit boundaries as derived
-  structure; measuring H2 (per-unit context) on capped units without
-  separating them.
-- **You find out:** **surfaced** — every touched unit carries a
-  `capped: … (C-44)` flag in the spec; `max_units` is recorded in the
-  spec and `run.json`; the record's `detail.plan.capped` counts them;
-  `hobbes plan` and the bench banner print the cap.
+  structure; a deferred unit that the change did reach (the impact
+  score ranked it low — C-35's weights deciding); measuring H2
+  (per-unit context) on capped units without separating them.
+- **You find out:** **surfaced** — every deferred unit is listed in
+  the spec (`units_deferred`, flag `deferred: … best impact score …`)
+  and every merged one carries `capped: … (C-44)`; `max_units` is
+  recorded in the spec and `run.json`; the record's `detail.plan`
+  counts `capped` and `deferred`; `hobbes plan` and the bench banner
+  print both.
 - **Source:** ADR-058 (2026-08-21).
 
 ### C-45 — A brief is held to the model's window; what was cut is named, not read

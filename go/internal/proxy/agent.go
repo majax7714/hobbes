@@ -73,7 +73,15 @@ func (m *contextManifest) covers(query string) bool {
 // ReflectArgs is the reflect tool's input schema.
 type ReflectArgs struct {
 	Text string `json:"text" jsonschema:"a message back to the orchestrator: a blocked contract, a needed specific, or a result summary — this is the short-term channel; it lands in the orchestrator's inbox and is recorded"`
+	Kind string `json:"kind,omitempty" jsonschema:"progress (default) or handoff — send exactly one handoff when your job is done; only the handoff is forwarded to the next agent, progress lines stay in the record"`
 }
+
+// Reflection kinds. A handoff is the one message the next agent's short
+// memory receives; everything else is progress, kept in the record.
+const (
+	ReflectProgress = "progress"
+	ReflectHandoff  = "handoff"
+)
 
 // mailLine is one line of <session-dir>/mail.jsonl.
 type mailLine struct {
@@ -81,6 +89,7 @@ type mailLine struct {
 	TS      string `json:"ts"`
 	Session string `json:"session"`
 	Role    string `json:"role"`
+	Kind    string `json:"kind"`
 	Text    string `json:"text"`
 }
 
@@ -96,17 +105,24 @@ func (s *Server) addReflectTool(srv *mcp.Server) {
 			"summary of what you did. This is the short-term channel (the " +
 			"orchestrator's inbox); commits are the standing one. Recorded.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args ReflectArgs) (*mcp.CallToolResult, any, error) {
-		return s.reflect(args.Text), nil, nil
+		return s.reflect(args.Text, args.Kind), nil, nil
 	})
 }
 
 // reflect appends one mail line and logs the event.
-func (s *Server) reflect(textArg string) *mcp.CallToolResult {
+func (s *Server) reflect(textArg, kind string) *mcp.CallToolResult {
+	switch kind {
+	case "", ReflectProgress:
+		kind = ReflectProgress
+	case ReflectHandoff:
+	default:
+		return errResult("reflect: kind must be %q or %q", ReflectProgress, ReflectHandoff)
+	}
 	ev := recorder.Event{
 		Session:    s.cfg.Session,
 		Role:       s.cfg.Role,
 		Tool:       "reflect",
-		Argv:       []string{textArg},
+		Argv:       []string{kind, textArg},
 		PolicyRule: "builtin:mail",
 		Decision:   "allow",
 		SHA:        headSHA(s.cfg.RepoRoot),
@@ -116,13 +132,13 @@ func (s *Server) reflect(textArg string) *mcp.CallToolResult {
 	}
 	seq, err := appendMail(filepath.Join(s.cfg.SessionDir, "mail.jsonl"), mailLine{
 		TS: time.Now().UTC().Format(time.RFC3339Nano), Session: s.cfg.Session,
-		Role: s.cfg.Role, Text: textArg,
+		Role: s.cfg.Role, Kind: kind, Text: textArg,
 	})
 	if err != nil {
 		return s.record(ev, errResult("reflect: %v", err))
 	}
 	return s.record(ev, &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("reflected (#%d) to the orchestrator's inbox", seq)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("reflected %s (#%d) to the orchestrator's inbox", kind, seq)}},
 	})
 }
 

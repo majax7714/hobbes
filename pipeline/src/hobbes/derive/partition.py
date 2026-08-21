@@ -133,23 +133,39 @@ def module_coupling(
     return coupling
 
 
+#: A seed scores 1.0 in the impact set; a unit holding one is never
+#: deferred by the cap — it is what the proposal named.
+SEED_SCORE = 1.0
+
+
+def is_deferred(unit: Unit) -> bool:
+    """Whether the cap set this unit aside (``deferred`` flag)."""
+    return any(f.startswith("deferred") for f in unit.flags)
+
+
 def build_units(
     modules: list[str],
     weights: dict[str, int],
     coupling: dict[tuple[str, str], float],
     budget: int = DEFAULT_BUDGET,
     max_units: int | None = None,
+    scores: dict[str, float] | None = None,
 ) -> list[Unit]:
     """Agglomerative merge under *budget*; returns named, ordered units.
 
-    *max_units* is the unit cap (ADR-058): when the budgeted partition
-    leaves more units than this, the strongest-coupled pairs merge
-    **past the budget**, and — once no coupling is left — the lightest
-    units merge together, until the count fits. Every unit that
-    crossed the budget or absorbed an uncoupled neighbour is flagged
-    ``capped``: the cap is a sizing decision about how many sessions a
-    run may spawn, not a claim that the merged modules belong
-    together (C-44). ``None`` means no cap.
+    *max_units* is the unit cap (ADR-058, restated by the harness
+    restructure): when the budgeted partition leaves more units than
+    this, the cap **selects** rather than merges — units are ranked by
+    the best impact *score* in their interior (*scores*, the impact
+    set's), then weight, and the lowest-ranked are **deferred**: kept
+    in the result, named ``D1..``, flagged ``deferred`` with their
+    score, never spawned. A unit holding a seed (score 1.0) is never
+    deferred; when seed-bearing units alone exceed the cap, they merge
+    past the budget — strongest coupling first, then lightest — and
+    are flagged ``capped`` (C-44). The first live run had merged 300
+    modules into one 17M-token unit to meet a cap of 10; a cap is a
+    ceiling on sessions, not a reason to fuse the repository.
+    ``None`` means no cap.
     """
     members: dict[int, list[str]] = {i: [m] for i, m in enumerate(modules)}
     home = {m: i for i, m in enumerate(modules)}
@@ -211,11 +227,23 @@ def build_units(
                 home[m] = j
             members[j] = sorted({m for m, h in home.items() if h == j})
 
-    # The unit cap (ADR-058): merge past the budget, strongest coupling
-    # first, then the lightest pairs when nothing couples. Deterministic
-    # by the same tie rule as above (smallest member id).
+    # The unit cap: select first — defer the lowest-impact units until
+    # the count fits, never a seed-bearing one — then merge only among
+    # seed-bearing units if those alone exceed the cap.
+    scores = scores or {}
+
+    def unit_score(i: int) -> float:
+        return max((scores.get(m, 0.0) for m in members[i]), default=0.0)
+
+    deferred: dict[int, list[str]] = {}
     capped: set[int] = set()
     if max_units is not None and max_units >= 1:
+        ranked = sorted(members, key=lambda i: (-unit_score(i), -unit_weight(i), members[i][0]))
+        while len(members) > max_units:
+            candidates = [i for i in reversed(ranked) if i in members and unit_score(i) < SEED_SCORE]
+            if not candidates:
+                break
+            deferred[candidates[0]] = members.pop(candidates[0])
         while len(members) > max_units:
             ids = sorted(members)
             best: tuple[float, int, str, int, int] | None = None
@@ -261,6 +289,14 @@ def build_units(
             )
         units.append(Unit(name=f"U{index}", modules=ms, weight=weight,
                           flags=flags))
+    for index, (uid, ms) in enumerate(sorted(
+            deferred.items(), key=lambda kv: (-max((scores.get(m, 0.0) for m in kv[1]), default=0.0),
+                                              -sum(weights.get(m, 0) for m in kv[1]), kv[1][0])), start=1):
+        best = max((scores.get(m, 0.0) for m in ms), default=0.0)
+        units.append(Unit(name=f"D{index}", modules=ms,
+                          weight=sum(weights.get(m, 0) for m in ms),
+                          flags=[f"deferred: set aside by the unit cap (max_units={max_units}); "
+                                 f"best impact score {best:.3f}, no seed — not spawned (C-44)"]))
     return units
 
 

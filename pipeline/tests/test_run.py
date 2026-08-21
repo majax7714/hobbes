@@ -137,8 +137,26 @@ class TestMail:
         orchestrator = tmp_path / "orchestrator"
         assert mail.fold_back(orchestrator, "U1", mail.reflections(session)) == 1
         folded = mail.read(orchestrator)[0]
-        assert folded["from"] == "U1" and folded["kind"] == "reflection"
+        assert folded["from"] == "U1" and folded["kind"] == "handoff"
         assert mail.reflections(tmp_path / "nowhere") == []
+
+    def test_only_the_handoff_is_forwarded(self, tmp_path):
+        # The first live 7B run reflected 123 progress lines from one unit;
+        # short memory is the handoff, the record keeps the rest.
+        session = tmp_path / "sess"
+        session.mkdir()
+        lines = [{"seq": i, "kind": "progress", "text": f"step {i}"} for i in range(1, 6)]
+        lines.insert(3, {"seq": 99, "kind": "handoff", "text": "changed core; tests unrun"})
+        (session / "mail.jsonl").write_text("".join(json.dumps(l) + "\n" for l in lines))
+        orchestrator = tmp_path / "orchestrator"
+        assert mail.fold_back(orchestrator, "U1", mail.reflections(session)) == 1
+        [folded] = mail.read(orchestrator)
+        assert folded["text"] == "changed core; tests unrun (5 earlier reflection(s) not forwarded)"
+        # no handoff marked: the last reflection stands in, and says what was dropped
+        chosen, dropped = mail.handoff(lines[:3])
+        assert chosen["text"] == "step 3" and dropped == 2
+        assert mail.handoff([]) == (None, 0)
+        assert mail.fold_back(orchestrator, "U2", []) == 0
 
 
 class TestAgents:
@@ -193,6 +211,19 @@ class TestAgents:
             consumer = c["from_unit"] if c["owner"] == c["to_unit"] else c["to_unit"]
             far = agents.build_context_json(spec, consumer)["boundary"]
             assert far, "a consumer's boundary names the owner's declaration"
+
+    def test_interior_renders_paths_first_and_names_pathless_modules(self, planned):
+        # The first live run's model created a file literally named
+        # `.:conftest` — the module id had been rendered before the path.
+        repo, task = planned
+        spec = load_spec(repo, task)
+        unit = spec["units"][0]["name"]
+        context = next(c for c in spec["contexts"] if c["unit"] == unit)
+        context["modules"] = [{"id": ".:conftest", "path": "conftest.py"}, {"id": "ghost", "path": None}]
+        text = agents.render_context(spec, unit)
+        assert "- conftest.py (module `.:conftest`)" in text
+        assert "- module `ghost` — no file path: not a file you can edit" in text
+        assert "- `.:conftest` —" not in text
 
     def test_brief_carries_both_horizons_and_obligations(self, planned):
         repo, task = planned
@@ -255,7 +286,7 @@ class TestRun:
             assert (sessions / u["session"] / "argv.txt").read_text().strip().endswith(unit)
         # reflections folded into the orchestrator's inbox
         inbox = mail.read(agents.agent_dir(plan_dir(repo, task), "orchestrator"))
-        assert [m["kind"] for m in inbox].count("reflection") == len(units)
+        assert [m["kind"] for m in inbox].count("handoff") == len(units)
         # integration: the first branch merges; the second touches the same
         # lines and conflicts — recorded at the cut, never guessed
         integ = record["integration"]

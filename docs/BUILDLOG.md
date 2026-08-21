@@ -3569,3 +3569,44 @@ fan-out shape), and how to start a clean run. Updated the
 `hobbes-benchmark-run` memory to point at it. Run stopped, containers
 down, partial archived at `verified-complex-7b.strict-partial`. All on
 `main`, 797 pytest / Go green. Nothing running.
+
+## 2026-08-22 (thirty-seventh) — the restructure plan, and phase 0
+
+Read the stopped run's artifacts against the gold patches: the
+harness patches overlapped the gold files in **zero** places on both
+astropy instances. The handoff's "8/17 productive" counted edits, not
+relevance. Cause: the lexical seeds — `astropy` (root package, score
+1.0) plus fourteen prose words (`input`, `open`, `check`, `unit`, …)
+— made the impact set the repository; the cap then merged 300 modules
+into one 17M-token unit (brief cut by 418 KB, gold files inside, the
+unit that edited nothing) and nine leftover singletons did the
+"work". A session also created a file literally named `.:conftest`
+(module id rendered before the path), and one unit reflected 123
+times.
+
+Max restated the structure: single-use **derived-context** agents,
+one alive at a time, job = short memory (planner → reviewers →
+implementers → verifier). Wrote `docs/harness-restructure-plan.md`
+(phases 0–4, accepted) and built **phase 0**:
+
+- **Seed hygiene** (`impact.filter_seeds`): a package node is set
+  aside once a module seeded; a prose-shaped symbol hit is set aside
+  once a code-shaped term seeded, unless the proposal names it as
+  code. Recorded as `seeds_rejected` in the spec, printed by `hobbes
+  plan`. C-36 amended.
+- **The cap selects** (`partition.build_units(scores=)`): the
+  lowest-impact units are *deferred* (recorded `units_deferred`,
+  never spawned, never a seed-bearing one); seed units merge only
+  when they alone exceed the cap. C-44 restated.
+- **Path-first interior** in the brief; a pathless module is stated as
+  not editable. **`reflect` gains `kind: progress | handoff`** (Go);
+  only the handoff folds forward, with the dropped count stated.
+
+Exit check, re-planning the archived astropy workspaces (no write):
+13579's seeds are now `SlicedLowLevelWCS`, `WCS`, `world_to_pixel`…
+(23 prose seeds set aside) and its U10 is exactly
+`wcsapi/wrappers/sliced_wcs` + `test_sliced_wcs` — the gold file and
+gold test; 13398's U8 is `builtin_frames/itrs`, U9 `hadec` +
+`icrs_observed_transforms`. Oversize single-module units remain
+(`units.quantity`, `wcs.wcs` — C-35's grain). **805 pytest / Go
+green.** Proxy rebuilt (static + sandbox copy). Next: phase 1.
