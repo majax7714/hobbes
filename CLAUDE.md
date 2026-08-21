@@ -264,6 +264,21 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
+**2026-08-21 (run stopped for restructure — read
+`docs/harness-restructure-handoff.md`):** The first live 7B benchmark
+pass was shaken out over this session — **six** harness fixes (ADR-058:
+env binding C-43, unit cap C-44, brief-as-file+limit C-45, window-fit
+C-46, commit-on-exit, and the strict pipeline discipline) got it
+producing candidate patches. Running it then showed the **structural**
+problem: the harness spawns a session per partition unit and **~half
+are spurious** (8/17 units ever edited; astropy-13579 was 2/9). Owner
+stopped the run — **enough to restructure, not to keep paying for the
+current shape.** Fresh session's job: **task-tailored unit selection**
+(spawn only units the change reaches; first cut = skip a unit with no
+seed-reachable interior), then re-ask whether per-unit-session fan-out
+is the right shape. **No solve verdicts gathered** — the first-10-20
+decision point was never reached. 797 pytest / Go green.
+
 **2026-08-21 (the first full run: stopped, fixed, relaunched —
 ADR-058):** The handoff's run started and was polled at 20 min;
 instance 1 showed a **210-unit plan** (~7.5 min/session) and sessions

@@ -3550,3 +3550,22 @@ it writes (H1 stays the model's). Pure-Python loop change (copied into
 each session at spawn — no Go rebuild). pytest +3: **797 / Go green**.
 Restarted the run under the stricter pipeline for clean decision-point
 data.
+
+## 2026-08-21 (thirty-sixth) — run stopped for restructure; session wound down
+
+Owner's call after watching the strict-pipeline run: the spurious-unit
+waste is clear and expensive; we have gained enough to **restructure
+the harness and start fresh** rather than keep paying for the current
+shape. Measured before stopping: **8/17 units ever edited** across
+sessions (astropy-13579 was 2/9); the strict discipline halved
+heavy-repo harness wall time (13.8 → 6.1 min) but bounding waste is not
+removing it. **No solve verdicts** were gathered — the decision point
+(first 10-20) was never reached; we stopped on the efficiency finding.
+
+Wrote `docs/harness-restructure-handoff.md` — the fresh-session
+starting point: the six harness fixes to keep (ADR-058), the
+restructure (task-tailored **unit selection** first, then re-ask the
+fan-out shape), and how to start a clean run. Updated the
+`hobbes-benchmark-run` memory to point at it. Run stopped, containers
+down, partial archived at `verified-complex-7b.strict-partial`. All on
+`main`, 797 pytest / Go green. Nothing running.
