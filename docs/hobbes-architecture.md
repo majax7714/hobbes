@@ -813,6 +813,27 @@ owner's structure (2026-08-21):
   weights, labelled a guess (C-35), unobserved terms (tokens, wall
   time) named rather than imputed.
 
+**Staged execution (ADR-059).** `hobbes run --from-proposal "<text>"`
+(and the benchmark harness arm with `--stages`) runs a proposal through
+**stages**, one single-use session alive at a time, each agent's job
+arriving as its short-term memory — the previous agent's **handoff**
+(a `reflect` with `kind: handoff`). A `planner` (read-only) reads the
+repo under a graph-derived map and hands off the files/symbols/tests
+the change touches; those resolve *tolerantly* to seeds, so this is the
+generative layer C-36 always placed *above* the lexical seeds, never
+inside them (a rambling planner falls back to the lexical seeds, and
+`seed_source` records which). `hobbes plan` then derives
+deterministically; `implementer` sessions run in contract order, each
+cloned at the **current** integration head so a consumer sees its
+owner's commit, integrated immediately after harvest; a `verifier`
+(read-only) runs the named tests and hands off pass/fail; an opt-in
+`reviewer` judges the spec and an opt-in bounded `rework` redoes what
+the verifier failed. Agents never read each other's transcripts — the
+handoffs and the pinned contracts are the only shared state. The
+planner's seeds are a model opinion (**C-47**) and the verifier reads a
+read-only tree (**C-48**). Agent count is still the partition's output
+under the planner's seeds.
+
 What the base states rather than enforces is **C-38**: write scope is
 advisory at path grain and measured as rework; renegotiation has no
 approval flow; nothing is metered. Still parked in

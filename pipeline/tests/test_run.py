@@ -426,3 +426,127 @@ class TestCommitOnExit:
         assert record["units"][0]["exit_commit_files"] == 2
         plain = orchestrate.run_task(repo, task, session_bin=fake_session, sessions_root=tmp_path / "s2")
         assert plain["units"][0]["exit_commit_files"] == 0
+
+
+#: A role-aware stand-in session for the staged flow (ADR-059): the
+#: planner hands off a real file, an implementer edits its unit's first
+#: interior path and commits, the verifier hands off pass. It writes the
+#: same shapes (mail.jsonl, a harvested branch) the Go side writes.
+STAGED_SESSION = """\
+#!/bin/sh
+set -e
+repo=""; role=""; session=""; sessions=""; agent=""; ref=""; dry=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo="$2"; shift 2;;
+    --role) role="$2"; shift 2;;
+    --session) session="$2"; shift 2;;
+    --sessions) sessions="$2"; shift 2;;
+    --agent-dir) agent="$2"; shift 2;;
+    --ref) ref="$2"; shift 2;;
+    --task-file) shift 2;;
+    --dry-run) dry=1; shift;;
+    *) shift;;
+  esac
+done
+mkdir -p "$sessions/$session"
+[ -n "$dry" ] && { echo "dry run"; exit 0; }
+handoff() { printf '{"seq":1,"session":"%s","role":"%s","kind":"handoff","text":%s}\\n' "$session" "$role" "$1" > "$sessions/$session/mail.jsonl"; }
+case "$role" in
+  planner) handoff '"files: src/app/core.py\\ntests: tests/test_api.py\\napproach: fix handle"';;
+  reviewer) handoff '"verdict: approve"';;
+  verifier) handoff "\\"verdict: ${HOBBES_TEST_VERDICT:-pass}\\"";;
+  *)
+    path=$(python3 -c "import json,sys; print((json.load(open('$agent/context.json')).get('paths') or [''])[0])")
+    wt="$sessions/$session/worktree"
+    rm -rf "$wt"; git clone -q --local --no-hardlinks "$repo" "$wt"
+    br="hobbes/$session"
+    if [ -n "$ref" ]; then git -C "$wt" checkout -q -b "$br" "$ref"; else git -C "$wt" checkout -q -b "$br"; fi
+    [ -n "$path" ] && printf '\\n# %s edit\\n' "$session" >> "$wt/$path"
+    git -C "$wt" -c user.name=a -c user.email=a@a add -A
+    git -C "$wt" -c user.name=a -c user.email=a@a commit -qm "feat: $session" || true
+    git -C "$repo" fetch -q "$wt" "$br:$br" || true
+    rm -rf "$wt"
+    handoff '"changed the unit"'
+  ;;
+esac
+echo "session $role done"
+"""
+
+
+@pytest.fixture
+def staged_session(tmp_path):
+    path = tmp_path / "hobbes-session-staged"
+    path.write_text(STAGED_SESSION)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    return str(path)
+
+
+class TestStagedRun:
+    def _proposal(self):
+        return "improve app.core handle retry"
+
+    def test_planner_seeds_drive_the_plan_and_units_are_implemented(self, plan_repo, staged_session, tmp_path):  # noqa: F811
+        from hobbes.run.stages import run_staged
+        rec = run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                         sessions_root=tmp_path / "s", max_units=5)
+        assert rec["seed_source"] == "planner"
+        # the planner's handoff is a stage, its resolved seed is app.core
+        plan = next(s for s in rec["stages"] if s["stage"] == "plan")
+        assert "app.core" in plan["resolved"] and plan["unresolved"] == []
+        # every implementer's inbox carried the planner note
+        assert any(u["spawned"] for u in rec["units"])
+        assert rec["integration"]["merged"]
+        # the verifier ran and passed
+        verify = rec["verify"]
+        assert verify["verdict"] == "pass" and verify["verdict_source"] == "keyed"
+
+    def test_lexical_fallback_when_the_planner_names_nothing_real(self, plan_repo, staged_session, tmp_path, monkeypatch):  # noqa: F811
+        # a planner that resolves nothing → the deterministic seeds stand,
+        # recorded as the fallback, never a failed run
+        from hobbes.run import stages
+        monkeypatch.setattr(stages, "run_planner", lambda *a, **k: {
+            "session": "x-planner", "exit": 0,
+            "handoff": stages.parse_handoff("files: does/not/exist.py"), "reflections": []})
+        rec = stages.run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                                sessions_root=tmp_path / "s", max_units=5)
+        assert rec["seed_source"] == "lexical-fallback"
+        assert rec["planner_unresolved"] == ["does/not/exist.py"]
+        assert rec["units"]  # still planned and ran on the lexical seeds
+
+    def test_rework_runs_when_the_verifier_fails(self, plan_repo, staged_session, tmp_path, monkeypatch):  # noqa: F811
+        from hobbes.run import stages
+        monkeypatch.setenv("HOBBES_TEST_VERDICT", "fail")
+        rec = stages.run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                                sessions_root=tmp_path / "s", max_units=5,
+                                stages=("plan", "implement", "verify", "rework"), max_rework=1)
+        assert rec["rework"] == 1
+        # a fail then one rework then a second verify — two verify stages
+        assert len([s for s in rec["stages"] if s["stage"] == "verify"]) == 2
+
+    def test_dry_run_spawns_nothing(self, plan_repo, tmp_path):  # noqa: F811
+        from hobbes.run.stages import run_staged
+        rec = run_staged(plan_repo, self._proposal(), session_bin=None,
+                         sessions_root=tmp_path / "s", max_units=5, dry_run=True)
+        assert rec["seed_source"] in ("planner", "lexical-fallback")
+        assert all(not u["spawned"] for u in rec["units"])
+
+
+class TestHandoffParsing:
+    def test_keyed_lists_backticks_and_json(self):
+        from hobbes.run.handoff import parse_handoff
+        keyed = parse_handoff("\n".join(["files: a.py, `b/c.py`", "symbols: Foo", "tests: t.py"]))
+        assert keyed["files"] == ["a.py", "b/c.py"] and keyed["symbols"] == ["Foo"]
+        js = parse_handoff('{"files": ["x.py"], "verdict": "PASS"}')
+        assert js["files"] == ["x.py"] and js["verdict"] == "pass" and js["verdict_source"] == "keyed"
+
+    def test_verdict_inference_is_marked_not_asserted(self):
+        from hobbes.run.handoff import parse_handoff
+        assert parse_handoff("everything passes")["verdict"] == "pass"
+        assert parse_handoff("everything passes")["verdict_source"] == "inferred"
+        assert parse_handoff("I looked around")["verdict_source"] == "none"
+
+    def test_paths_with_trailing_reasons_are_cleaned(self):
+        from hobbes.run.handoff import parse_handoff
+        h = parse_handoff("\n".join(["files:", "- src/wcs.py (the slicer)", "- src/utils.py — helpers"]))
+        assert h["files"] == ["src/wcs.py", "src/utils.py"]

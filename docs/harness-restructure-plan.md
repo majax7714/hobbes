@@ -99,7 +99,7 @@ verdict-bearing run.
 Each phase is a commit group with tests, the architecture patched in
 the same commit (ADR-033), and its concessions registered (P8).
 
-### Phase 0 — correctness fixes that stand regardless of structure
+### Phase 0 — correctness fixes that stand regardless of structure  ✅ done (b620422)
 
 - **Module-id → path leak.** The brief renders only paths; an interior
   module with no path is stated as "not a file you can edit". Audit
@@ -116,7 +116,7 @@ the same commit (ADR-033), and its concessions registered (P8).
 - Exit: suite green; `hobbes plan` re-run on the archived astropy
   workspaces no longer makes U1 the repo.
 
-### Phase 1 — roles first-class across the three layers
+### Phase 1 — roles first-class across the three layers  ✅ done (73c8f2d)
 
 - Go: `planner` and `reviewer` in `ReadOnlyRoles`; role-policy
   templates for both (deny commit/add; else escalate).
@@ -129,7 +129,7 @@ the same commit (ADR-033), and its concessions registered (P8).
 - Exit: Go + pytest green; a dry run with `--role planner` shows the
   ro mount and the read-only tool list.
 
-### Phase 2 — the stage loop (ADR-059)
+### Phase 2 — the stage loop (ADR-059)  ✅ done
 
 `run/orchestrate.py` becomes a sequence of stages, one session alive
 at a time, each agent's job arriving as its inbox:

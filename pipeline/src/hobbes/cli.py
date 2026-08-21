@@ -658,6 +658,35 @@ def _cmd_run(args: argparse.Namespace) -> int:
     from hobbes.run.orchestrate import format_record
 
     repo_root = _repo_root_from(args)
+    if args.from_proposal:
+        from hobbes.run.stages import ALL_STAGES, run_staged
+        stages = tuple(s.strip() for s in args.stages.split(",") if s.strip())
+        bad = [s for s in stages if s not in ALL_STAGES]
+        if bad:
+            print(f"hobbes run: unknown stage(s) {', '.join(bad)}; choose from {', '.join(ALL_STAGES)}",
+                  file=sys.stderr)
+            return 2
+        try:
+            record = run_staged(
+                repo_root, args.from_proposal, stages=stages, dry_run=args.dry_run,
+                session_bin=args.session_bin, sessions_root=Path(args.sessions) if args.sessions else None,
+                extra_args=args.session_arg or [], brief_limit=args.brief_limit, max_units=args.max_units,
+            )
+        except (RunError, artifacts.ArtifactError) as exc:
+            print(f"hobbes run: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(f"staged run {record['task']}: seed_source={record['seed_source']}, "
+                  f"{len(record['units'])} unit(s), integration {record['integration'].get('merged')}, "
+                  f"verify {record.get('verify', {}).get('verdict', 'n/a')}")
+        verify = record.get("verify", {})
+        return 1 if (record["integration"].get("failed") or verify.get("verdict") == "fail") else 0
+    if not args.task:
+        print("hobbes run: give a plan id, or --from-proposal to plan and run in one pass",
+              file=sys.stderr)
+        return 2
     try:
         record = run_task(
             repo_root,
@@ -790,6 +819,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     print(f"  unit cap: {args.max_units if args.max_units else 'none'}"
           + (" — the lowest-impact units are deferred (never a seed-bearing one); seed units merged to fit are flagged `capped` (C-44)" if args.max_units else "")
           + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else 'none'}")
+    print(f"  harness arm: {'staged — ' + args.stages + ' (ADR-059)' if args.stages else 'per-unit (ADR-054)'}")
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)
         return 2
@@ -801,6 +831,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         clean=args.clean, timeout=args.timeout, runtime=runtime,
         environment_kind=args.environment, network=args.network, max_units=args.max_units,
         brief_limit=args.brief_limit or None,
+        stages=tuple(s.strip() for s in args.stages.split(",") if s.strip()) if args.stages else None,
     )
     failed = False
     if args.evaluate:
@@ -1169,7 +1200,17 @@ def build_parser() -> argparse.ArgumentParser:
             "are not spawned. --dry-run writes everything and spawns nothing."
         ),
     )
-    run_parser.add_argument("task", help="a plan id from .hobbes/plans/ (a unique prefix will do)")
+    run_parser.add_argument("task", nargs="?",
+                            help="a plan id from .hobbes/plans/ (a unique prefix will do); "
+                            "omit with --from-proposal, which plans and runs in one staged pass")
+    run_parser.add_argument("--from-proposal", metavar="TEXT",
+                            help="staged run (ADR-059): a planner names the change, `hobbes plan` derives on "
+                            "its seeds, implementers run chained, a verifier checks — no pre-written spec")
+    run_parser.add_argument("--stages", default="plan,implement,verify",
+                            help="staged run: comma-separated from plan,review,implement,verify,rework "
+                            "(default plan,implement,verify)")
+    run_parser.add_argument("--max-units", type=int, default=None,
+                            help="staged run: unit cap (C-44); the lowest-impact units are deferred")
     run_parser.add_argument("--dry-run", action="store_true",
                             help="materialize agents and briefs; spawn nothing")
     run_parser.add_argument("--unit", action="append",
@@ -1275,6 +1316,11 @@ def build_parser() -> argparse.ArgumentParser:
     brun_parser.add_argument("--environment", choices=["swebench", "none"], default="swebench",
                              help="bind both arms to the instance's own swebench image (default) or run "
                              "without the target's environment (tests cannot run)")
+    brun_parser.add_argument("--stages", default=None,
+                             help="staged harness arm (ADR-059): comma-separated from "
+                                  "plan,review,implement,verify,rework — a planner names the change and a "
+                                  "verifier checks it, instead of lexical seeds and one session per unit. "
+                                  "Default: the per-unit path")
     brun_parser.add_argument("--network", default="pasta",
                              help="podman network for both arms (default pasta: the model endpoint needs egress, C-41)")
     brun_parser.add_argument("--session-bin", help="hobbes-session binary for the harness arm")

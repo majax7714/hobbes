@@ -200,10 +200,14 @@ def run_harness_arm(
     budget: int | None = None,
     seeds: list[str] | None = None,
     runtime: Runtime | None = None,
+    stages: tuple[str, ...] | None = None,
 ) -> ArmResult:
     """``ingest`` → ``plan`` → ``run`` → patch on *workspace*. The
     sessions run on *runtime* (Claude Code, or the owned loop through
-    ``hobbes-session --runtime``)."""
+    ``hobbes-session --runtime``). With *stages* the run is **staged**
+    (ADR-059): a planner names the change, the plan derives on its
+    seeds, implementers run chained, a verifier checks — instead of
+    planning lexically and spawning one session per unit."""
     runtime = runtime or Runtime()
     from hobbes import artifacts
     from hobbes.derive import DeriveError, derive_plan, write_spec
@@ -234,6 +238,10 @@ def run_harness_arm(
         "call_edges": len(graph.get("symbol_edges", [])),
         "capture": _capture(graph),
     }
+    if stages:
+        return _run_staged_arm(instance, workspace, model, detail, started, stages,
+                               session_bin, sessions_root, extra_session_args, environment,
+                               max_units, brief_limit, budget, seeds, runtime)
     try:
         kwargs = {"seeds": seeds or [], "max_units": max_units}
         if budget:
@@ -289,6 +297,60 @@ def run_harness_arm(
         "review": {k: v for k, v in record.get("review", {}).items() if k in ("needs_attention", "error", "skipped")},
         "loss": record.get("loss", {}),
     }
+    branch = record.get("integration", {}).get("branch")
+    patch = candidate_patch(workspace, instance.base_commit, ref=branch) if branch and _ref_exists(workspace, branch) else ""
+    return ArmResult("harness", model, _classify_patch(patch), patch=patch, usage=usage, detail=detail)
+
+
+def _run_staged_arm(instance, workspace, model, detail, started, stages, session_bin,
+                    sessions_root, extra_session_args, environment, max_units, brief_limit,
+                    budget, seeds, runtime) -> ArmResult:
+    """The staged harness arm (ADR-059): run_staged does ingest's
+    successor stages. The candidate patch is the integration branch's
+    diff, exactly as the per-unit path; the record's stages, seed_source
+    and verify verdict ride the detail — the error stream ADR-052 asked
+    for, one layer richer."""
+    from hobbes import artifacts
+    from hobbes.derive.impact import SeedError
+    from hobbes.run import RunError
+    from hobbes.run.stages import run_staged
+    session_args = solo_session_args(extra_session_args) + runtime.session_args()
+    if environment is not None:
+        session_args += environment.session_args()
+        detail["environment"] = environment.to_dict()
+    if model:
+        session_args += ["--model", model]
+    try:
+        record = run_staged(workspace, instance.problem_statement, stages=stages,
+                            session_bin=session_bin, sessions_root=sessions_root,
+                            extra_args=session_args, brief_limit=brief_limit,
+                            max_units=max_units, budget=budget, seeds=seeds or None)
+    except SeedError as exc:
+        detail["plan"] = {"unresolved_terms": _unresolved_from(str(exc))}
+        return ArmResult("harness", model, "no-seed", detail=detail, error=str(exc))
+    except (RunError, artifacts.ArtifactError, Exception) as exc:  # noqa: BLE001
+        return ArmResult("harness", model, "run-error", detail=detail, error=f"{type(exc).__name__}: {exc}")
+    usage = accounting.Usage()
+    from hobbes.run.agents import agent_dir
+    from hobbes.run.spec import plan_dir
+    pdir = plan_dir(workspace, record["task"])
+    logs = list(pdir.glob("agents/*/session.log"))
+    for log in logs:
+        usage = usage.add(accounting.from_text(log.read_text()))
+    if usage.wall_seconds is None and usage.envelopes == 0:
+        usage.wall_seconds = round(time.monotonic() - started, 3)
+    detail["seed_source"] = record.get("seed_source")
+    detail["stages"] = [{k: st.get(k) for k in ("stage", "role", "verdict", "verdict_source",
+                                                 "exit", "resolved", "unresolved", "verifier_env")}
+                        for st in record.get("stages", [])]
+    detail["plan"] = {"task": record["task"], "seeds": record.get("seeds", {}),
+                      "units": len(record.get("units", [])),
+                      "deferred": len(record.get("units_deferred", [])),
+                      "planner_unresolved": record.get("planner_unresolved", []),
+                      "contracts": record.get("contracts", 0)}
+    detail["run"] = {"integration": record.get("integration", {}),
+                     "verify": {k: record.get("verify", {}).get(k) for k in ("verdict", "verdict_source", "reason")},
+                     "rework": record.get("rework", 0), "loss": record.get("loss", {})}
     branch = record.get("integration", {}).get("branch")
     patch = candidate_patch(workspace, instance.base_commit, ref=branch) if branch and _ref_exists(workspace, branch) else ""
     return ArmResult("harness", model, _classify_patch(patch), patch=patch, usage=usage, detail=detail)

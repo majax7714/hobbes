@@ -149,18 +149,11 @@ def _code_shaped(term: str) -> bool:
     return term != term.lower() and term != term.title()
 
 
-def resolve_seeds(
-    graph: dict, proposal: str, explicit: list[str]
-) -> tuple[dict[str, str], list[str]]:
-    """Resolve seeds from *explicit* values and the proposal's terms.
-
-    Explicit values must match a node id, a symbol id or name, or a
-    file path (exact, or unambiguous path suffix) — one that matches
-    nothing raises :class:`SeedError`, because the human named it on
-    purpose. Proposal terms are matched exactly (case-insensitive) and
-    silently skipped when they miss, except code-shaped terms, which
-    are returned as unresolved (C-36).
-    """
+def build_lookup(graph: dict):
+    """A ``term -> module id or None`` resolver over *graph*: exact node
+    id, symbol id, symbol name, file path, or unambiguous path suffix /
+    stem (names case-insensitive). Shared by seed resolution and the
+    tolerant planner-handoff resolver (harness restructure)."""
     by_id = {n["id"]: n for n in graph.get("nodes", [])}
     by_path: dict[str, str] = {}
     by_stem: dict[str, list[str]] = {}
@@ -179,15 +172,13 @@ def resolve_seeds(
         by_symbol_name.setdefault(symbol.get("name", "").lower(), []).append(module)
 
     def lookup(term: str) -> str | None:
-        """The module a term names, or None. Exact matches only."""
         if term in by_id:
             return term
         if term in symbol_module:
             return symbol_module[term]
         if term in by_path:
             return by_path[term]
-        # A path suffix names a file when it names exactly one.
-        suffix = [p for p in by_path if p.endswith("/" + term) or p == term]
+        suffix = [x for x in by_path if x.endswith("/" + term) or x == term]
         if len(suffix) == 1:
             return by_path[suffix[0]]
         lowered = term.lower()
@@ -197,6 +188,41 @@ def resolve_seeds(
                 return hits[0]
         return None
 
+    return lookup
+
+
+def resolve_terms(graph: dict, terms: list[str]) -> tuple[list[str], list[str]]:
+    """Tolerantly resolve *terms* (a planner's named files/symbols) to
+    module ids: returns (hits in order, unique; misses). A miss is
+    reported, not raised (ADR-059) — the planner names things loosely
+    and the caller records what did not resolve rather than failing."""
+    lookup = build_lookup(graph)
+    hits: list[str] = []
+    misses: list[str] = []
+    for term in terms:
+        cleaned = term.strip() if term else ""
+        node = lookup(cleaned) if cleaned else None
+        if node is None:
+            if cleaned:
+                misses.append(cleaned)
+        elif node not in hits:
+            hits.append(node)
+    return hits, misses
+
+
+def resolve_seeds(
+    graph: dict, proposal: str, explicit: list[str]
+) -> tuple[dict[str, str], list[str]]:
+    """Resolve seeds from *explicit* values and the proposal's terms.
+
+    Explicit values must match a node id, a symbol id or name, or a
+    file path (exact, or unambiguous path suffix) — one that matches
+    nothing raises :class:`SeedError`, because the human named it on
+    purpose. Proposal terms are matched exactly (case-insensitive) and
+    silently skipped when they miss, except code-shaped terms, which
+    are returned as unresolved (C-36).
+    """
+    lookup = build_lookup(graph)
     seeds: dict[str, str] = {}
     for value in explicit:
         node = lookup(value)

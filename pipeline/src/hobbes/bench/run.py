@@ -67,6 +67,7 @@ def run(
     network: str = "pasta",
     max_units: int | None = None,
     brief_limit: int | None = None,
+    stages: tuple[str, ...] | None = None,
     log=print,
 ) -> list[results.Record]:
     """Run every (instance, model, arm) not yet recorded; return all records.
@@ -87,6 +88,7 @@ def run(
     write_manifest(run_dir, selection, models, list(which), {
         "session_bin": session_bin, "session_args": session_args, "budget": budget,
         "max_units": max_units, "brief_limit": brief_limit, "environment": environment_kind, "network": network,
+        "stages": list(stages) if stages else None,
         "timeout": timeout, "clean": clean,
         "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns},
     })
@@ -126,6 +128,7 @@ def run(
                             instance, ws, model, session_bin=session_bin, sessions_root=sessions_root,
                             extra_session_args=session_args, budget=budget, runtime=runtime,
                             environment=env, max_units=max_units, brief_limit=brief_limit,
+                            stages=stages,
                         )
                 record = results.make_record(instance, result)
                 results.append(run_dir, record)

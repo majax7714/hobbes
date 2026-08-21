@@ -1060,6 +1060,52 @@ information appears in both, and the entries cross-reference.
   paged-context loop) lift it — parked in `future_additions.md`.
 - **Source:** ADR-058 (2026-08-21), the third finding.
 
+### C-47 — A staged plan's seeds are a model's opinion, not a derivation
+- **Cannot tell you:** that a staged run's change-spec is reproducible.
+  In the staged run (ADR-059) a `planner` session names the files the
+  change touches, and its handoff — a model output — becomes the seeds
+  the deterministic partition runs on. Two planner sessions may name
+  different files, so `seed_source: planner` specs are not
+  byte-identical between runs, unlike the lexical path (C-36) which is.
+- **Because:** the whole point of the planner is to read prose the
+  lexical seeds cannot (C-36 made the impact set the whole repo on the
+  first live run). A generative reading is a model opinion by
+  construction; P5 keeps it *above* the deterministic layer, never
+  inside it — the derivation from the planner's seeds onward is still
+  reproducible, and the deterministic lexical seeding is always the
+  fallback.
+- **Bites at:** treating a staged unit boundary as a derived fact;
+  comparing two staged runs' plans as if a difference were a bug;
+  auditing a spec without noticing a human never approved these seeds
+  (the benchmark path runs Hobbes alone — the plan-review gate is off).
+- **You find out:** **surfaced** — the record's `seed_source` says
+  `planner` / `lexical-fallback` / `explicit`; the planner's handoff is
+  kept verbatim in the `plan` stage and its unresolved names in
+  `planner_unresolved`; the resolved seeds are in the spec as always.
+- **Source:** ADR-059 (2026-08-22).
+
+### C-48 — The verifier reads a read-only tree and cannot write a repro
+- **Cannot tell you:** that a staged run's verifier reproduced the bug
+  the way a developer would. The `verifier` session's worktree is
+  mounted read-only (it owns no code, ADR-054/059), and its only shell
+  is the policy-checked `exec` — so it can *run* the repo's tests but
+  cannot write a fresh reproduction script or a fixture, and a test
+  that needs to write under the tree fails on the mount, not on the
+  code. Such a failure is reclassified `verifier-env`, not `fail`.
+- **Because:** a role that judges the merged result must not be able to
+  change it (a verifier that writes is an implementer), and the ro
+  mount is the real boundary (§5.2). Bytecode writes are already
+  disabled (`PYTHONDONTWRITEBYTECODE=1`, phase 1) so imports do not
+  trip it; a test that writes output files still will.
+- **Bites at:** a bug whose only check writes a golden file; reading a
+  `verifier-env` outcome as a passing verify (it is neither pass nor
+  fail — the harness could not run that check).
+- **You find out:** **surfaced** — the verifier's brief states the ro
+  limit and asks for `-p no:cacheprovider`; the verify stage records
+  `verifier_env: true` and the verdict is `verifier-env`; the reason
+  line carries what could not run.
+- **Source:** ADR-059 (2026-08-22).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

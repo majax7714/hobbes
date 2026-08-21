@@ -3625,3 +3625,31 @@ gets `PYTHONDONTWRITEBYTECODE=1` so the repo's tests can import on the
 ro mount. The plan's verifier-env classification moves to phase 2,
 where the verifier session that produces the output exists (no orphan
 code). pytest +3, Go +1: **808 / Go green**; `hobbes-session` rebuilt.
+
+## 2026-08-22 (thirty-ninth) — phase 2: the staged run (ADR-059)
+
+Built the execution shape the owner named: single-use **derived-context**
+agents, one alive at a time, job = short memory. `hobbes run
+--from-proposal` and `hobbes bench run --stages` run a proposal through
+stages (`run/stages.py`): a read-only **planner** reads the repo and
+hands off the files/symbols/tests the change touches (the generative
+layer C-36 always placed above the lexical seeds); `hobbes plan`
+derives deterministically on those seeds (`seed_source` =
+planner/lexical-fallback/explicit — a rambling planner never fails the
+run); **implementers** run in contract order, each cloned at the
+*current* `hobbes/<task>` head (a consumer sees its owner's commit) and
+integrated immediately; a read-only **verifier** runs the named tests
+and hands off pass/fail (a read-only-mount failure is `verifier-env`,
+not a fail); opt-in **reviewer** and one bounded **rework**. Handoffs
+are `reflect kind:handoff`, parsed tolerantly (`run/handoff.py`) —
+bullets, backticks, JSON — never inferring an unnamed file; a
+prose-only verdict is marked `inferred`. `impact.resolve_terms` /
+`build_lookup` factored out for the tolerant seed resolution.
+
+Register: **C-47** (planner seeds are a model opinion — spec not
+byte-reproducible, fallback always available), **C-48** (verifier reads
+a ro tree, cannot write a repro). ADR-059; architecture §6.1;
+constraints; agent-mapping. pytest +7 (staged loop with a role-aware
+stand-in; handoff parser): **815 pytest / Go green**. No live run —
+phase 4 (planner-only on the two astropy instances, checked against
+gold) is next. Paused here at the owner's request.
