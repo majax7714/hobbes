@@ -60,6 +60,11 @@ class ScriptedModel:
                     self.end_headers()
                     self.wfile.write(b'{"error":"scripted"}')
                     return
+                if isinstance(step, tuple) and step[0] == "http":  # ("http", status, body)
+                    self.send_response(step[1])
+                    self.end_headers()
+                    self.wfile.write(step[2].encode())
+                    return
                 if isinstance(step, str):
                     message = {"role": "assistant", "content": step}
                 else:
@@ -172,7 +177,8 @@ class TestNativeLoop:
         model = ScriptedModel(["hello"])
         try:
             proc = subprocess.run([sys.executable, str(LOOP), "--base-url", model.base_url, "--model", "m",
-                                   "--prompt", "hi", "--workdir", str(tree)], capture_output=True, text=True)
+                                   "--prompt", "hi", "--workdir", str(tree), "--max-nudges", "0"],
+                                  capture_output=True, text=True)
         finally:
             model.close()
         assert proc.returncode == 0, proc.stderr
@@ -312,3 +318,95 @@ class TestBenchRuntime:
         assert result.usage.total_tokens == 220 and result.usage.turns == 2
         assert result.detail["runtime"] == "openai"
         assert inst.problem_statement in model.requests[0]["body"]["messages"][1]["content"]
+
+
+class TestContextWindow:
+    """ADR-058: the loop fits the model's window instead of dying on it."""
+
+    OVERFLOW = ('{"error":{"message":"This model\'s maximum context length is 32768 tokens and your '
+                'request has %d input tokens (4096 > 32768 - %d). None","type":"BadRequestError"}}')
+
+    def test_length_refusal_retries_with_fitted_max_tokens(self, tree):
+        model = ScriptedModel([("http", 400, self.OVERFLOW % (30000, 30000)), "done"])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert not env["is_error"] and env["context_fitted"] == 1 and env["context_elided"] == 0
+        assert model.requests[0]["body"]["max_tokens"] == 4096
+        assert model.requests[1]["body"]["max_tokens"] == 32768 - 30000 - 16
+
+    def test_no_room_elides_the_oldest_tool_result_and_says_so(self, tree):
+        model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],
+            [("read_file", {"path": "README"})],
+            ("http", 400, self.OVERFLOW % (32700, 32700)),   # nothing left for a completion
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert not env["is_error"] and env["context_elided"] == 1
+        tools = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        assert tools[0]["content"] == loop.ELIDED and "hi" in tools[1]["content"]
+
+    def test_nothing_to_elide_is_the_error(self, tree):
+        model = ScriptedModel([("http", 400, self.OVERFLOW % (32700, 32700))])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert env["is_error"] and "maximum context length" in env["result"]
+
+    def test_tool_results_are_clipped_with_the_cut_stated(self, tree):
+        (tree / "big.txt").write_text("x" * 50_000)
+        model = ScriptedModel([[("read_file", {"path": "big.txt"})], "done"])
+        try:
+            env = run_loop(model, tree, "--max-result-chars", "1000")
+        finally:
+            model.close()
+        content = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"][0]["content"]
+        assert len(content) < 1200 and "truncated:" in content and "more characters" in content
+
+
+class TestProsePlanNudge:
+    """ADR-058, fifth finding: a small model that describes a fix without
+    editing is nudged to act, bounded so it still terminates."""
+
+    def test_prose_before_editing_is_nudged_then_edits(self, tree):
+        model = ScriptedModel([
+            "Here is how I would fix it: change f to return 2.",   # prose, no tools
+            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            "Done: f now returns 2.",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert not env["is_error"] and env["nudges"] == 1 and env["edited"] is True
+        # the nudge is a user message the model saw before it acted
+        second = model.requests[1]["body"]["messages"]
+        assert any(m["role"] == "user" and "not changed any files" in m["content"] for m in second)
+        assert (tree / "src" / "a.py").read_text() == "def f():\n    return 2\n"
+
+    def test_nudge_is_bounded_and_a_non_editing_model_terminates(self, tree):
+        model = ScriptedModel(["plan one", "plan two", "plan three", "plan four"])
+        try:
+            env = run_loop(model, tree, "--max-nudges", "2")
+        finally:
+            model.close()
+        assert env["edited"] is False and env["nudges"] == 2
+        # 1 real turn + 2 nudged retries = 3 completions, then it gives up
+        assert len(model.requests) == 3
+
+    def test_a_model_that_edits_immediately_is_not_nudged(self, tree):
+        model = ScriptedModel([
+            [("write_file", {"path": "src/a.py", "content": "x\n"})],
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        assert env["nudges"] == 0 and env["edited"] is True

@@ -55,6 +55,9 @@ flags:
                    solo/benchmark run wants this short — no human approves
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
+  --commit-on-exit commit whatever the session left uncommitted (.hobbes/
+                   excluded) before the harvest — the benchmark path's
+                   practice (ADR-058); the commit names itself
   --task-file F    the prompt from a file (exclusive with --task; a long
                    brief exceeds the argv limit)
   --image IMG      session image (default hobbes-session:local)
@@ -109,6 +112,7 @@ type options struct {
 	env                            multiFlag
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
+	commitOnExit                   bool
 	command                        []string
 }
 
@@ -147,7 +151,15 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 
 	cmd := exec.Command("podman", plan.PodmanArgs()...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
-	if err := cmd.Run(); err != nil {
+	err = cmd.Run()
+	if opt.commitOnExit {
+		// The benchmark path (ADR-058): a solo session's edits that it
+		// never committed would otherwise vanish with the clone. The
+		// commit is the wrapper's, named as such, and never includes
+		// .hobbes/ (P1: derived is not committed).
+		commitLeftovers(worktree, stderr)
+	}
+	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode()
 		}
@@ -357,6 +369,27 @@ func runtimePath(runtime, session string) string {
 	return sandbox.SessionsRoot + "/" + session + "/agent.py"
 }
 
+// commitLeftovers commits whatever the session left uncommitted in the
+// worktree, .hobbes/ excluded, and says how many files. A no-op on a
+// clean tree. The line it prints is what the orchestrator reads.
+func commitLeftovers(worktree string, stderr io.Writer) {
+	if out, err := gitOut(worktree, "add", "-A", "--", ".", ":!.hobbes"); err != nil {
+		fmt.Fprintf(stderr, "hobbes-session: commit-on-exit: git add: %v: %s\n", err, out)
+		return
+	}
+	staged, err := gitOut(worktree, "diff", "--cached", "--name-only")
+	if err != nil || strings.TrimSpace(staged) == "" {
+		return
+	}
+	n := len(strings.Split(strings.TrimSpace(staged), "\n"))
+	msg := fmt.Sprintf("hobbes-session: uncommitted work at session end (%d files)", n)
+	if out, err := gitOut(worktree, "commit", "-q", "-m", msg); err != nil {
+		fmt.Fprintf(stderr, "hobbes-session: commit-on-exit: git commit: %v: %s\n", err, out)
+		return
+	}
+	fmt.Fprintf(stderr, "hobbes-session: committed %d uncommitted file(s) at exit\n", n)
+}
+
 // seedIdentity gives the session clone a commit identity: the canonical
 // repo's local one when set, else a named session default. Without it
 // every `git commit` inside the sandbox fails (no global config there).
@@ -440,6 +473,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.sessions, "sessions", "", "")
 	fs.BoolVar(&opt.claudeCred, "claude-cred", false, "")
 	fs.BoolVar(&opt.dryRun, "dry-run", false, "")
+	fs.BoolVar(&opt.commitOnExit, "commit-on-exit", false, "")
 	if err := fs.Parse(flags); err != nil {
 		return opt, exitUsage
 	}

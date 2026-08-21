@@ -3467,5 +3467,28 @@ with a stated cut line each, never the complement/policy/contracts/
 invariants; `hobbes bench run --brief-limit 60000` default (≈15k
 tokens of a 32k window), per-unit `brief_chars`/`brief_cut` in the
 record; **C-45**. Go +1 / pytest +3: **786 pytest / Go green**.
-Resumed the run (the five harness `run-error` records removed so the
-arm re-runs; the pure records stand). Poll set.
+Resumed; the third poll reached the harness arms and ran them — 20
+units, `pytest` exiting 4/5 (real), briefs fitting — but instance 1
+was still an **empty patch**, from two more harness gaps: a large
+read made the *next* completion a hard 400 (window exceeded; the loop
+had treated length-400 as fatal), and the 7B edited files but ended
+on `reflect` instead of `git commit`, so the commit-only harvest saw
+nothing. Fixed: `Endpoint.chat` **fits the window** (shrink
+`max_tokens`, then elide oldest tool results in place, stated) and
+clips tool results head-first (`--max-result-chars`), reporting
+`context_fitted`/`context_elided` — **C-46**; `hobbes-session
+--commit-on-exit` (solo path) commits leftover edits at exit,
+`.hobbes/` excluded, per-unit `exit_commit_files` recorded — C-46.
+
+Then a **debug loop** on one light instance (`pytest-5787`, harness
+arm, isolated — Max's call: confirm the harness on one instance
+before another full pass) ran clean end to end and *still*
+empty-patch: the 7B wrote a prose plan on turn 1 and never called an
+edit tool. Fifth fix — a **bounded prose-plan nudge**: no tool calls
+and nothing edited yet ⇒ one "a description is not a fix, edit now"
+turn, capped at `--max-nudges` (default 2); envelope reports
+`nudges`/`edited`. It makes the model act, never says what to write
+(H1 stays the model's). With it the same instance produced a real
+**patch** (2 of 5 units edited, 2 commits; 3 declined after two
+nudges). Go +1 / pytest +5 across the loop fixes: **794 pytest / Go
+green**. Harness confirmed on one instance; the full run relaunched.

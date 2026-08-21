@@ -54,6 +54,7 @@ while [ $# -gt 0 ]; do
     --agent-dir) agent="$2"; shift 2;;
     --task) shift 2;;
     --dry-run) dry=1; shift;;
+    --commit-on-exit) echo "hobbes-session: committed 2 uncommitted file(s) at exit" >&2; shift;;
     *) shift;;
   esac
 done
@@ -384,3 +385,13 @@ class TestBriefLimit:
         assert unit["brief_chars"] <= 6000 and unit["brief_cut"] > 0
         spawn = (repo / ".hobbes" / "plans" / task / "agents" / unit["unit"] / "spawn.txt").read_text()
         assert "--task-file" in spawn and "--task " not in spawn
+
+
+class TestCommitOnExit:
+    def test_the_wrappers_exit_commit_is_counted_per_unit(self, planned, fake_session, tmp_path):
+        repo, task = planned
+        record = orchestrate.run_task(repo, task, session_bin=fake_session, sessions_root=tmp_path / "s",
+                                      extra_args=["--commit-on-exit"])
+        assert record["units"][0]["exit_commit_files"] == 2
+        plain = orchestrate.run_task(repo, task, session_bin=fake_session, sessions_root=tmp_path / "s2")
+        assert plain["units"][0]["exit_commit_files"] == 0

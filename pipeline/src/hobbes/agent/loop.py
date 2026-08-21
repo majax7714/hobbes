@@ -241,13 +241,70 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
 # --------------------------------------------------------------------------
 # The endpoint
 
+#: What a context-length refusal looks like (vLLM's wording, also
+#: OpenAI's): the window and the request's input, both in tokens.
+CONTEXT_LENGTH_RE = re.compile(r"maximum context length is (\d+) tokens.*?(\d+) input tokens", re.S)
+#: Below this many completion tokens a fitted call is not worth making;
+#: the loop elides old tool results instead.
+MIN_COMPLETION = 256
+ELIDED = "[tool result elided to fit the model's context window]"
+#: Tool names that mutate the tree — an edit is what a patch is made of.
+#: `write_file`/`edit_file` are the loop's; `mcp__hobbes__exec` is the
+#: sandbox's shell (used to apply changes or run tests). A model that
+#: stops before calling one of these has described a fix, not made one.
+MUTATING_TOOLS = {"write_file", "edit_file"}
+#: The nudge sent when a small model returns a prose plan before editing
+#: (ADR-058, the fifth finding): the 7B reads "summarize when done" and
+#: jumps to the summary on turn 1. Bounded so a model that simply cannot
+#: act still terminates.
+NUDGE = (
+    "You have not changed any files yet — you only described what to do. "
+    "A description is not a fix. Make the change now by calling the "
+    "write_file or edit_file tool (and run the guarding tests with the "
+    "exec tool). Do not reply with a summary until the files are edited."
+)
+
+
+class ContextOverflow(RuntimeError):
+    """The endpoint refused the request for length; carries the window
+    and input sizes it reported."""
+
+    def __init__(self, message: str, window: int, inputs: int):
+        super().__init__(message)
+        self.window, self.inputs = window, inputs
+
+
 class Endpoint:
     def __init__(self, base_url: str, model: str, api_key: str | None, timeout: float, max_tokens: int):
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.model, self.api_key, self.timeout, self.max_tokens = model, api_key, timeout, max_tokens
+        #: How often the window had to be fitted or trimmed — the
+        #: envelope reports both, so a run can see the window bind.
+        self.fitted, self.elided = 0, 0
 
     def chat(self, messages: list[dict], tools: list[dict]) -> dict:
-        body = {"model": self.model, "messages": messages, "max_tokens": self.max_tokens, "temperature": 0}
+        """One completion, fitted to the model's window: a length
+        refusal retries with ``max_tokens`` shrunk to what is left, and
+        when that would leave fewer than :data:`MIN_COMPLETION` tokens
+        the oldest tool results are elided (in place, stated) until the
+        request fits or nothing is left to elide."""
+        max_tokens = self.max_tokens
+        while True:
+            try:
+                return self._post(messages, tools, max_tokens)
+            except ContextOverflow as exc:
+                room = exc.window - exc.inputs - 16
+                if room >= MIN_COMPLETION and room < max_tokens:
+                    max_tokens = room
+                    self.fitted += 1
+                    continue
+                if not elide_oldest_tool_result(messages):
+                    raise
+                self.elided += 1
+                max_tokens = self.max_tokens
+
+    def _post(self, messages: list[dict], tools: list[dict], max_tokens: int) -> dict:
+        body = {"model": self.model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"
@@ -264,12 +321,33 @@ class Endpoint:
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")[:500]
                 last = RuntimeError(f"HTTP {exc.code} from {self.url}: {detail}")
+                if exc.code == 400 and (m := CONTEXT_LENGTH_RE.search(detail)):
+                    raise ContextOverflow(str(last), int(m.group(1)), int(m.group(2)))
                 if exc.code < 500 and exc.code != 429:
                     raise last
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 last = RuntimeError(f"{type(exc).__name__}: {exc}")
             time.sleep(2 ** attempt)
         raise last  # type: ignore[misc]
+
+
+def elide_oldest_tool_result(messages: list[dict]) -> bool:
+    """Replace the content of the oldest not-yet-elided tool result with
+    a stated placeholder. Returns False when there is none left — the
+    brief itself is then what does not fit, and that is an error."""
+    for message in messages:
+        if message.get("role") == "tool" and message.get("content") != ELIDED:
+            message["content"] = ELIDED
+            return True
+    return False
+
+
+def clip(text: str, limit: int) -> str:
+    """A tool result cut to *limit* characters, head kept (a file's top
+    carries its imports and signatures), the cut stated."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n… [truncated: {len(text) - limit:,} more characters; read a narrower range]"
 
 
 # --------------------------------------------------------------------------
@@ -295,6 +373,7 @@ def run(args: argparse.Namespace) -> dict:
                 {"role": "user", "content": prompt}]
     usage = {"input_tokens": 0, "output_tokens": 0}
     turns, tool_calls_made, text_calls, final, error = 0, 0, 0, "", ""
+    edited, nudges_left, nudges = False, args.max_nudges, 0
     try:
         while turns < args.max_turns:
             turns += 1
@@ -310,6 +389,12 @@ def run(args: argparse.Namespace) -> dict:
             messages.append({"role": "assistant", "content": message.get("content") or "",
                              **({"tool_calls": calls} if calls else {})})
             if not calls:
+                if not edited and nudges_left > 0:
+                    # A prose plan before any edit: nudge once toward acting.
+                    nudges_left -= 1
+                    nudges += 1
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
                 final = message.get("content") or ""
                 break
             for call in calls:
@@ -326,10 +411,12 @@ def run(args: argparse.Namespace) -> dict:
                         text, is_err = native_call(name, targs, workdir, allow_bash=mcp is None,
                                                    allow_write=not read_only)
                 tool_calls_made += 1
+                if not is_err and (name in MUTATING_TOOLS or name.endswith("__exec") or name == "bash"):
+                    edited = True
                 print(f"[turn {turns}] {name}({json.dumps(targs)[:160]}) → {'error' if is_err else 'ok'}",
                       file=sys.stderr, flush=True)
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name,
-                                 "content": (("ERROR: " if is_err else "") + text)[-30000:]})
+                                 "content": clip(("ERROR: " if is_err else "") + text, args.max_result_chars)})
         else:
             error = f"turn budget ({args.max_turns}) exhausted"
     except Exception as exc:  # noqa: BLE001 — the envelope carries it
@@ -342,6 +429,8 @@ def run(args: argparse.Namespace) -> dict:
         "type": "result", "subtype": "success" if not error else "error",
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
         "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
+        "context_fitted": endpoint.fitted, "context_elided": endpoint.elided,
+        "nudges": nudges, "edited": edited,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,
     }
@@ -360,6 +449,10 @@ def parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--workdir", default=".")
     p.add_argument("--max-turns", type=int, default=60)
     p.add_argument("--max-tokens", type=int, default=4096)
+    p.add_argument("--max-result-chars", type=int, default=12_000,
+                   help="a tool result is clipped to this many characters, the cut stated (default 12000)")
+    p.add_argument("--max-nudges", type=int, default=2,
+                   help="how many times to nudge a model that stops at a prose plan before editing (default 2)")
     p.add_argument("--timeout", type=float, default=600.0)
     return p.parse_args(argv)
 

@@ -500,6 +500,7 @@ class TestSoloPolicy:
     def test_solo_session_args_default_and_override(self):
         from hobbes.bench.arms import BENCH_BOX, BENCH_ESCALATION, solo_session_args
         args = solo_session_args(["--model", "m"])
+        assert "--commit-on-exit" in args
         assert "--box" in args and str(BENCH_BOX) in args
         assert "--escalation-timeout" in args and BENCH_ESCALATION in args
         # a caller's own --box wins; no second one is added

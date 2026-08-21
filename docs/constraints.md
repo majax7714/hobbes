@@ -1016,6 +1016,31 @@ information appears in both, and the entries cross-reference.
   banner prints the limit.
 - **Source:** ADR-058 (2026-08-21), the second finding.
 
+### C-46 — A small model's window is fitted, and old tool results elide
+- **Cannot tell you:** that a harness session's model saw every tool
+  result it had gathered. The owned loop (`agent/loop.py`) runs on a
+  32k-token window; when a request would exceed it the loop first
+  shrinks `max_tokens` to what is left, and if that leaves too little
+  it **elides the oldest tool results in place** (a stated placeholder)
+  until the request fits — the model then works from a summary of its
+  early reads, not their text. Tool results are also clipped to
+  `--max-result-chars` (default 12,000) head-first, the cut stated.
+- **Because:** the ladder's rungs (7B/32B) have small windows and a
+  benchmark repo's files are large; without fitting, one long read made
+  the *next* call a hard 400 and killed the arm (the third finding of
+  the first run — `astropy-13398` U1). The knowledge tools still answer
+  for an elided result; the loss is what the model holds at once, not
+  what it can re-fetch.
+- **Bites at:** reading a harness result as if the model had full
+  recall of its session; a long multi-file unit is working from elided
+  early context by its last turns.
+- **You find out:** **surfaced** — the envelope carries
+  `context_fitted` and `context_elided` counts per session; an elided
+  result is the literal placeholder in the transcript; a clipped result
+  ends in its cut line. Larger windows (a rung with more context, or a
+  paged-context loop) lift it — parked in `future_additions.md`.
+- **Source:** ADR-058 (2026-08-21), the third finding.
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

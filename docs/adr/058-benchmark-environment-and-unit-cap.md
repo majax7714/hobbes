@@ -106,6 +106,66 @@ fixes, both in this ADR's scope:
    context-length error, counted as a unit failure for a reason that
    is the harness's, not the model's.
 
+## The third finding: the window, and the uncommitted work
+
+The next relaunch reached the harness arms and ran them — 20 units,
+the cap holding, `pytest` **exit 4/5** (real test outcomes, not 127),
+briefs fitting — but instance 1 still produced an **empty patch**, for
+two reasons this ADR also fixes:
+
+6. **The window was a hard wall.** `astropy-13398` U1 read a large
+   frame file, and its *next* completion was a 400: `maximum context
+   length is 32768 tokens and your request has 28852 input tokens`.
+   The loop treated a length 400 as fatal. Now `Endpoint.chat` fits
+   the window — shrink `max_tokens` to what is left, and when that is
+   too little **elide the oldest tool results in place** (stated) —
+   and every tool result is clipped head-first to
+   `--max-result-chars` (12,000). The envelope reports
+   `context_fitted`/`context_elided`. **C-46.**
+7. **Committed work was the only work harvested, and the 7B rarely
+   committed.** Most units ended by editing a file and then `reflect`-ing
+   a prose summary (U2, U4, U5) or looping on `reflect` (U3 ×42) — the
+   edits were on disk but never `git commit`-ed, and the harvest takes
+   only commits, so the branch diff was empty. `hobbes-session
+   --commit-on-exit` (set by the solo path) commits whatever the
+   session left uncommitted at exit — `.hobbes/` excluded (P1), the
+   commit named as the wrapper's — so an agent that edits but forgets
+   to commit still yields its patch. The orchestrator records
+   `exit_commit_files` per unit, so how often this rescued a unit is
+   measurable.
+
+These are the harness meeting a small model's habits, not the model's
+competence; the pure arm on the same instances did commit-free edits
+too (its patch is the worktree diff, so it needed no commit — the
+asymmetry the harness had to close).
+
+## The fifth finding: a prose plan is not a patch
+
+With the window fixed, a debug loop on one light instance
+(`pytest-5787`, full harness, isolated) ran clean — 5 units, sessions
+in the env, `pytest` executing — and still empty-patch, for a reason
+that is the model's habit, not a harness bug: the 7B wrote a **prose
+plan on turn 1 and stopped** ("Here is how I would fix it: …"), never
+calling an edit tool. `commit-on-exit` correctly committed nothing,
+because nothing was edited.
+
+8. **A bounded nudge toward acting.** When the loop's model returns no
+   tool calls and has edited nothing, one corrective user turn is sent
+   — *a description is not a fix; call write_file/edit_file now* —
+   capped at `--max-nudges` (default 2) so a model that genuinely will
+   not act still terminates. The envelope reports `nudges` and
+   `edited`. This is the boundary of what the harness may do: it makes
+   the model *act*, it does not tell it *what* to write — that would
+   coach the H1 measurement. With the nudge the same instance produced
+   a real patch (2 of 5 units edited, 2 commits; the other 3 declined
+   their unit after two nudges, which is allowed).
+
+The line this holds: mechanical failures (no test env, argv limit,
+window wall, commit-only harvest) are the harness's to fix; whether a
+capable-enough model then solves the task is H1's to measure. The
+nudge sits exactly on that line — it removes "the agent never tried to
+edit" as a harness artifact without supplying the fix.
+
 ## What this is not
 
 - Not a change to the sandbox boundary. The mounts, the network
@@ -134,9 +194,12 @@ fixes, both in this ADR's scope:
   record's `capped` count and the run banner all say so.
 - The run manifest records `environment`, `network`, `max_units`;
   each record's `detail.environment` carries the image and digest.
-- Tests: Go +4 (env binding printed and wrapped; no wrapper without
-  `--pre`; clone identity copied and defaulted; `--task-file`),
-  pytest +17 (cap semantics ×6, environment ×8, brief limit ×3).
-  786 pytest / Go green.
+- Tests: Go +5 (env binding; no wrapper without `--pre`; clone
+  identity; `--task-file`; commit-on-exit excludes `.hobbes/`),
+  pytest +24 (cap ×6, environment ×8, brief limit ×3, window ×4,
+  exit-commit, prose-plan nudge ×3). 794 pytest / Go green.
+- **Confirmed on one instance** (`pytest-5787`, harness arm): outcome
+  `patch`, a real branch diff — the harness produces a candidate end
+  to end. Correctness is the evaluator's verdict, not this ADR's.
 - The 20-minute poll that found this is the handoff's "watch it"
   step; it worked. The handoff doc now says what to look for first.

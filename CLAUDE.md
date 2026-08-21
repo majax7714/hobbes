@@ -281,7 +281,19 @@ Second stop the same day: a capped unit's 488 KB brief as `--task`
 → `Argument list too long` on every harness arm; fixed with
 `hobbes-session --task-file` and a **brief limit** (`--brief-limit
 60000` default; protected sections never cut; C-45). 786 pytest / Go
-green. Resumed; `docs/bench-run-handoff.md` says what to check first.
+green. Third stop: instance 1 empty-patch because a large read made
+the next completion a context-length 400 (loop treated it as fatal)
+and the 7B edited but never committed (commit-only harvest saw
+nothing). Fixed: the loop **fits the window** (shrink max_tokens,
+elide oldest tool results, clip results — C-46) and `hobbes-session
+--commit-on-exit` commits leftover edits (`.hobbes/` excluded). A
+debug loop on one light instance (Max's call — confirm the harness
+before another full pass) then found the 7B writes a prose plan and
+never edits; fifth fix is a **bounded prose-plan nudge**
+(`--max-nudges 2`; makes the model act, never says what to write —
+H1 stays the model's). With it, `pytest-5787` produced a real
+**patch** end to end — harness confirmed. 794 pytest / Go green.
+`docs/bench-run-handoff.md` says what to check first.
 
 **2026-08-21 (small-model ladder live + the solo policy, ADR-057):**
 Focus benchmark set: **SWE-bench Verified, complex multi-step set** (45

@@ -35,6 +35,7 @@ drives the loop with a stand-in session binary.
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -56,6 +57,10 @@ LOSS_WEIGHTS = {"rework": 3.0, "contract_failures": 3.0, "fault_rate": 1.0,
 
 class RunError(RuntimeError):
     """The run could not proceed (no spec, no session binary, bad repo)."""
+
+
+#: hobbes-session's commit-on-exit report line.
+EXIT_COMMIT_RE = re.compile(r"hobbes-session: committed (\d+) uncommitted file\(s\) at exit")
 
 
 @dataclass
@@ -81,6 +86,10 @@ class UnitRecord:
     #: context (C-45); 0 when nothing was cut.
     brief_chars: int = 0
     brief_cut: int = 0
+    #: Files the wrapper committed at session end because the agent had
+    #: not (``hobbes-session --commit-on-exit``, ADR-058); 0 when the
+    #: agent committed its own work or left nothing.
+    exit_commit_files: int = 0
 
     @property
     def fault_rate(self) -> float:
@@ -314,6 +323,8 @@ def run_task(
         record.spawned = not dry_run
         record.exit = proc.returncode
         (dirs[unit] / "session.log").write_text(proc.stdout + proc.stderr)
+        if m := EXIT_COMMIT_RE.search(proc.stderr):
+            record.exit_commit_files = int(m.group(1))
         if dry_run:
             record.reason = "dry run: session planned, nothing spawned"
         session_dir = sessions_root / session

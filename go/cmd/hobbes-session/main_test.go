@@ -378,3 +378,31 @@ func TestTaskFileCarriesTheBrief(t *testing.T) {
 		t.Error("a missing task file must be an error")
 	}
 }
+
+func TestCommitOnExitCommitsLeftoversButNeverHobbesDir(t *testing.T) {
+	// ADR-058: a solo session's uncommitted edits are committed by the
+	// wrapper, named as its own, with .hobbes/ excluded (P1).
+	repo := gitRepo(t)
+	os.WriteFile(filepath.Join(repo, "edited.txt"), []byte("changed\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new\n"), 0o644)
+	os.MkdirAll(filepath.Join(repo, ".hobbes", "derived"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".hobbes", "derived", "graph.json"), []byte("{}"), 0o644)
+	var errb bytes.Buffer
+	commitLeftovers(repo, &errb)
+	if !strings.Contains(errb.String(), "committed 2 uncommitted file(s) at exit") {
+		t.Fatalf("report line missing: %q", errb.String())
+	}
+	shown, _ := gitOut(repo, "show", "--stat", "--format=%s", "HEAD")
+	if !strings.Contains(shown, "hobbes-session: uncommitted work at session end (2 files)") {
+		t.Errorf("commit message: %s", shown)
+	}
+	if strings.Contains(shown, ".hobbes") {
+		t.Errorf(".hobbes must never be committed: %s", shown)
+	}
+	// a clean tree is a no-op
+	errb.Reset()
+	commitLeftovers(repo, &errb)
+	if errb.Len() != 0 {
+		t.Errorf("clean tree should print nothing, got %q", errb.String())
+	}
+}

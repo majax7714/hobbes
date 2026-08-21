@@ -115,6 +115,23 @@ finding below). A container list: `podman ps`.
   `Argument list too long` (a 488 KB brief as `--task`). Fixed with
   `--task-file` and the brief limit above. If a harness record says
   `run-error` with an `OSError`, that is this, and the binary is stale.
+- **Same day, third stop:** harness arms ran (pytest real, briefs fit)
+  but instance 1 was empty-patch — a large read made the next
+  completion a context-length 400 (now fitted/elided, C-46,
+  `context_fitted`/`context_elided` in the envelope) and the 7B edited
+  without committing (now `--commit-on-exit` on the solo path,
+  `exit_commit_files` per unit). If harness patches are empty while
+  sessions clearly edited files, check `exit_commit_files` and the
+  `context_elided` count.
+- **Same day, harness confirmed:** a debug loop on `pytest-5787`
+  (harness arm alone) found the 7B stops at a prose plan and never
+  edits; fixed with a **bounded prose-plan nudge** (`--max-nudges 2`,
+  envelope `nudges`/`edited`) — it makes the model act, never says
+  what to write. That instance then produced a real patch. **This is
+  the last harness fix; remaining empty patches are the model's, not
+  the harness's.** A quick single-instance harness run
+  (`hobbes bench run <one>.jsonl --arm harness … --out ~/.hobbes/bench/debug`)
+  is the cheap confirm before any full pass.
 
 - **The solo policy finding (fixed, ADR-057).** A benchmark checkout is
   a committed-only clone, so repo/role policies don't reach the session;

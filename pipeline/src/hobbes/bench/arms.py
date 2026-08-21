@@ -282,7 +282,7 @@ def run_harness_arm(
     detail["run"] = {
         "units": [{k: u.get(k) for k in ("unit", "spawned", "exit", "knowledge_calls", "context_faults",
                                           "commits", "rework_files", "reflections", "reason",
-                                          "brief_chars", "brief_cut")}
+                                          "brief_chars", "brief_cut", "exit_commit_files")}
                   for u in record.get("units", [])],
         "integration": record.get("integration", {}),
         "review": {k: v for k, v in record.get("review", {}).items() if k in ("needs_attention", "error", "skipped")},
@@ -303,6 +303,10 @@ def solo_session_args(extra: list[str] | None) -> list[str]:
         args += ["--box", str(BENCH_BOX)]
     if "--escalation-timeout" not in joined:
         args += ["--escalation-timeout", BENCH_ESCALATION]
+    if "--commit-on-exit" not in joined:
+        # A solo session's uncommitted edits would vanish with the clone
+        # (ADR-058); the wrapper commits them, named as its own.
+        args.append("--commit-on-exit")
     return args
 
 
