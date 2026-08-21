@@ -3266,3 +3266,66 @@ C-32 surfaced; C-38 added; three unsurfaced remain), architecture
 §3.4/§3.7/§3.8/§6/§8, agent-mapping header, future_additions D2
 remainder, CLAUDE.md status. D2 base awaits Max's review; the benchmark
 harness is next.
+
+## 2026-08-21 (thirtieth) — D2 passed; the benchmark harness (ADR-055)
+
+Max's direction: review the project and the docs first, D2 is passed,
+then proceed to the harness unless something blocks — and if something
+should be resolved first, recommend before building.
+
+**The review found one thing worth recommending, and it does not block
+building the harness — it blocks the first live run.** No session has
+ever been spawned live (M4 and D2 both exit-checked with stand-ins),
+and reading the sandbox against what a live run needs: the image is
+Alpine/musl, `claude` 2.1.238 is a glibc-linked ELF that is mounted
+nowhere in the container (only `~/.claude` is), and the session network
+is `none`. Granting a session a route to the network contradicts the
+architecture's enforcement text as written, so that is Max's decision,
+not a session's; it is written up in ADR-055's consequences with the
+other live-run items (pure-arm containment, the evaluator's podman
+socket, a post-cutoff instance set, quota). Everything that does not
+depend on it was built, the way D2 was: quota-free, against stand-ins
+that write the real shapes.
+
+**Built: `hobbes bench` (ADR-055).** `pipeline/src/hobbes/bench/` —
+`instances` (SWE-bench schema from a local JSONL; the instance
+protocol: `created_at` cutoff + filters + prefix limit, every drop
+counted; depth = gold-patch file count, declared a proxy),
+`workspace` (bare-mirror cache under `~/.hobbes/cache/bench/`, local
+clone at the base commit, candidate patch with `.hobbes/` excluded),
+`arms` (harness: `ingest` → `plan` with the issue as proposal → `run`
+→ integration-branch diff, `no-seed` counted against the arm; pure:
+Claude Code on the same checkout, its own tools, no Hobbes),
+`accounting` (Claude Code's JSON result envelope as the one meter for
+both arms; unobserved stays unobserved through sums), `verdict`
+(pinned `swebench==5.0.2` `run_evaluation` as a subprocess; report →
+verdicts), `results` (records.jsonl; the H1/H2/H3 report that computes
+and does not interpret), `run` (the resumable loop, `run.json`,
+patches, evaluate-and-write-back). CLI: `hobbes bench select | run |
+report`. `pipeline/scripts/bench_fetch.py` exports a HF split under
+uv inline metadata — no dataset dependency in the pipeline. Go:
+`hobbes-session --model`, and the default command now passes
+`--output-format json` so the harness arm is metered at all.
+
+**Register:** C-39 (contamination bounded, never proven — surfaced
+first line of every selection and in the report), C-40 (the verdict is
+the evaluator's; provider line `swebench 5.0.2`). C-38's metering
+clause amended; C-36 gains its first real-instance measurement.
+
+**Exit checks, quota-free, on real data.** `bench_fetch.py` pulled
+SWE-bench Verified (500). `hobbes bench select`: 1-file 429 / 2–3
+61 / 4+ 10 — H2's deep bucket is thin there; a 2025 cutoff selects
+**zero** of 500, which is C-39 said by the tool. Then the predicted
+first friction, measured once: eight `psf/requests` instances checked
+out, ingested (lane A), seed-resolved against their issue text —
+**8/8 seed; 4/8 seed sets touch a gold file.** The misses have three
+shapes (dotted `requests.get` names match no symbol *name*; trailing
+punctuation makes prose code-shaped; generic words seed spuriously),
+parked as candidate adjustments and **not applied** — the loop adjusts
+from verdicts, and there are none. The full harness loop ran against
+the stand-ins end to end, including the harness arm through a real
+ingest and plan of a local repo.
+
+753 pytest (+30) / Go green (+2) / `hobbes-session` rebuilt. No
+quota spent, no sandbox session spawned. **Next:** Max's decisions in
+ADR-055's list, then the first live instance set.

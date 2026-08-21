@@ -105,32 +105,73 @@ transcripts.
   the harness. H3 claims the deterministic savings dominate; the
   per-depth cost curve is what settles it.
 
+## The harness (ADR-055, built 2026-08-21 — quota-free, unrun)
+
+`hobbes bench` is the machinery: `select` applies the instance protocol
+(a `created_at` cutoff and filters, every drop counted), `run` checks
+each instance out at its base commit and runs the **pure** arm (Claude
+Code, its own tools, no Hobbes) and the **harness** arm (`ingest` →
+`plan` with the issue as the proposal → `run` → the integration
+branch's diff) per model, `--evaluate` hands the patches to the pinned
+`swebench` evaluator, and `report` lays the records against H1–H3
+below without interpreting them. Architecture §6.2 is the description
+of record. Three things the harness fixes in advance so a result
+cannot bend them:
+
+- **An instance that seeds nothing is a harness failure** (`no-seed`),
+  counted in the harness arm's denominator. Dropping it would inflate
+  the arm under test.
+- **H3 is per solved instance over observed terms.** A session that
+  emitted no usage envelope is recorded unobserved and the row says how
+  many; a zero is never shown for a number nobody saw.
+- **Depth is a proxy** — the gold patch's file count, bucketed
+  1 / 2–3 / 4+ — and every report says so. On SWE-bench Verified the
+  buckets hold 429 / 61 / 10 of 500, so H2's slope there would rest on
+  ten instances at the deep end; a set with more spread is preferable
+  and the choice is recorded with the results.
+
 ## What has to be true before a run — the current gaps
 
 Reflecting the build as it is, not as the plan wants it:
 
-1. **D2 is not built.** Nothing consumes a change-spec: `hobbes plan`
-   produces manifests no session spawner reads yet. An end-to-end
-   benchmark run needs the execution half (spawning, faults, the
-   recorder's partition record) — parked in `future_additions.md`
-   with scope. Until then, only the mapping is inspectable per
-   instance, not the solve rate.
-2. **C-36 will bite first.** Benchmark issues are prose; lexical
-   seeding will miss on instances whose text names no identifier.
-   The predicted first adjustment is a seed-extraction layer over
-   the issue text (the generative planner parked in D2's entry) —
-   and the C-36 miss rate on real instances is itself a number worth
-   recording.
-3. **Instance selection must respect contamination.** Known
-   benchmarks are in training corpora; a pure model may "solve" from
-   memory, which biases *against* the harness (memorized answers
-   need no context). Prefer post-cutoff or held-out instance sets,
-   and record the choice with the results.
-4. **P11 governs the claims.** A result on one benchmark licenses
+1. **The sandbox cannot run Claude Code yet.** D2 (ADR-054) consumes a
+   change-spec end to end, but no session has ever been spawned live:
+   the session image is Alpine (musl), the `claude` binary is
+   glibc-linked and not mounted into the container, and the session
+   network is `none`. A route to the network is exactly what the
+   sandbox's enforcement story says is absent, so granting one is the
+   owner's decision and a register entry when taken (ADR-055 lists the
+   items: glibc image, binary mount, credential, network mode, and
+   the pure arm's containment).
+2. **C-36 will bite, and the shape is now measured once.** Eight
+   `psf/requests` instances (Verified), checked out and ingested,
+   quota-free: 8/8 seed lexically; the seed set touches a gold file in
+   4/8. Misses: dotted `package.function` names (`requests.get`) match
+   no symbol *name*; trailing punctuation makes prose look code-shaped;
+   generic words seed spuriously. Candidate adjustments are parked in
+   `future_additions.md`; the loop adjusts from verdicts, not from one
+   probe.
+3. **Instance selection must respect contamination** — now bounded,
+   not proven (C-39). Verified's newest instance is 2023-08-07; a 2025
+   cutoff selects zero of 500, so a live run on a contemporary model
+   needs SWE-rebench or SWE-bench-Live, recorded in `run.json`.
+4. **The evaluator needs a container engine** (C-40): rootless podman
+   through its socket, SWE-bench's per-instance images pulled on first
+   use.
+5. **P11 governs the claims.** A result on one benchmark licenses
    that benchmark's shape, not "Hobbes makes small models better."
    Every result entry below names its sample.
 
 ## Results
 
-None yet. Testing is deliberately not introduced as of 2026-08-19;
-this section fills in when Max names the start.
+None yet. The harness exists (ADR-055, 2026-08-21); no live run has
+been made — the first one starts when Max settles the session-image
+and network question and names the instance set and model ladder.
+
+### Pre-run observations (quota-free; not results)
+
+- **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8
+  instances, lane A only.** 8/8 seeded; seed set touches a gold-patch
+  file in 4/8 (1142, 1766, 1921, 2317 hit; 1724, 2931, 5414, 6028
+  miss). Raw probe kept with the session's scratch output; the shapes
+  of the misses are recorded under C-36.

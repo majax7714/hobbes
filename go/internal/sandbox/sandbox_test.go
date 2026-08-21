@@ -343,3 +343,26 @@ func TestVerifierIsReadOnlyLikeAReviewer(t *testing.T) {
 		t.Errorf("verifier got write tools: %s", tools)
 	}
 }
+
+// ADR-055: the harness arm runs a model ladder and meters its sessions,
+// so the default command pins the model when asked and always asks for
+// the JSON result envelope (usage, cost, turns, wall time).
+func TestDefaultCommandPinsModelAndEmitsJSONEnvelope(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Model = "claude-sonnet-5"
+	p, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := strings.Join(p.DefaultCommand(), " ")
+	if !strings.Contains(cmd, "--model claude-sonnet-5") {
+		t.Errorf("model not pinned in %q", cmd)
+	}
+	if !strings.Contains(cmd, "--output-format json") {
+		t.Errorf("JSON envelope not requested in %q", cmd)
+	}
+	p, _ = NewPlan(baseConfig())
+	if strings.Contains(strings.Join(p.DefaultCommand(), " "), "--model") {
+		t.Error("no model configured must leave the choice to Claude Code")
+	}
+}

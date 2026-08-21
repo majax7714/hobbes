@@ -170,7 +170,7 @@ written down with their metrics *before* any run so results cannot
 re-scope them. Nothing there is measured yet, and it says so. One worth knowing before you ingest strangers' code:
 **indexing a Rust repo executes its `build.rs` and proc macros** (C-29 —
 disclosed on stderr at every rust ingest; ingest an untrusted Rust repo
-only if you would also build it).
+only if you would also build it). The harness itself is `hobbes bench` (ADR-055): built, quota-free to exercise, no live run yet.
 
 Current detail lives in the "Current status" section of
 [`CLAUDE.md`](CLAUDE.md); the session-by-session record is

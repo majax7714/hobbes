@@ -74,6 +74,10 @@ the interactive graph.
   policy, standing context, inbox) → orchestrate (spawn per unit in
   contract order, harvest, integrate, review, partition record) +
   roles + mail, behind `hobbes run` / `hobbes mail`, ADR-054),
+  the benchmark harness (`src/hobbes/bench/`: instances + protocol →
+  workspace → two arms → one meter → the benchmark's verdict →
+  report, behind `hobbes bench`, ADR-055; `scripts/bench_fetch.py`
+  exports a HF split to the JSONL it reads),
   and the M5 narrative
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
@@ -185,6 +189,14 @@ uv run hobbes run <task> --dry-run            # agents, briefs, record; spawns n
 uv run hobbes run <task>                      # needs go/bin/hobbes-session + the image
 uv run hobbes mail post <task> U1 "text"      # short-term context for a unit
 uv run hobbes mail read <task> orchestrator   # reflections land here
+
+# Benchmark harness (ADR-055) — built, no live run yet
+uv run scripts/bench_fetch.py princeton-nlp/SWE-bench_Verified test v.jsonl
+uv run hobbes bench select v.jsonl --cutoff 2025-01-01   # protocol; drops counted
+uv run hobbes bench run v.jsonl --model claude-sonnet-5 --limit 5 --evaluate
+                                              # spends quota on BOTH arms —
+                                              # Max names the first set
+uv run hobbes bench report ~/.hobbes/bench/run
 ```
 
 ## Conventions
@@ -233,9 +245,10 @@ ADR-040) passed 2026-08-16, closing the v2 extraction programme.**
 thats actually what were handling now." **The derivation programme
 opened on 2026-08-19 at Max's direction** — he added
 `docs/agent-mapping.md` and named the build; D1 (the plan derivation)
-passed his review on 2026-08-21 and the D2 **base** (execution,
-ADR-054) is built and awaiting review; the benchmark harness is what
-comes after. **The named verification method
+passed his review on 2026-08-21, the D2 **base** (execution, ADR-054)
+passed the same day, and the benchmark harness (`hobbes bench`,
+ADR-055) is built and unrun — its first live run waits on Max's
+session-image/network decision. **The named verification method
 is the benchmark harness** (Max, 2026-08-19, ADR-052): Hobbes run as a
 harness over known benchmarks vs pure-model baselines, hypotheses
 H1–H3 preregistered in `docs/benchmark-hypotheses.md` — testing itself
@@ -243,8 +256,27 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
-**2026-08-21 (D1 reviewed and passed; D2 base built, ADR-054 — awaiting
-Max's review):** Max passed D1 and set the agent structure: per-agent
+**2026-08-21 (D2 passed; the benchmark harness built, ADR-055 — no
+live run):** Max passed D2 and directed the harness. Built quota-free
+like D2: `hobbes bench select|run|report` — instance protocol (C-39:
+contamination bounded, never proven; a 2025 cutoff selects 0 of
+Verified's 500), two arms from one checkout (harness = ingest → plan
+with the issue as proposal → run → branch diff, `no-seed` counted
+against it; pure = Claude Code raw on the host), one meter (Claude
+Code's JSON envelope; `hobbes-session` gained `--model` and now
+requests the envelope), the pinned `swebench 5.0.2` evaluator as the
+verdict (C-40, P9), and a report that computes H1/H2/H3 and interprets
+nothing. **The first live run is blocked on Max:** the sandbox cannot
+run Claude Code (Alpine/musl image, glibc `claude` not mounted,
+network `none` — the network is an architecture-text decision), plus
+pure-arm containment, the podman socket for the evaluator, a
+post-cutoff set (SWE-rebench / SWE-bench-Live), and quota — ADR-055's
+consequences list them in order. First real-instance C-36 measurement:
+`psf/requests` ×8, 8/8 seed, 4/8 touch a gold file; candidate
+adjustments parked, not applied. 753 pytest (+30) / Go +2.
+
+**2026-08-21 (D1 reviewed and passed; D2 base built, ADR-054 —
+reviewed and passed the same day):** Max passed D1 and set the agent structure: per-agent
 policy = repo + role + derived agent layer; standing derived context +
 short-term context as role-pushed mail (orchestrator posts a specific,
 the agent reflects it back); commits alter standing context and

@@ -42,6 +42,8 @@ flags:
   --repo DIR       repo to spawn a session from (required)
   --role ROLE      session role (required)
   --task TEXT      the implementer's prompt (default Claude Code command)
+  --model NAME     pin the Claude Code model for the default command
+                   (ADR-055: the harness arm names its model like the pure arm)
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
   --image IMG      session image (default hobbes-session:local)
@@ -81,7 +83,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 // options holds parsed start flags plus the trailing command override.
 type options struct {
 	repo, role, task, session, ref string
-	agentDir                       string
+	agentDir, model                string
 	image, network, box            string
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
@@ -206,6 +208,7 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		Role:         opt.role,
 		Image:        opt.image,
 		Task:         opt.task,
+		Model:        opt.model,
 		Network:      opt.network,
 		HostWorktree: worktree,
 		HostSessions: opt.sessions,
@@ -331,6 +334,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.role, "role", "", "")
 	fs.StringVar(&opt.task, "task", "", "")
 	fs.StringVar(&opt.agentDir, "agent-dir", "", "")
+	fs.StringVar(&opt.model, "model", "", "")
 	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")

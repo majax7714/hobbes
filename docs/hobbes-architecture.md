@@ -95,8 +95,9 @@ begun (ADR-051):** the *mapping* half of the derivation — proposal to
 change-spec, with per-agent context and policy manifests — is running
 code (§6, `hobbes plan`). The *execution* half — spawning the per-unit
 sessions those manifests describe, serving context faults, recording
-partition quality — is not built, and is the derivation programme's next
-milestone. The design the mapping implements is
+partition quality — is built as a base (§6.1, ADR-054), and the benchmark
+harness that will correct it from its errors is built and unrun (§6.2,
+ADR-055). The design the mapping implements is
 [`agent-mapping.md`](agent-mapping.md): **phases, not personas** — an
 agent is a triple *(context slice, policy profile, verification
 obligations)*, and the number of agents is the partition's output, never
@@ -113,9 +114,11 @@ hypotheses are preregistered in
 metric and falsifier stated before any run: **H1** derived context
 substitutes for model size; **H2** per-unit regenerated context
 flattens the accuracy-vs-depth curve; **H3** cheaper and quicker per
-solved task, as a byproduct. Not started, deliberately: end-to-end
-runs need D2, and the point of writing the hypotheses first is that
-results cannot re-scope them.
+solved task, as a byproduct. The harness is built (`hobbes bench`,
+§6.2, ADR-055) and quota-free to exercise; **no live run has
+happened** — the first one waits on the owner's decisions about a
+session image that can run the model (§6.2), and the point of writing
+the hypotheses first is that results cannot re-scope them.
 
 **The derivation contract (ADR-047).** When per-task derivation is built,
 derived context has two mandatory halves: the captured fraction — graph,
@@ -799,6 +802,50 @@ generative planner above the lexical seeds (C-36). The base exists to be
 run under the benchmark harness (ADR-052) and corrected from what it
 gets wrong.
 
+### 6.2 Verification — `hobbes bench` (ADR-055)
+
+The harness ADR-052 named, as a loop rather than an agent
+(`pipeline/src/hobbes/bench/`): a known benchmark's instances in, two
+candidate patches per instance out, the benchmark's own tests as the
+verdict, and a report that lays the records against H1–H3 and
+interprets nothing.
+
+- **Instances** come from a local JSONL export in SWE-bench's shape
+  (`pipeline/scripts/bench_fetch.py` writes one; the pipeline carries
+  no dataset dependency). The **instance protocol** is a `created_at`
+  cutoff plus filters, every drop counted by reason in `run.json`;
+  contamination is **bounded, never proven** (C-39), and the selection
+  says so first.
+- **Two arms from one checkout** (a local clone of a cached bare
+  mirror at the base commit). *Harness*: `ingest` → `plan` with the
+  issue text as the proposal → `run` → the integration branch's diff;
+  an issue that seeds nothing is the outcome `no-seed`, counted
+  against the harness, never dropped. *Pure*: Claude Code on the same
+  checkout with its own tools and nothing of Hobbes; the tree's diff.
+  The plan summary and the partition record's terms ride the harness
+  record — the error stream is the product.
+- **One meter.** Claude Code's JSON result envelope reads both arms:
+  the pure arm's subprocess, and each unit's `session.log` (the
+  session's default command now requests the envelope and takes
+  `--model`, so H1's ladder names its model on both sides). A session
+  that emitted none is **unobserved**, stated per H3 row.
+- **The verdict is the evaluator's** (C-40): pinned `swebench`
+  `run_evaluation` as a subprocess, its report read as
+  `resolved | unresolved | error | empty-patch | unjudged`; rates are
+  over judged records and the unjudged count is printed beside them.
+- **Depth is a declared proxy**: the gold patch's file count, bucketed
+  1 / 2–3 / 4+ for H2's slope.
+
+**No live run has happened.** The harness is exercised end to end by
+stand-ins (a fake `claude`, the ADR-054 stand-in session — the harness
+arm through a real ingest and plan — and a fake evaluator). What the
+first live run needs is listed in ADR-055's consequences, first among
+them a session image that can run Claude Code at all: today's is
+Alpine, the `claude` binary is glibc-linked and not mounted, and the
+session network is `none` — a route to the network is exactly what the
+sandbox's enforcement story says is absent, so granting one is the
+owner's decision and a register entry when taken.
+
 ---
 
 ## 7. Carried subsystems (v1, condensed)
@@ -864,8 +911,8 @@ The v2 extraction programme — **complete and fully reviewed as of
 | Milestone | State | What it settled |
 |---|---|---|
 | **D1** — the plan derivation | done, **reviewed 2026-08-21** | ADR-051: `hobbes plan` — impact, partition, contracts, manifests with enforced complements, the plan-review gate; C-35..C-37 registered surfaced |
-| **D2** — execution | **base built**, awaiting review | ADR-054: `hobbes run` — role + agent policy levels, standing/short-term context, context faults tagged, `reflect`, branch harvest, integration + review, the partition record with the declared loss; C-38 registered surfaced; what remains in `future_additions.md` |
-| **Benchmark verification** | preregistered, not started | ADR-052: Hobbes as a harness under known benchmarks vs pure-model baselines; H1–H3 with metrics and falsifiers in [`benchmark-hypotheses.md`](benchmark-hypotheses.md); end-to-end needs D2 |
+| **D2** — execution | base built, **reviewed 2026-08-21** | ADR-054: `hobbes run` — role + agent policy levels, standing/short-term context, context faults tagged, `reflect`, branch harvest, integration + review, the partition record with the declared loss; C-38 registered surfaced; what remains in `future_additions.md` |
+| **Benchmark verification** | **harness built, no live run** | ADR-052 preregistered H1–H3 in [`benchmark-hypotheses.md`](benchmark-hypotheses.md); ADR-055 built `hobbes bench` (§6.2) — protocol, two arms, one meter, the benchmark's verdict, the report; C-39/C-40 registered surfaced. The first live run waits on the owner's session-image and network decision |
 
 Sequencing rules carry from v1 unchanged: deterministic before generative,
 each milestone exits on a real repo, **one milestone active at a time**, and

@@ -108,3 +108,12 @@ What dagger evidences is the honesty machinery and the monorepo
 structural fixes at scale, plus the two-module fixture's 0% → 100%
 flip (`semantic`/`calls`) proving the C-33 lift's mechanism exactly.
 No §3.8 row exists for dagger and none is licensed by these runs.
+
+## psf/requests (SWE-bench Verified checkouts — eight base commits, ADR-055)
+
+| Date | Numbers |
+|---|---|
+| 2026-08-21 | eight instance checkouts (2013–2022 base commits), lane A only (`HOBBES_SCIP=0`), 93–155 nodes each; used for the C-36 seed probe — 8/8 issues seed lexically, 4/8 seed sets touch the gold-patch file |
+
+**Verified:** none — the role was the seed probe, not edge accuracy; no
+call edge was hand-checked (documented, not claimed).

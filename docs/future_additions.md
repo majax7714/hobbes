@@ -449,21 +449,25 @@ surfaced per file rather than silent.)*
   gate is off by direction), and rendering plans and partition records
   in the web surface.
 
-- **The benchmark harness** (Max, 2026-08-19; ADR-052 — direction and
-  preregistration only, deliberately not started). Verify Hobbes by
-  running it as a harness over known benchmarks against pure-model
-  baselines; hypotheses H1–H3 preregistered with metrics and
-  falsifiers in `docs/benchmark-hypotheses.md`, where results will
-  land. What a real run needs, in dependency order: **D2** (nothing
-  consumes a change-spec yet — see the D2 entry above); a **benchmark
-  adapter** (instance → repo checkout + issue text in, candidate
-  patch out, the benchmark's own tests as the verdict); **seed
-  extraction from prose** (C-36 will bite first — benchmark issues
-  rarely name identifiers; the parked generative planner is the
-  expected response, and the lexical miss rate on real instances is
-  itself worth recording); **token/latency/cost accounting** per
-  instance across both arms (the recorder's partition record covers
-  the harness arm; the pure arm needs the same meter); and an
-  **instance-selection protocol** that respects training-set
-  contamination (post-cutoff or held-out sets, recorded with the
-  results). Opens when Max names it, after D1's review.
+- **The benchmark harness — what the build left out** (ADR-055,
+  2026-08-21; `hobbes bench` is built and unrun). In the order a live
+  run needs them: **a session image that runs Claude Code** — glibc
+  base, host `claude` mounted ro, credential, a network mode other
+  than `none`; the network is an owner decision that contradicts
+  architecture text as written ("no route to the network") and takes
+  a register entry when made, narrowed to an API-host egress
+  allow-list if podman's network stack permits. **Pure-arm
+  containment** — it runs on the host with Bash over a benchmark
+  checkout; a container reuses the item above. **A post-cutoff
+  instance set** — Verified is all pre-2024 (C-39); SWE-rebench or
+  SWE-bench-Live. **Seed adjustments the first probe named** (C-36;
+  not applied before verdicts exist): resolve dotted
+  `package.function` terms by symbol-id suffix (`requests.get` →
+  `requests.api.get`); strip trailing punctuation before the
+  code-shaped test (`fine:` is prose); weigh generic one-word seeds
+  (`data`, `json`) below identifier-shaped ones. **The generative seed
+  planner** above the lexical layer (P5, layered never inside).
+  **Evaluation at scale** — `--workers` exists; SWE-bench images are
+  large and the first pulls are slow. **`hobbes bench` in the web
+  surface** — the report is CLI-only, like plans and partition
+  records.

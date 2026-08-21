@@ -779,6 +779,14 @@ information appears in both, and the entries cross-reference.
 - **Bites at:** plans phrased in domain language rather than code
   names ("the checkout flow" seeds nothing unless a node is named
   that), and renamed concepts whose old name still matches something.
+  *Measured on real issues (ADR-055, eight `psf/requests` SWE-bench
+  instances, quota-free): all eight seeded, four seed sets touched a
+  gold-patch file. The misses have three shapes — dotted
+  `package.function` names (`requests.get`) match no symbol *name*;
+  trailing punctuation makes prose look code-shaped (`fine:`,
+  `it.`); generic words (`data`, `json`, `session`) seed spuriously.
+  Candidate adjustments are in `future_additions.md`; not applied
+  before verdicts exist.*
 - **You find out:** **surfaced** — `hobbes plan` errors with the
   `--seed` hint when nothing resolves (exit 2), and every change-spec
   lists `unresolved_terms` with the C-36 note; resolved seeds show
@@ -818,7 +826,11 @@ information appears in both, and the entries cross-reference.
   contract **renegotiation has no approval flow** (a reflection lands
   in the orchestrator's inbox for a human; nothing re-pins both sides),
   and **tokens and wall time are unmetered** (the loss lists them as
-  unobserved rather than filling them in).
+  unobserved rather than filling them in). *(Metering amended
+  2026-08-21, ADR-055: the session's default command now requests
+  Claude Code's JSON result envelope and `hobbes bench` reads it per
+  unit — a session that emits none is still recorded unobserved,
+  never imputed.)*
 - **Because:** path-grain write enforcement is mount work inside the
   session image — a per-unit overlay, or bind-mounting interior paths
   rw over a ro worktree — and the base was built to run under the
@@ -834,6 +846,53 @@ information appears in both, and the entries cross-reference.
   policy; `partition-record.json` carries `c38` and the per-unit
   `rework_files`; the loss lists its unobserved terms by name.
 - **Source:** ADR-054 (2026-08-21).
+
+## Verification — the benchmark harness (ADR-055)
+
+### C-39 — Contamination is bounded, never proven
+- **Cannot tell you:** whether a pure-model solve on a benchmark
+  instance came from reasoning or from memory. Known benchmarks are in
+  training corpora; a memorised answer needs no context, which biases
+  the comparison *against* the harness, not for it. The instance
+  protocol bounds the set by `created_at` against a stated cutoff and
+  counts what it dropped; it cannot see inside a model's training
+  data, and a post-cutoff instance can still resemble a pre-cutoff one.
+- **Because:** the only honest tool is selection, and selection is a
+  date. SWE-bench Verified's newest instance is 2023-08-07 — a 2025
+  cutoff selects zero of 500 — so a live run on a contemporary model
+  needs a continuously refreshed set (SWE-rebench, SWE-bench-Live) and
+  still only *bounds* the question.
+- **Bites at:** every H1–H3 rate; a pure arm that looks strong on an
+  old set may be remembering, and a harness that looks weak beside it
+  is being compared to recall.
+- **You find out:** **surfaced** — `hobbes bench select` and `run`
+  print the cutoff line first ("bounded, not proven — C-39", or "every
+  instance may be in a model's training data" when none is set);
+  `run.json` records the cutoff, the created range, and the drops; the
+  report's notes restate it.
+- **Source:** ADR-055 (2026-08-21).
+
+### C-40 — The verdict is the evaluator's
+- **Cannot tell you:** that a `resolved` verdict means the patch is
+  right, or an `unresolved` one that it is wrong, beyond what the
+  benchmark's own tests decide in the benchmark's own environment.
+  The harness runs the pinned `swebench` evaluator as a subprocess and
+  reads its report; per-repo test commands, environments, log parsers,
+  and image builds are the evaluator's, and so are their failures
+  (an `error` verdict is an environment that did not come up, not a
+  patch that was judged).
+- **Because:** reimplementing per-repo test semantics would make the
+  verdict Hobbes's opinion of the benchmark rather than the benchmark;
+  P9's shape — a provider we run and do not wrap.
+- **Provider:** `swebench` **5.0.2** (pinned in `bench/verdict.py`;
+  `HOBBES_SWEBENCH_CMD` overrides the invocation, never the meaning).
+- **Bites at:** `error` and `unjudged` counts in a report; a rate is
+  over *judged* records only, and the unjudged count is printed beside
+  it.
+- **You find out:** **surfaced** — the report's notes name the
+  evaluator and version; `run.json` records it; every verdict class is
+  counted in the output, none folded into another.
+- **Source:** ADR-055 (2026-08-21).
 
 ## The system's own claims
 

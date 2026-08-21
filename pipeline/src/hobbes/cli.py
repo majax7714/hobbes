@@ -712,6 +712,76 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench(args: argparse.Namespace) -> int:
+    """`hobbes bench select|run|report`: the benchmark harness (ADR-055).
+
+    `select` applies the instance protocol and prints what would run;
+    `run` checks each selected instance out at its base commit and runs
+    the pure arm (Claude Code, raw) and/or the harness arm (ingest →
+    plan → run), one record per (instance, arm, model), then judges
+    the patches through the benchmark's own evaluator when
+    `--evaluate` is given; `report` lays the records against H1–H3.
+    Exit 0 when the command completed, 1 when an evaluator call failed
+    or a run left records in error, 2 on trouble.
+    """
+    from hobbes.bench import instances as inst
+    from hobbes.bench import results
+    from hobbes.bench import run as bench_run
+
+    if args.bench_command == "report":
+        records = results.load(Path(args.run_dir))
+        if not records:
+            print(f"hobbes bench report: no records under {args.run_dir}", file=sys.stderr)
+            return 2
+        doc = results.report(records)
+        print(json.dumps(doc, indent=2, sort_keys=True) if args.json else results.format_report(doc))
+        return 0
+
+    try:
+        loaded = inst.load_instances(Path(args.instances))
+    except (inst.InstanceError, json.JSONDecodeError) as exc:
+        print(f"hobbes bench: {exc}", file=sys.stderr)
+        return 2
+    selection = inst.select(
+        loaded, source=str(args.instances), cutoff=args.cutoff,
+        repos=args.repo or [], ids=args.id or [], limit=args.limit,
+    )
+    if args.bench_command == "select":
+        if args.json:
+            print(json.dumps(selection.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(inst.format_selection(selection))
+            for i in selection.selected:
+                print(f"  {i.instance_id}  {i.created_at[:10] or 'undated':10}  depth {i.depth}")
+        return 0
+
+    which = ["pure", "harness"] if args.arm == "both" else [args.arm]
+    models = args.model or [""]
+    run_dir = Path(args.out) if args.out else Path.home() / ".hobbes" / "bench" / args.name
+    print(inst.format_selection(selection))
+    print(f"run: {run_dir} — arms {', '.join(which)}; models {', '.join(m or 'default' for m in models)}")
+    if not selection.selected:
+        print("hobbes bench run: nothing selected", file=sys.stderr)
+        return 2
+    records = bench_run.run(
+        run_dir, selection, models, which,
+        session_bin=args.session_bin,
+        sessions_root=Path(args.sessions) if args.sessions else None,
+        session_args=args.session_arg or [], budget=args.budget,
+        clean=args.clean, timeout=args.timeout,
+    )
+    failed = False
+    if args.evaluate:
+        dataset = args.dataset or str(args.instances)
+        before = sum(1 for r in records if r.solved is None)
+        records = bench_run.evaluate(run_dir, dataset, max_workers=args.workers)
+        failed = sum(1 for r in records if r.solved is None) == before and before > 0
+    print()
+    print(results.format_report(results.report(records)))
+    print(f"\nrecords: {run_dir / results.RECORDS}")
+    return 1 if failed else 0
+
+
 def _cmd_up(args: argparse.Namespace) -> int:
     """`hobbes up`: bring Hobbes up on a repo and hold for decisions (ADR-026).
 
@@ -1101,6 +1171,56 @@ def build_parser() -> argparse.ArgumentParser:
     read_parser.add_argument("unit")
     read_parser.add_argument("--repo", help="repo root (default: auto-detected via .git)")
 
+    bench_parser = sub.add_parser(
+        "bench",
+        help="the benchmark harness: Hobbes vs the pure model on known instances",
+        description=(
+            "ADR-055. Instances come from a local JSONL export "
+            "(pipeline/scripts/bench_fetch.py). `select` applies the instance "
+            "protocol (contamination cutoff, filters — every drop counted); "
+            "`run` checks each instance out at its base commit and runs the "
+            "pure arm and/or the harness arm per model, recording one line per "
+            "(instance, arm, model); `--evaluate` judges the patches through the "
+            "benchmark's own evaluator; `report` lays the records against the "
+            "preregistered hypotheses H1–H3 and interprets nothing."
+        ),
+    )
+    bench_sub = bench_parser.add_subparsers(dest="bench_command", required=True)
+
+    def _selection_flags(p):
+        p.add_argument("instances", help="instances JSONL (or JSON array) in SWE-bench shape")
+        p.add_argument("--cutoff", help="drop instances created on or before this ISO date (contamination bound, C-39)")
+        p.add_argument("--repo", action="append", help="keep only this owner/name (repeatable)")
+        p.add_argument("--id", action="append", help="keep only this instance id (repeatable)")
+        p.add_argument("--limit", type=int, help="keep at most N (a prefix of the dataset order, not a sample)")
+        p.add_argument("--json", action="store_true", help="machine-readable output")
+
+    select_parser = bench_sub.add_parser("select", help="apply the instance protocol and list what would run")
+    _selection_flags(select_parser)
+
+    brun_parser = bench_sub.add_parser("run", help="run the arms over the selection; optionally evaluate")
+    _selection_flags(brun_parser)
+    brun_parser.add_argument("--arm", choices=["both", "pure", "harness"], default="both")
+    brun_parser.add_argument("--model", action="append",
+                             help="Claude model for both arms (repeatable — the H1 ladder)")
+    brun_parser.add_argument("--name", default="run", help="run name under ~/.hobbes/bench/ (default: run)")
+    brun_parser.add_argument("--out", help="run directory (default: ~/.hobbes/bench/<name>)")
+    brun_parser.add_argument("--evaluate", action="store_true",
+                             help="judge the patches with the pinned swebench evaluator (needs a container engine)")
+    brun_parser.add_argument("--dataset", help="dataset name or file for the evaluator (default: the instances file)")
+    brun_parser.add_argument("--workers", type=int, default=1, help="evaluator parallelism (default 1)")
+    brun_parser.add_argument("--timeout", type=float, default=3600.0, help="per-arm wall clock in seconds (default 3600)")
+    brun_parser.add_argument("--budget", type=int, help="per-unit context budget for the harness arm's plan")
+    brun_parser.add_argument("--session-bin", help="hobbes-session binary for the harness arm")
+    brun_parser.add_argument("--sessions", help="session-state root for the harness arm")
+    brun_parser.add_argument("--session-arg", action="append",
+                             help="extra flag for hobbes-session (repeatable), e.g. --session-arg=--claude-cred")
+    brun_parser.add_argument("--clean", action="store_true", help="remove each workspace after its record is written")
+
+    report_parser = bench_sub.add_parser("report", help="lay a run's records against H1–H3")
+    report_parser.add_argument("run_dir")
+    report_parser.add_argument("--json", action="store_true", help="machine-readable output")
+
     review_parser = sub.add_parser(
         "review",
         help="concept-level review of a range: delta, invariants, coverage",
@@ -1213,6 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
         "plan": _cmd_plan,
         "run": _cmd_run,
         "mail": _cmd_mail,
+        "bench": _cmd_bench,
         "up": _cmd_up,
         "policy": _cmd_policy_resolve,
     }

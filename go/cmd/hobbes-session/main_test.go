@@ -277,3 +277,19 @@ func TestHarvestFetchesSessionCommitsIntoTheRepo(t *testing.T) {
 		t.Errorf("canonical repo branch has %q commits past HEAD (err %v), want 2", out, err)
 	}
 }
+
+// ADR-055: --model reaches the default Claude Code command.
+func TestModelFlagPinsTheSessionModel(t *testing.T) {
+	repo := gitRepo(t)
+	fakeProxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(fakeProxy, []byte("static\n"), 0o755)
+	code, stdout, stderr := cli("start", "--repo", repo, "--role", "implementer",
+		"--session", "S-model", "--proxy-bin", fakeProxy, "--sessions", t.TempDir(),
+		"--model", "claude-haiku-4-5-20251001", "--dry-run")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "--model claude-haiku-4-5-20251001") {
+		t.Errorf("model not in plan:\n%s", stdout)
+	}
+}

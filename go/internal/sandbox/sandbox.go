@@ -34,6 +34,11 @@ type Config struct {
 	Role         string // required
 	Image        string // session image (default hobbes-session:local)
 	Task         string // the implementer's prompt (for the default cmd)
+	// Model pins the Claude Code model for the default command (ADR-055:
+	// the benchmark harness runs a model ladder, so the harness arm must
+	// name its model the way the pure arm does). "" leaves the choice to
+	// Claude Code.
+	Model string
 	Network      string // podman --network (default "none")
 	HostWorktree string // absolute host path of the session worktree
 	HostSessions string // absolute host ~/.hobbes/sessions
@@ -236,13 +241,22 @@ func (p *Plan) DefaultCommand() []string {
 		// edit has already gone wrong.
 		mode = "default"
 	}
-	return []string{
+	cmd := []string{
 		"claude", "-p", p.cfg.Task,
+		// The JSON result envelope carries usage, cost, turns and wall
+		// time; `hobbes run` keeps the session's stdout per unit, so
+		// this is what meters the harness arm (ADR-055) — the plain
+		// text result would leave tokens unobserved forever.
+		"--output-format", "json",
 		"--mcp-config", p.mcpConfigContainerPath(),
 		"--permission-mode", mode,
 		"--disallowedTools", "Bash",
 		"--allowedTools", strings.Join(p.allowedTools(), ","),
 	}
+	if p.cfg.Model != "" {
+		cmd = append(cmd, "--model", p.cfg.Model)
+	}
+	return cmd
 }
 
 // command is the in-container command: the override, or the default.
