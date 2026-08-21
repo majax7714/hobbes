@@ -240,8 +240,8 @@ badges read `go · 1 repo` with single-repo rows in the stale colour,
 parses §3.8 and fails on drift, so **§3.7 step 4 now also means
 extending `VERIFICATION_BASE`**) and **`tail_classes_available`**
 (`CLASSES_AVAILABLE` in `tail.py`; capture line and blind spots print
-`classes this lane cannot report: …`). The register has no
-`unsurfaced` entry left. 703 pytest / Go green / 52 vitest; SPA and
+`classes this lane cannot report: …`). Unsurfaced entries now
+three (C-4, C-19, C-20). 703 pytest / Go green / 52 vitest; SPA and
 binaries rebuilt.
 
 **2026-08-19 (benchmark hypotheses preregistered, ADR-052 — docs

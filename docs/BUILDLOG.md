@@ -3172,9 +3172,9 @@ table away, and both are done.
   single-repo languages in the stale colour; `list_blind_spots` prints
   the rows before any percentage, scoped to the languages under the
   scope. `test_verification.py` parses §3.8 and fails on drift — §3.7
-  step 4 amended to name the twin. The register's only `unsurfaced`
-  entry is gone; the entry keeps what the surfacing cannot say (what a
-  thin sample missed).
+  step 4 amended to name the twin. Status unsurfaced → surfaced (C-4,
+  C-19, C-20 remain the register's unsurfaced three); the entry keeps
+  what the surfacing cannot say (what a thin sample missed).
 
 Two things worth noting. The first cut of the blind-spots line was
 unscoped, and the existing `web/`-scope test caught it — the verification

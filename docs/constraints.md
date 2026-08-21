@@ -1048,8 +1048,10 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Four of **thirty-seven** entries are **unsurfaced** (C-4, C-19 — narrowed
-to two tools — C-20, and C-31). The three derivation entries (C-35..C-37,
+Three of **thirty-seven** entries are **unsurfaced** (C-4, C-19 — narrowed
+to two tools — and C-20). C-31 left that list on 2026-08-21 (ADR-053:
+the verification base stamped into the artifact and stated wherever a
+language list is read), as did C-32's `partial`. The three derivation entries (C-35..C-37,
 ADR-051) landed surfaced on day one — the statement prints on every
 `hobbes plan` run and rides every change-spec. **Seven are lifted**, C-33 fastest of
 all: registered from the dagger measurement (ADR-048) and lifted one

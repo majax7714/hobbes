@@ -13,8 +13,8 @@ Two register entries carried a written candidate fix and no mechanism:
 - **C-31** — "supported" is a verified sample, not the language, and
   nothing at ingest said how thin the sample was for the language being
   ingested. §3.8's table is a document, and the register's own rule is
-  that a document is not a surfacing. It was the register's only
-  `unsurfaced` entry.
+  that a document is not a surfacing. It was one of four `unsurfaced`
+  entries (with C-4, C-19, C-20 — those three remain).
 - **C-32** — the tail view's classes are observations with boundaries,
   and nothing in the artifact said which classes a given language
   *could* have produced, so a Python tail with no `external-origin`
