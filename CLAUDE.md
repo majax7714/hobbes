@@ -277,8 +277,11 @@ bound by `PYTHONPATH=/work` + copied build artifacts (C-43);
 commit identity in every clone; `build_units(max_units=)` with
 `capped` flags (C-44); `hobbes bench run --environment swebench`
 (default) `--max-units 20` (default) `--network pasta` (default).
-783 pytest / Go green. Relaunched; `docs/bench-run-handoff.md` says
-what to check first.
+Second stop the same day: a capped unit's 488 KB brief as `--task`
+→ `Argument list too long` on every harness arm; fixed with
+`hobbes-session --task-file` and a **brief limit** (`--brief-limit
+60000` default; protected sections never cut; C-45). 786 pytest / Go
+green. Resumed; `docs/bench-run-handoff.md` says what to check first.
 
 **2026-08-21 (small-model ladder live + the solo policy, ADR-057):**
 Focus benchmark set: **SWE-bench Verified, complex multi-step set** (45

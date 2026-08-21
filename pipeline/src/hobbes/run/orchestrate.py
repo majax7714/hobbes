@@ -77,6 +77,10 @@ class UnitRecord:
     rework_files: list[str] = field(default_factory=list)
     tokens: int | None = None
     wall_seconds: float | None = None
+    #: The brief's size and what the brief limit cut from its standing
+    #: context (C-45); 0 when nothing was cut.
+    brief_chars: int = 0
+    brief_cut: int = 0
 
     @property
     def fault_rate(self) -> float:
@@ -246,8 +250,12 @@ def run_task(
     sessions_root: Path | None = None,
     role: str = "implementer",
     extra_args: list[str] | None = None,
+    brief_limit: int | None = None,
 ) -> dict:
-    """Run a change-spec end to end; returns the partition record."""
+    """Run a change-spec end to end; returns the partition record.
+    *brief_limit* holds each unit's brief to that many characters (the
+    model's context window is finite; a capped unit's context is not —
+    C-44/C-45); ``None`` sends the whole standing context."""
     repo = Path(repo_root).resolve()
     spec = load_spec(repo, task)
     task = spec["task"]
@@ -280,8 +288,12 @@ def run_task(
         record = UnitRecord(unit=unit, role=role, session=session, spawned=False)
         context = contexts[unit]
         inbox = mail.read(dirs[unit])
-        brief = agents.render_brief(spec, unit, role, inbox, session)
-        (dirs[unit] / "brief.md").write_text(brief)
+        full = agents.render_brief(spec, unit, role, inbox, session)
+        brief = agents.render_brief(spec, unit, role, inbox, session, limit=brief_limit)
+        brief_path = dirs[unit] / "brief.md"
+        brief_path.write_text(brief)
+        record.brief_chars = len(brief)
+        record.brief_cut = max(0, len(full) - len(brief))
         if context.get("human_first"):
             record.reason = "human-first: not spawned — " + context.get("human_first_reason", "")
             mail.post(orchestrator, unit, record.reason, kind="human-first")
@@ -289,12 +301,11 @@ def run_task(
             continue
         cmd = [session_bin or "hobbes-session", "start", "--repo", str(repo), "--role", role,
                "--agent-dir", str(dirs[unit]), "--session", session,
-               "--sessions", str(sessions_root), "--task", brief]
+               "--sessions", str(sessions_root), "--task-file", str(brief_path)]
         if dry_run:
             cmd.append("--dry-run")
         cmd += list(extra_args or [])
-        (dirs[unit] / "spawn.txt").write_text(" ".join(
-            a if a is not brief else "<brief.md>" for a in cmd) + "\n")
+        (dirs[unit] / "spawn.txt").write_text(" ".join(cmd) + "\n")
         if dry_run and not session_bin:
             record.reason = "dry run: command written to spawn.txt, nothing spawned"
             records.append(record)

@@ -55,6 +55,8 @@ flags:
                    solo/benchmark run wants this short — no human approves
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
+  --task-file F    the prompt from a file (exclusive with --task; a long
+                   brief exceeds the argv limit)
   --image IMG      session image (default hobbes-session:local)
   --path PATH      in-container PATH (default /usr/local/bin:/usr/bin:/bin)
   --env K=V        extra in-container env var (repeatable; printed by --dry-run)
@@ -98,6 +100,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 // options holds parsed start flags plus the trailing command override.
 type options struct {
 	repo, role, task, session, ref string
+	taskFile                       string
 	agentDir, model                string
 	runtime, llmBaseURL            string
 	escalation                     time.Duration
@@ -418,6 +421,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.repo, "repo", "", "")
 	fs.StringVar(&opt.role, "role", "", "")
 	fs.StringVar(&opt.task, "task", "", "")
+	fs.StringVar(&opt.taskFile, "task-file", "", "")
 	fs.StringVar(&opt.agentDir, "agent-dir", "", "")
 	fs.StringVar(&opt.model, "model", "", "")
 	fs.StringVar(&opt.runtime, "runtime", "", "")
@@ -442,6 +446,20 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	if opt.repo == "" || opt.role == "" {
 		fmt.Fprintf(stderr, "hobbes-session start: --repo and --role are required\n\n%s", usage)
 		return opt, exitUsage
+	}
+	if opt.taskFile != "" {
+		// A brief travels as a file (ADR-058): a unit's standing context
+		// can exceed the kernel's single-argument limit, and did.
+		if opt.task != "" {
+			fmt.Fprintln(stderr, "hobbes-session start: --task and --task-file are exclusive")
+			return opt, exitUsage
+		}
+		body, err := os.ReadFile(opt.taskFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "hobbes-session start: --task-file: %v\n", err)
+			return opt, exitError
+		}
+		opt.task = string(body)
 	}
 
 	if opt.sessions == "" {

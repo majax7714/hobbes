@@ -667,6 +667,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             session_bin=args.session_bin,
             sessions_root=Path(args.sessions) if args.sessions else None,
             extra_args=args.session_arg or [],
+            brief_limit=args.brief_limit,
         )
     except (SpecError, RunError, artifacts.ArtifactError) as exc:
         print(f"hobbes run: {exc}", file=sys.stderr)
@@ -787,7 +788,8 @@ def _cmd_bench(args: argparse.Namespace) -> int:
              "target's dependencies, which neither has")
           + f"; network {args.network}")
     print(f"  unit cap: {args.max_units if args.max_units else 'none'}"
-          + (" — units merged past the budget to fit are flagged `capped` (C-44)" if args.max_units else ""))
+          + (" — units merged past the budget to fit are flagged `capped` (C-44)" if args.max_units else "")
+          + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else 'none'}")
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)
         return 2
@@ -798,6 +800,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         session_args=args.session_arg or [], budget=args.budget,
         clean=args.clean, timeout=args.timeout, runtime=runtime,
         environment_kind=args.environment, network=args.network, max_units=args.max_units,
+        brief_limit=args.brief_limit or None,
     )
     failed = False
     if args.evaluate:
@@ -1175,6 +1178,9 @@ def build_parser() -> argparse.ArgumentParser:
                             help="hobbes-session binary (default: $HOBBES_SESSION_BIN or PATH)")
     run_parser.add_argument("--sessions",
                             help="session-state root (default: $HOBBES_SESSIONS or ~/.hobbes/sessions)")
+    run_parser.add_argument("--brief-limit", type=int, default=None,
+                            help="hold each unit's brief to this many characters (unprotected standing-context "
+                            "sections cut with a stated cut, C-45); default: no limit")
     run_parser.add_argument("--session-arg", action="append",
                             help="extra flag passed through to hobbes-session start (repeatable), "
                             "e.g. --session-arg=--claude-cred")
@@ -1259,6 +1265,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "environment the tools read (values never printed)")
     brun_parser.add_argument("--timeout", type=float, default=3600.0, help="per-arm wall clock in seconds (default 3600)")
     brun_parser.add_argument("--budget", type=int, help="per-unit context budget for the harness arm's plan")
+    brun_parser.add_argument("--brief-limit", type=int, default=60_000,
+                             help="hold each unit's brief to this many characters, cutting unprotected "
+                             "standing-context sections with a stated cut (default 60000 ≈ 15k tokens for a "
+                             "32k window; 0 = no limit; C-45)")
     brun_parser.add_argument("--max-units", type=int, default=20,
                              help="cap on units per harness plan — the number of sessions an instance may "
                              "spawn; 0 = no cap (default 20, ADR-058; capped units flagged, C-44)")

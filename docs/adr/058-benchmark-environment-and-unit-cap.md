@@ -82,6 +82,30 @@ acknowledged as a benchmark practice, not an architecture change.
    (`0` = no cap); `hobbes plan --max-units` exists with no default,
    because a human-reviewed plan has a human to size it.
 
+## The second finding (same day): the brief as argv
+
+The relaunch ran five instances in twenty minutes — the cap held (20
+units each, 1–2 `capped`), `pytest` exited 0 in the sessions, commits
+went through — and **every harness arm failed with `Argument list too
+long`** spawning `hobbes-session`: one astropy unit's brief was
+488 KB, a `capped` unit carrying the standing context of everything
+it absorbed, past the kernel's 128 KB single-argument limit. Two
+fixes, both in this ADR's scope:
+
+4. **The brief travels as a file.** `hobbes-session --task-file`
+   (exclusive with `--task`); the orchestrator passes the `brief.md`
+   it already writes. `spawn.txt` now shows the real argv.
+5. **A brief limit** (`hobbes bench run --brief-limit`, default
+   60,000 characters ≈ 15k tokens for the ladder's 32k window;
+   `hobbes run --brief-limit` with no default). `agents.limit_context`
+   trims the unprotected sections to an equal share with a stated cut
+   line each; the complement, the policy, the contracts and the
+   invariants are never cut (ADR-047's contract outranks the limit).
+   The record carries `brief_chars`/`brief_cut` per unit — **C-45**.
+   A 488 KB brief would otherwise have reached the endpoint as a
+   context-length error, counted as a unit failure for a reason that
+   is the harness's, not the model's.
+
 ## What this is not
 
 - Not a change to the sandbox boundary. The mounts, the network
@@ -110,8 +134,9 @@ acknowledged as a benchmark practice, not an architecture change.
   record's `capped` count and the run banner all say so.
 - The run manifest records `environment`, `network`, `max_units`;
   each record's `detail.environment` carries the image and digest.
-- Tests: Go +3 (env binding printed and wrapped; no wrapper without
-  `--pre`; clone identity copied and defaulted), pytest +14 (cap
-  semantics ×6, environment ×8). 783 pytest / Go green.
+- Tests: Go +4 (env binding printed and wrapped; no wrapper without
+  `--pre`; clone identity copied and defaulted; `--task-file`),
+  pytest +17 (cap semantics ×6, environment ×8, brief limit ×3).
+  786 pytest / Go green.
 - The 20-minute poll that found this is the handoff's "watch it"
   step; it worked. The handoff doc now says what to look for first.

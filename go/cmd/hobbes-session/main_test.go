@@ -356,3 +356,25 @@ func TestSessionCloneHasACommitIdentity(t *testing.T) {
 		t.Errorf("default identity missing: %q", name)
 	}
 }
+
+func TestTaskFileCarriesTheBrief(t *testing.T) {
+	// ADR-058: a unit brief can exceed the argv limit, so it travels as a file.
+	dir := t.TempDir()
+	brief := filepath.Join(dir, "brief.md")
+	os.WriteFile(brief, []byte("do the thing\nover two lines\n"), 0o600)
+	proxy := filepath.Join(dir, "hobbes-proxy")
+	os.WriteFile(proxy, []byte("static\n"), 0o755)
+	var errb bytes.Buffer
+	opt, code := parseStart([]string{"--repo", "r", "--role", "implementer", "--proxy-bin", proxy, "--task-file", brief}, &errb)
+	if code != 0 || opt.task != "do the thing\nover two lines\n" {
+		t.Fatalf("code %d task %q err %s", code, opt.task, errb.String())
+	}
+	_, code = parseStart([]string{"--repo", "r", "--role", "implementer", "--proxy-bin", proxy, "--task", "x", "--task-file", brief}, &errb)
+	if code == 0 {
+		t.Error("--task and --task-file together must be refused")
+	}
+	_, code = parseStart([]string{"--repo", "r", "--role", "implementer", "--proxy-bin", proxy, "--task-file", dir + "/missing"}, &errb)
+	if code == 0 {
+		t.Error("a missing task file must be an error")
+	}
+}

@@ -196,6 +196,7 @@ def run_harness_arm(
     extra_session_args: list[str] | None = None,
     environment: Environment | None = None,
     max_units: int | None = None,
+    brief_limit: int | None = None,
     budget: int | None = None,
     seeds: list[str] | None = None,
     runtime: Runtime | None = None,
@@ -263,7 +264,7 @@ def run_harness_arm(
         session_args += ["--model", model]
     try:
         record = run_task(workspace, spec.task, session_bin=session_bin,
-                          sessions_root=sessions_root, extra_args=session_args)
+                          sessions_root=sessions_root, extra_args=session_args, brief_limit=brief_limit)
     except (RunError, artifacts.ArtifactError, Exception) as exc:  # noqa: BLE001
         return ArmResult("harness", model, "run-error", detail=detail, error=f"{type(exc).__name__}: {exc}")
     usage = accounting.Usage()
@@ -279,8 +280,9 @@ def run_harness_arm(
         # sessions even when no envelope was emitted inside them.
         usage.wall_seconds = round(time.monotonic() - started, 3)
     detail["run"] = {
-        "units": [{k: u[k] for k in ("unit", "spawned", "exit", "knowledge_calls", "context_faults",
-                                      "commits", "rework_files", "reflections", "reason")}
+        "units": [{k: u.get(k) for k in ("unit", "spawned", "exit", "knowledge_calls", "context_faults",
+                                          "commits", "rework_files", "reflections", "reason",
+                                          "brief_chars", "brief_cut")}
                   for u in record.get("units", [])],
         "integration": record.get("integration", {}),
         "review": {k: v for k, v in record.get("review", {}).items() if k in ("needs_attention", "error", "skipped")},

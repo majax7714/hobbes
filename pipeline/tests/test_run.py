@@ -327,3 +327,60 @@ class TestCLI:
         record = json.loads(capsys.readouterr().out)
         expected = 1 if (record["integration"]["failed"] or record["review"].get("needs_attention")) else 0
         assert code == expected
+
+
+class TestBriefLimit:
+    """ADR-058/C-45: a brief is held to the model's window, protected
+    sections intact, every cut stated; and it travels as a file."""
+
+    def test_limit_context_cuts_unprotected_sections_and_says_so(self):
+        from hobbes.run.agents import limit_context
+        big = "\n".join(f"line {i}" for i in range(2000))
+        doc = ("# Standing context — unit U1\n\nintro\n\n"
+               f"## Interior (full resolution — yours to change)\n{big}\n"
+               f"## Guarding tests (run these)\n{big}\n"
+               "## Invariants in scope (breaking one is a review failure)\n- I-1\n"
+               "## Contracts at your boundary (the only interface to other units)\n- c1\n"
+               f"## Neighborhood (one hop out)\n{big}\n"
+               "## What Hobbes cannot see here (read this before trusting the rest)\n- complement\n"
+               "## Derived policy (advisory at path grain)\n- deny: x\n")
+        out, dropped = limit_context(doc, 6000)
+        assert dropped > 0 and len(out) <= 6000
+        for kept in ("- complement", "- deny: x", "- c1", "- I-1", "## Interior", "## Neighborhood"):
+            assert kept in out
+        assert out.count("… cut:") == 3 and "C-45" in out
+        same, none = limit_context(doc, len(doc) + 1)
+        assert same == doc and none == 0
+
+    @staticmethod
+    def _inflate(monkeypatch):
+        """The fixture's context is tiny; give its interior 3,000 lines."""
+        real = agents.render_context
+
+        def big(spec, unit):
+            doc = real(spec, unit)
+            pad = "\n".join(f"    # interior line {i}" for i in range(3000))
+            return doc.replace("## Guarding tests", pad + "\n## Guarding tests", 1)
+        monkeypatch.setattr(agents, "render_context", big)
+
+    def test_render_brief_limit_is_visible_at_the_top(self, planned, monkeypatch):
+        self._inflate(monkeypatch)
+        repo, task = planned
+        spec = load_spec(repo, task)
+        unit = spec["units"][0]["name"]
+        full = agents.render_brief(spec, unit, "implementer", [], "s1")
+        cut = agents.render_brief(spec, unit, "implementer", [], "s1", limit=len(full) // 2)
+        assert len(cut) <= len(full) // 2
+        assert "(standing context cut by" in cut.splitlines()[1] and "C-45" in cut
+        assert "## What Hobbes cannot see" in cut and "## Obligations" in cut and "… cut:" in cut
+        assert "## What Hobbes cannot see" in cut and "## Obligations" in cut
+
+    def test_run_passes_the_brief_as_a_file_and_records_the_cut(self, planned, fake_session, tmp_path, monkeypatch):
+        self._inflate(monkeypatch)
+        repo, task = planned
+        record = orchestrate.run_task(repo, task, session_bin=fake_session, sessions_root=tmp_path / "s",
+                                      brief_limit=6000)
+        unit = record["units"][0]
+        assert unit["brief_chars"] <= 6000 and unit["brief_cut"] > 0
+        spawn = (repo / ".hobbes" / "plans" / task / "agents" / unit["unit"] / "spawn.txt").read_text()
+        assert "--task-file" in spawn and "--task " not in spawn

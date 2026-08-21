@@ -202,9 +202,58 @@ def render_context(spec: dict, unit: str) -> str:
     return "\n".join(lines)
 
 
-def render_brief(spec: dict, unit: str, role: str, inbox: list[dict], session: str) -> str:
+#: Standing-context sections a brief limit never cuts: the complement
+#: (ADR-047's contract — derived context must carry what it cannot see),
+#: the policy, the contracts and the invariants. Everything else is
+#: detail the model can re-fetch through the knowledge tools.
+PROTECTED_SECTIONS = ("## What Hobbes cannot see", "## Derived policy", "## Contracts at your boundary",
+                      "## Invariants in scope")
+
+
+def limit_context(context: str, limit: int) -> tuple[str, int]:
+    """Cut *context* (a ``render_context`` document) to at most *limit*
+    characters by trimming its unprotected sections to an equal share
+    of what the protected ones leave, each with a stated cut line
+    (C-45). Returns the text and the number of characters dropped."""
+    if len(context) <= limit:
+        return context, 0
+    parts = context.split("\n## ")
+    head, sections = parts[0], ["## " + p for p in parts[1:]]
+    protected = [s for s in sections if s.startswith(PROTECTED_SECTIONS)]
+    cuttable = [s for s in sections if not s.startswith(PROTECTED_SECTIONS)]
+    def notice(lost: int) -> str:
+        return (f"\n… cut: {lost} more line(s) not shown — the brief is held to {limit:,} characters "
+                "for the model's context window (C-45); the knowledge tools still answer for them")
+
+    # Protected sections are never cut, so a limit below their size is
+    # not met — the returned text is then as small as honesty allows.
+    fixed = len(head) + sum(len(s) + 1 for s in protected)
+    reserve = len(notice(99999)) + 1
+    share = max(0, (limit - fixed) // max(1, len(cuttable)) - reserve)
+    dropped = 0
+    out = []
+    for section in sections:
+        if section in protected or len(section) <= share + reserve:
+            out.append(section)
+            continue
+        title, _, body = section.partition("\n")
+        kept_lines, used = [], len(title) + 1
+        for line in body.splitlines():
+            if used + len(line) + 1 > share:
+                break
+            kept_lines.append(line)
+            used += len(line) + 1
+        lost = len(body.splitlines()) - len(kept_lines)
+        dropped += len(section) - used
+        out.append(title + "\n" + "\n".join(kept_lines) + notice(lost))
+    return "\n".join([head, *out]), dropped
+
+
+def render_brief(spec: dict, unit: str, role: str, inbox: list[dict], session: str,
+                 limit: int | None = None) -> str:
     """The session's opening prompt: role, proposal, both horizons,
-    obligations."""
+    obligations. With *limit*, the standing context is cut to fit
+    (:func:`limit_context`) and the brief says so."""
     lines = [
         f"You are a single-use {role} for unit {unit} of plan {spec['task']}.",
         "",
@@ -234,7 +283,13 @@ def render_brief(spec: dict, unit: str, role: str, inbox: list[dict], session: s
                          f"({message.get('kind')}): {message.get('text')}")
     else:
         lines.append("- empty: nothing has been pushed to you yet")
-    lines += ["", render_context(spec, unit)]
+    context = render_context(spec, unit)
+    if limit is not None:
+        room = limit - len("\n".join(lines)) - 120  # the cut notice on line 2
+        context, dropped = limit_context(context, max(room, 0))
+        if dropped:
+            lines.insert(1, f"(standing context cut by {dropped:,} characters to fit the brief limit — C-45)")
+    lines += ["", context]
     return "\n".join(lines)
 
 

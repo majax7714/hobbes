@@ -3455,5 +3455,17 @@ to 20, `hobbes plan --max-units` has no default. Register: **C-43**
 coupling). Architecture §6.2 amended; handoff updated with what to
 check first. Go +3 / pytest +14: **783 pytest / Go green**.
 
-Relaunched into the same `--out` (instance 1's pure record from the
-stopped run is superseded — see the relaunch note below). Poll set.
+Relaunched fresh (the stopped run's dir kept as `…stopped-1`). The
+poll at 20 minutes: five instances done, the cap holding (20 units,
+1–2 capped each), `pytest` exit 0 in sessions, commits through — and
+**every harness arm `run-error`: `Argument list too long`**. One
+capped unit's brief was 488 KB, passed as `--task`. Stopped again.
+Fixed: `hobbes-session --task-file` (the orchestrator passes the
+`brief.md` it already writes) and a **brief limit** —
+`agents.limit_context` trims unprotected sections to an equal share
+with a stated cut line each, never the complement/policy/contracts/
+invariants; `hobbes bench run --brief-limit 60000` default (≈15k
+tokens of a 32k window), per-unit `brief_chars`/`brief_cut` in the
+record; **C-45**. Go +1 / pytest +3: **786 pytest / Go green**.
+Resumed the run (the five harness `run-error` records removed so the
+arm re-runs; the pure records stand). Poll set.

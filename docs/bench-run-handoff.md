@@ -72,6 +72,10 @@ uv run hobbes bench run verified.jsonl --secrets secrets.txt \
 - **`--max-units 20`** is the default unit cap (ADR-058): units merged to
   fit are flagged `capped` (C-44). Max's first sizing; adjust from the
   run's verdicts, and say so in the results.
+- **`--brief-limit 60000`** (chars) is the default: a capped unit's
+  brief reached 488 KB; briefs now travel as files (`--task-file`) and
+  are cut to the model's window with every cut stated (C-45). The
+  per-unit `brief_chars`/`brief_cut` are in each harness record.
 - `--eval-modal` runs the swebench evaluator on Modal (needs the Modal
   token; no local Docker). Without it, the evaluator needs a local
   container engine (`systemctl --user enable --now podman.socket`,
@@ -107,6 +111,10 @@ finding below). A container list: `podman ps`.
   on the first instance, and in the first harness session's
   `flight.jsonl` an `exec … pytest` row with `"exit":0` or a real
   test failure — not 127.
+- **Same day, second stop:** the relaunch's harness arms all died with
+  `Argument list too long` (a 488 KB brief as `--task`). Fixed with
+  `--task-file` and the brief limit above. If a harness record says
+  `run-error` with an `OSError`, that is this, and the binary is stale.
 
 - **The solo policy finding (fixed, ADR-057).** A benchmark checkout is
   a committed-only clone, so repo/role policies don't reach the session;

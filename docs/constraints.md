@@ -989,6 +989,33 @@ information appears in both, and the entries cross-reference.
   `hobbes plan` and the bench banner print the cap.
 - **Source:** ADR-058 (2026-08-21).
 
+### C-45 — A brief is held to the model's window; what was cut is named, not read
+- **Cannot tell you:** that a session saw its whole standing context.
+  `hobbes bench run --brief-limit` (default 60,000 characters, ≈15k
+  tokens for the ladder's 32k window) and `hobbes run --brief-limit`
+  cut a unit's brief to fit: the unprotected sections (interior
+  listing, guarding tests, module docs, neighborhood) are trimmed to
+  an equal share, each ending in a stated `… cut: N more line(s)`;
+  the protected ones — the complement (*What Hobbes cannot see*,
+  ADR-047's contract), the derived policy, the contracts, the
+  invariants — are never cut, so a limit below their size is not met
+  and the brief is simply as small as honesty allows.
+- **Because:** a capped unit (C-44) carries the context of everything
+  it absorbed — one astropy unit's brief reached 488 KB, past the
+  kernel's single-argument limit (the crash that surfaced this) and
+  four times the 7B's whole window. The knowledge tools still answer
+  for every cut line; the cut bounds what the model is *handed*, not
+  what it can ask.
+- **Bites at:** reading H2 (per-unit context) on a cut unit as if the
+  derived context were what the model saw; it saw the protected
+  sections and a prefix of the rest.
+- **You find out:** **surfaced** — line 2 of a cut brief says
+  `(standing context cut by N characters … C-45)`; every cut section
+  ends in its cut line; the partition record carries `brief_chars`
+  and `brief_cut` per unit and the bench record copies them; the run
+  banner prints the limit.
+- **Source:** ADR-058 (2026-08-21), the second finding.
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language
