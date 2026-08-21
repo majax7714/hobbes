@@ -91,6 +91,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     dirty = " (dirty tree)" if graph["dirty"] else ""
     languages = ", ".join(graph["languages"])
     print(f"ingested {repo_root} @ {graph['sha'][:12]}{dirty} [{languages}]")
+    _print_verification_base(graph.get("verification_base", {}))
     for degraded in graph.get("extraction_errors", []):
         print(
             f"  WARNING: {degraded['path']}: {degraded['stage']} extraction "
@@ -108,20 +109,48 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         f"  interfaces.json: {len(interfaces['routes'])} routes, "
         f"{len(interfaces['cli_entry_points'])} CLI entry points"
     )
-    _print_tail_view(graph.get("resolution_coverage", []))
+    _print_tail_view(
+        graph.get("resolution_coverage", []),
+        graph.get("tail_classes_available", {}),
+    )
     for path in sorted(paths):
         print(f"  wrote {path}")
     return 0
 
 
-def _print_tail_view(coverage_rows: list[dict]) -> None:
+def _print_verification_base(base: dict[str, dict]) -> None:
+    """The verification-depth line (C-31): how many repos each detected
+    language's accuracy was measured on, printed directly under the
+    language list so it cannot be read as a capability list. The
+    single-repo and unverified rows are spelled out — those are the
+    ones a reader would otherwise assume are peers of the rest."""
+    if not base:
+        return
+    from hobbes.extract.verification import summary_line
+
+    print(
+        f"  verification base: {summary_line(base)} — a sample, not the "
+        f"language (C-31, architecture §3.8)"
+    )
+    for lang, row in base.items():
+        if row["repos"] <= 1:
+            print(f"    {lang}: {row['note']}")
+
+
+def _print_tail_view(
+    coverage_rows: list[dict], classes_available: dict[str, list[str]] | None = None
+) -> None:
     """The per-language capture line (ADR-045): accounted share of the
     *detected* call sites — always stated with that denominator — and
     the unresolved tail split into what the graph sees and does not
     model versus what it cannot resolve. This is the honesty line: it
-    runs on every ingest, not only during development."""
-    from hobbes.extract.tail import NOT_MODELLED, rollup
+    runs on every ingest, not only during development. When the artifact
+    carries ``tail_classes_available`` (C-32), each language's line also
+    names the classes its providers could not have reported, so a
+    missing class reads as a boundary rather than an absence."""
+    from hobbes.extract.tail import ALL_CLASSES, NOT_MODELLED, rollup
 
+    classes_available = classes_available or {}
     for lang, agg in sorted(rollup(coverage_rows).items()):
         sites, unresolved = agg["sites"], agg["unresolved"]
         if not sites:
@@ -144,6 +173,13 @@ def _print_tail_view(coverage_rows: list[dict]) -> None:
         if cannot:
             named = ", ".join(f"{c} {n}" for c, n in sorted(cannot.items()))
             print(f"    cannot resolve: {sum(cannot.values())} ({named})")
+        if lang in classes_available:
+            missing = [c for c in ALL_CLASSES if c not in classes_available[lang]]
+            if missing:
+                print(
+                    f"    classes this lane cannot report: {', '.join(missing)}"
+                    f" (C-32)"
+                )
     _print_directory_view(coverage_rows)
 
 

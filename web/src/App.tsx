@@ -85,11 +85,24 @@ export function App() {
                 artifacts @{(o.sha ?? '').slice(0, 8)} — re-ingest
               </Badge>
             )}
-            {o.languages.map((l) => (
-              <Badge key={l} kind="muted">
-                {l}
-              </Badge>
-            ))}
+            {o.languages.map((l) => {
+              // C-31: the language list is not a capability list. Each
+              // badge carries its verification depth, and a single-repo
+              // or unverified language is badged as such, not as a peer.
+              const row = o.verification_base?.[l]
+              const kind = !row || row.depth === 'multi-repo' ? 'muted' : 'stale'
+              const title = row
+                ? `${row.note} — a sample, not the language (C-31, architecture §3.8)`
+                : undefined
+              return (
+                <span key={l} title={title}>
+                  <Badge kind={kind}>
+                    {l}
+                    {row && ` · ${row.repos} repo${row.repos === 1 ? '' : 's'}`}
+                  </Badge>
+                </span>
+              )
+            })}
             {counts.extraction_errors > 0 && (
               <Badge kind="broken">{counts.extraction_errors} extraction errors</Badge>
             )}

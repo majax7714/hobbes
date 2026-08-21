@@ -227,6 +227,23 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
+**2026-08-21 (C-31 and C-32 surfaced, ADR-053 — built, awaiting Max's
+review):** Max's standing instruction (away for the day): apply the
+register's easiest candidate fixes. Two of three applied; C-25's
+per-repo pack disable list is the ADR-012 question and stays. Two
+additive `graph.json` fields, no schema bump: **`verification_base`**
+(§3.8 pinned in `extract/verification.py`, stamped per artifact
+language — the ingest summary prints `verification base: go 1 repo, …
+— a sample, not the language` under the language list, the surface
+badges read `go · 1 repo` with single-repo rows in the stale colour,
+`list_blind_spots` prints the rows scoped; `test_verification.py`
+parses §3.8 and fails on drift, so **§3.7 step 4 now also means
+extending `VERIFICATION_BASE`**) and **`tail_classes_available`**
+(`CLASSES_AVAILABLE` in `tail.py`; capture line and blind spots print
+`classes this lane cannot report: …`). The register has no
+`unsurfaced` entry left. 703 pytest / Go green / 52 vitest; SPA and
+binaries rebuilt.
+
 **2026-08-19 (benchmark hypotheses preregistered, ADR-052 — docs
 only):** Max named the verification course for the derivation
 programme: use Hobbes as a harness under known benchmarks — the error

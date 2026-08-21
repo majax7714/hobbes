@@ -79,6 +79,10 @@ func newFixture(t *testing.T) *fixture {
 	writeJSONFile(t, filepath.Join(derived, "graph.json"), map[string]any{
 		"schema_version": 3, "sha": sha, "dirty": false,
 		"languages": []string{"python"},
+		"verification_base": map[string]any{
+			"python": map[string]any{"repos": 3, "depth": "multi-repo",
+				"note": "verified on 3 repos: this repo (dogfood, continuous), SELENEX, qwen-pathology"},
+		},
 		"nodes": []map[string]any{
 			{"id": "app.core", "kind": "module", "path": "src/app/core.py"},
 			{"id": "app.api", "kind": "module", "path": "src/app/api.py"},
@@ -220,6 +224,12 @@ func TestOverviewReportsCountsAndBadges(t *testing.T) {
 	}
 	if body["behind"] != false {
 		t.Errorf("behind = %v, want false (artifact stamped at HEAD)", body["behind"])
+	}
+	// C-31: the verification base rides beside the language list.
+	base, _ := body["verification_base"].(map[string]any)
+	py, _ := base["python"].(map[string]any)
+	if py["repos"] != float64(3) || !strings.HasPrefix(py["note"].(string), "verified on 3 repos") {
+		t.Errorf("verification_base = %v, want python's §3.8 row", body["verification_base"])
 	}
 	counts, _ := body["counts"].(map[string]any)
 	for field, want := range map[string]float64{

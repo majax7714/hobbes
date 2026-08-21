@@ -59,7 +59,11 @@ type graphStamp struct {
 	SHA           string   `json:"sha"`
 	Dirty         bool     `json:"dirty"`
 	Languages     []string `json:"languages"`
-	Nodes         []struct {
+	// How many repos each language's accuracy was measured on (C-31);
+	// passed through so the language badges say it. Raw: the server
+	// neither interprets nor invents it.
+	VerificationBase map[string]json.RawMessage `json:"verification_base"`
+	Nodes            []struct {
 		Kind string `json:"kind"`
 	} `json:"nodes"`
 	ModuleEdges      []json.RawMessage `json:"module_edges"`
@@ -83,19 +87,22 @@ type interfacesStamp struct {
 // which commit, and which artifacts exist. A repo with no ingest is a
 // state the UI shows, not an error it hits (ADR-022).
 type overview struct {
-	Repo      string         `json:"repo"`
-	Root      string         `json:"root"`
-	Head      string         `json:"head"`
-	Branch    string         `json:"branch"`
-	Ingested  bool           `json:"ingested"`
-	Narrated  bool           `json:"narrated"`
-	SHA       string         `json:"sha,omitempty"`
-	Dirty     bool           `json:"dirty"`
-	Behind    bool           `json:"behind"`
-	Schema    int            `json:"schema_version,omitempty"`
-	Languages []string       `json:"languages"`
-	Counts    map[string]int `json:"counts"`
-	Hint      string         `json:"hint,omitempty"`
+	Repo      string   `json:"repo"`
+	Root      string   `json:"root"`
+	Head      string   `json:"head"`
+	Branch    string   `json:"branch"`
+	Ingested  bool     `json:"ingested"`
+	Narrated  bool     `json:"narrated"`
+	SHA       string   `json:"sha,omitempty"`
+	Dirty     bool     `json:"dirty"`
+	Behind    bool     `json:"behind"`
+	Schema    int      `json:"schema_version,omitempty"`
+	Languages []string `json:"languages"`
+	// Per language, the §3.8 verification row ({repos, note, ...}) the
+	// artifact carries (C-31); empty for pre-ADR-053 artifacts.
+	VerificationBase map[string]json.RawMessage `json:"verification_base,omitempty"`
+	Counts           map[string]int             `json:"counts"`
+	Hint             string                     `json:"hint,omitempty"`
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +126,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if g.Languages != nil {
 		out.Languages = g.Languages
 	}
+	out.VerificationBase = g.VerificationBase
 	// The artifact's own SHA vs the repo's: a skeleton generated before
 	// the current commit is stale, and saying so is P1.
 	out.Behind = out.Head != "" && g.SHA != "" && out.Head != g.SHA

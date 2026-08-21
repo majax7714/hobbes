@@ -6,6 +6,9 @@ derived artifacts (ADR-006) into ``.hobbes/derived/``:
 - ``graph.json`` — module nodes + symbol layer, typed edges (``imports``,
   ``env-read`` at module level, ``calls`` at symbol level), plus whatever
   the enrichment packs contributed and a ``packs`` list naming them,
+  plus two honesty fields: ``tail_classes_available`` (C-32) and
+  ``verification_base`` (C-31) — what each language's tail could have
+  said, and how thin the evidence behind "supported" is for it,
 - ``tests.json`` — pytest inventory with static test→symbol reach,
 - ``interfaces.json`` — HTTP routes and CLI entry points, all of which
   now come from packs (ADR-035) rather than from the pipeline itself.
@@ -32,6 +35,7 @@ from hobbes.extract.pysource import FromImport, parse_source
 from hobbes.extract.rustsource import collect_rust_tests, extract_rust
 from hobbes.extract.testmap import collect_tests
 from hobbes.extract.tssource import collect_ts_tests, extract_ts
+from hobbes.extract.verification import verification_base
 
 #: v2 (M3): "language" became "languages" when the infra layer joined
 #: (ADR-010). v3 (M6, ADR-021): tests carry a per-test "framework" field
@@ -148,6 +152,12 @@ def extract_repo(
         graph["extraction_errors"] = sorted(
             degraded, key=lambda d: (d["stage"], d["path"], d["message"])
         )
+
+    # The verification base is a property of Hobbes, not of the repo: how
+    # many repos each detected language's accuracy was measured on
+    # (architecture §3.8, C-31). Stamped into the artifact so the summary,
+    # the surface, and the proxy state it where the language list is read.
+    graph["verification_base"] = verification_base(sorted(set(languages)))
 
     return Extraction(
         graph={"languages": sorted(languages), **graph},
@@ -316,6 +326,12 @@ def _build_symbol_layer(
         }
         for row in ev.coverage(syntax, resolutions, external)
     ]
+    # Which tail classes each present language's providers could have
+    # reported (C-32): stated beside the counts, so an absent class reads
+    # as "not reportable here" when that is what it is.
+    graph["tail_classes_available"] = tail.classes_available(
+        graph["resolution_coverage"]
+    )
     return degraded
 
 

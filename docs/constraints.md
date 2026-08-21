@@ -319,13 +319,19 @@ information appears in both, and the entries cross-reference.
 - **Bites at:** cross-language comparison of tail compositions — a TS
   tail reads richer than a Python one partly because TS is the only
   lane whose checker reports origins.
-- **You find out:** **partial** — abstention is visible in every
-  artifact (`unclassified` counts), and this entry plus ADR-045 name
-  the asymmetry, but nothing in the artifact says which classes a given
-  language *could* have produced.
-- **Candidate fix:** a per-language `classes_available` note in the
-  rollup, or origin support from the other syntax providers.
-- **Source:** ADR-045.
+- **You find out:** **surfaced** (2026-08-21, ADR-053 — this entry's
+  candidate fix applied). `graph.json` carries
+  `tail_classes_available`, per tail-view language, the classes its
+  providers *could* have reported (a pinned table beside the classifier,
+  held against its decision tree by the test suite); the ingest capture
+  line prints `classes this lane cannot report: …` under each language,
+  and `list_blind_spots` prints the same line to agents. Abstention
+  stays visible as `unclassified` counts. What remains conceded is the
+  asymmetry itself — Python/Go/Rust tails are still poorer than TS's
+  because their providers report fewer observations; the fix makes the
+  boundary legible, it does not move it. Origin support from the other
+  syntax providers would narrow it further.
+- **Source:** ADR-045; surfacing ADR-053.
 
 ## Extraction — TypeScript and JavaScript
 
@@ -818,21 +824,26 @@ information appears in both, and the entries cross-reference.
 - **Bites at:** the decision to trust a graph on the first repo of a
   shape Hobbes has never seen; every sentence of the form "Hobbes covers
   X".
-- **You find out:** **unsurfaced.** The runtime mechanisms surface what
-  they can *detect* — tiers, `dependency_coverage`,
-  `extraction_errors`, `hobbes lanes` — but a systematic blind spot the
-  sample never exercised degrades nothing and warns nowhere, and nothing
-  at ingest states how thin the verification base for your language is.
-  §3.8's table is a document, and a document is not a surfacing — this
-  register's own rule, applied to the claim the register itself sits
-  under.
-- **Candidate surfacing:** per-language verification depth in the ingest
-  summary and beside the surface's language list — "rust: verified on 1
-  repo" next to the badge, in the moment the language list is read as a
-  capability list.
+- **You find out:** **surfaced** (2026-08-21, ADR-053 — the candidate
+  surfacing applied). §3.8's table is pinned in
+  `extract/verification.py` and stamped into `graph.json` as
+  `verification_base`, keyed by the artifact's own language names; the
+  test suite reads §3.8 and fails if the two tables drift. Three places
+  state it where a language list is read as a capability list: the
+  ingest summary prints `verification base: go 1 repo, python 3 repos,
+  … — a sample, not the language` directly under the language list and
+  spells out every single-repo or unverified row; the surface's
+  language badges carry `· N repos` with the §3.8 row as tooltip and
+  badge single-repo languages in the stale colour, not as peers; and
+  `list_blind_spots` prints the rows before any percentage. A language
+  the table does not know is stamped `not verified on any repo`, never
+  omitted. **What stays conceded** — and is now the entry's whole
+  content: the systematic blind spot a thin sample never exercised
+  still degrades nothing at runtime. The surfacing tells you how thin
+  the base is; it cannot tell you what the base missed.
 - **Source:** ADR-044; the owner's directive, 2026-08-16 — a coverage
   claim beyond its evidence is dishonest even when the machinery behind
-  it is proven.
+  it is proven. Surfacing: ADR-053.
 
 ---
 

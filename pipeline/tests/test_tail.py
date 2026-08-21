@@ -297,3 +297,60 @@ class TestArtifact:
             tail.IMPORT_BINDING, tail.BUILTIN, tail.ATTR, tail.PATH_CALL,
             tail.UNCLASSIFIED,
         }
+
+
+class TestClassesAvailable:
+    """C-32's note: the table says what each language *could* report, and
+    it must agree with what :func:`classify` can decide."""
+
+    def test_the_table_covers_every_tail_language_and_only_known_classes(self):
+        assert set(tail.CLASSES_AVAILABLE) == set(tail._LANG_BY_EXT.values())
+        for classes in tail.CLASSES_AVAILABLE.values():
+            assert classes <= set(tail.ALL_CLASSES)
+            # Every language can fall back, read an attr-call, or abstain.
+            assert {tail.FALLBACK, tail.ATTR, tail.UNCLASSIFIED} <= classes
+
+    def test_builtin_name_is_available_exactly_where_a_list_is_pinned(self):
+        with_list = {l for l, c in tail.CLASSES_AVAILABLE.items() if tail.BUILTIN in c}
+        assert with_list == set(tail._BUILTINS)
+
+    def test_checker_origin_classes_are_ts_only(self):
+        for lang, classes in tail.CLASSES_AVAILABLE.items():
+            has = {tail.NESTED, tail.EXTERNAL_ORIGIN} & classes
+            assert bool(has) == (lang == "ts/js"), lang
+
+    def test_the_fixture_tail_stays_inside_its_language_row(self):
+        out = extract_repo(FIXTURE)
+        rows = out.graph["resolution_coverage"]
+        available = out.graph["tail_classes_available"]
+        assert "python" in available
+        for row in rows:
+            lang = tail.language_of(row["file"])
+            assert set(row.get("tail", {})) <= set(available[lang]), row
+
+    def test_only_present_languages_are_listed_in_decision_order(self):
+        rows = [{"file": "a/x.rs"}, {"file": "b/y.py"}, {"file": "c/z.tf"}]
+        got = tail.classes_available(rows)
+        assert list(got) == ["python", "rust"]
+        assert got["rust"] == [tail.FALLBACK, tail.ATTR, tail.PATH_CALL, tail.UNCLASSIFIED]
+
+
+class TestCaptureLineNamesMissingClasses:
+    def test_the_summary_names_what_a_lane_cannot_report(self, capsys):
+        from hobbes import cli
+
+        rows = [{"file": "a.go", "sites": 4, "unresolved": 1,
+                 "tail": {"attr-call": 1}}]
+        cli._print_tail_view(rows, tail.classes_available(rows))
+        out = capsys.readouterr().out
+        assert ("classes this lane cannot report: nested-decl, external-origin, "
+                "import-binding, path-call (C-32)") in out
+
+    def test_an_older_artifact_without_the_field_prints_no_note(self, capsys):
+        from hobbes import cli
+
+        rows = [{"file": "a.go", "sites": 4, "unresolved": 1,
+                 "tail": {"attr-call": 1}}]
+        cli._print_tail_view(rows)
+        assert "cannot report" not in capsys.readouterr().out
+

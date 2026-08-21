@@ -48,7 +48,10 @@ Checker-origin classes are **TypeScript/JavaScript only** in this
 version — the tsextract helper's checker knows declarations; the other
 syntax providers do not resolve. The asymmetry, the pinned (not
 runtime) builtin lists, and the text-based shape read are the
-classifier's own boundaries, registered as C-32.
+classifier's own boundaries, registered as C-32 — and the asymmetry is
+*stated* per language by :data:`CLASSES_AVAILABLE`, which
+``graph.json`` carries as ``tail_classes_available`` so a reader can
+tell "no external-origin sites" from "no provider that reports them".
 """
 
 from __future__ import annotations
@@ -133,6 +136,46 @@ GO_BUILTINS = frozenset({
 })
 
 _BUILTINS = {"python": PY_BUILTINS, "go": GO_BUILTINS}
+
+#: Which classes each language's providers can actually produce (C-32's
+#: candidate fix, applied). A class absent from a language's set is one
+#: that language *could not have reported* — so a Python tail with no
+#: ``external-origin`` is not "no external origins", it is "no checker
+#: that reports origins". Pinned beside the mechanisms that decide it:
+#: checker origins come from tsextract alone; builtin lists exist for
+#: Python and Go; ``import-binding`` is lane A's Python parse; the
+#: ``local-binding`` collectors are Python/Go (ADR-046) and TS (checker);
+#: ``path-call`` needs ``::``, which only Rust's grammar spells. The
+#: test suite pins this table against :func:`classify`'s decision tree,
+#: so a provider that learns a new class must widen its row here too.
+CLASSES_AVAILABLE: dict[str, frozenset[str]] = {
+    "python": frozenset({FALLBACK, LOCAL, IMPORT_BINDING, BUILTIN, ATTR,
+                         UNCLASSIFIED}),
+    "ts/js": frozenset({FALLBACK, LOCAL, NESTED, EXTERNAL_ORIGIN, ATTR,
+                        UNCLASSIFIED}),
+    "go": frozenset({FALLBACK, LOCAL, BUILTIN, ATTR, UNCLASSIFIED}),
+    "rust": frozenset({FALLBACK, ATTR, PATH_CALL, UNCLASSIFIED}),
+}
+
+#: Every class, in decision order — the vocabulary the table draws from.
+ALL_CLASSES = (FALLBACK, LOCAL, NESTED, EXTERNAL_ORIGIN, IMPORT_BINDING,
+               BUILTIN, ATTR, PATH_CALL, UNCLASSIFIED)
+
+
+def classes_available(coverage_rows: list[dict]) -> dict[str, list[str]]:
+    """Per-language ``classes_available`` for the languages that have
+    detected call sites in *coverage_rows* — the artifact form of C-32's
+    note, keyed by the tail-view language bucket and listed in decision
+    order. Emitted into ``graph.json`` so every consumer (the ingest
+    summary, ``list_blind_spots``) states what a language's tail *could*
+    have said next to what it did say, rather than holding a second copy
+    of this table."""
+    present = {language_of(row["file"]) for row in coverage_rows}
+    return {
+        lang: [c for c in ALL_CLASSES if c in CLASSES_AVAILABLE[lang]]
+        for lang in sorted(present - {None})
+        if lang in CLASSES_AVAILABLE
+    }
 
 #: Checker origin (tsextract v4) -> tail class.
 _ORIGIN_CLASS = {"local": LOCAL, "nested": NESTED, "external": EXTERNAL_ORIGIN}

@@ -462,8 +462,11 @@ prints the per-language capture line on every run, always against the
 honest denominator — a share **of detected call sites**, never "of the
 repo", because the undetectable classes (C-1/C-4/C-5) are in no
 denominator here — split into *seen, not modelled by design* versus
-*cannot resolve*, and below it a **per-directory capture view**
-(ADR-048): the same statement at depth-2 directory grain, ranked by the
+*cannot resolve*, then — from `graph.json`'s `tail_classes_available`
+(ADR-053, C-32) — the classes that language's providers *could not have
+reported*, so a Python tail with no `external-origin` reads as "no
+checker reports origins here" rather than "none exist"; and below it a
+**per-directory capture view** (ADR-048): the same statement at depth-2 directory grain, ranked by the
 *cannot resolve* group so by-design classes cannot bury real misses,
 with the cut past ten rows stated rather than silent. On a large repo
 the language line says how much is missing and the directory view says
@@ -527,7 +530,9 @@ every-commit fast path. Full re-index is always available and always correct
 3. Optional: enrichment pack(s) for its frameworks.
 4. **Record the evidence** (ADR-044): verify on at least one real repo,
    hand-check a sample of edges against their cited lines, and extend
-   §3.8's table *in the same commit*. A language absent from that table
+   §3.8's table *in the same commit* — together with its pinned twin,
+   `VERIFICATION_BASE` in `extract/verification.py` (ADR-053), which the
+   suite holds against the table. A language absent from that table
    is **wired**, not **supported** (P11) — and one row licenses one
    row's worth of claim.
 
@@ -608,8 +613,16 @@ honesty machinery itself — tier stamps, degradation records, coverage
 counts, lane agreement — because it is the shared code path and the test
 suite exercises it on every run. What never carries: "the graph is right
 about repos shaped unlike the sample." That residual risk is registered
-as **C-31**, and it is unsurfaced today — nothing at ingest tells a user
-how thin the verification base for their language is.
+as **C-31**, and since ADR-053 the *thinness* is surfaced even though
+the risk is not: this table is pinned in `extract/verification.py`,
+stamped into `graph.json` as `verification_base` (a property of Hobbes,
+not of the repo — nothing in a repo could compute it), and stated in
+the three places a language list is read as a capability list — the
+ingest summary's `verification base:` line under the language list,
+the surface's language badges (`go · 1 repo`, single-repo rows badged
+apart), and `list_blind_spots`. The test suite reads this section and
+fails when the two tables disagree, so extending a row here without the
+code is a red build, not a quiet drift.
 
 ---
 

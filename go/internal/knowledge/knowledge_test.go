@@ -612,6 +612,16 @@ func blindSpotRepo(t *testing.T) string {
 		"extraction_errors": []map[string]any{
 			{"path": "scripts", "stage": "go-modules", "message": "orphan directory"},
 		},
+		"tail_classes_available": map[string][]string{
+			"python": {"fallback-resolved", "local-binding", "import-binding",
+				"builtin-name", "attr-call", "unclassified"},
+			"ts/js": {"fallback-resolved", "local-binding", "nested-decl",
+				"external-origin", "attr-call", "unclassified"},
+		},
+		"verification_base": map[string]any{
+			"python": map[string]any{"repos": 3, "note": "verified on 3 repos: this repo (dogfood, continuous), SELENEX, qwen-pathology"},
+			"go":     map[string]any{"repos": 1, "note": "verified on 1 repo: one repo — this one"},
+		},
 	}
 	derivedDir := filepath.Join(repo, ".hobbes", "derived")
 	if err := os.MkdirAll(derivedDir, 0o755); err != nil {
@@ -646,6 +656,12 @@ func TestBlindSpotsWholeRepoRollsUpPerLanguage(t *testing.T) {
 		// meanings appear only for classes present, with their C-refs:
 		"attr-call — an attribute call whose receiver no static provider could type",
 		"unclassified — no observation applies",
+		// C-32: what the lane could not have said, beside what it did say:
+		"classes this lane cannot report: nested-decl, external-origin, path-call (C-32)",
+		"classes this lane cannot report: import-binding, builtin-name, path-call (C-32)",
+		// C-31: the verification base, stated before any percentage:
+		"verification base — a sample, not the language (C-31",
+		"go: verified on 1 repo: one repo — this one",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
@@ -668,6 +684,11 @@ func TestBlindSpotsScopeFiltersByPathPrefix(t *testing.T) {
 	if !strings.Contains(out, "capture [ts/js]") {
 		t.Fatalf("ts rows missing under web/ scope:\n%s", out)
 	}
+	// The verification base is scoped too: go has no sites under web/,
+	// and neither python nor go may be vouched for there.
+	if strings.Contains(out, "verification base") {
+		t.Fatalf("verification rows for languages absent from the scope:\n%s", out)
+	}
 }
 
 func TestBlindSpotsUnknownScopeSaysHow(t *testing.T) {
@@ -686,5 +707,30 @@ func TestBlindSpotsCleanScopeSaysAccounted(t *testing.T) {
 	}
 	if !strings.Contains(out, "every detected call site under this scope is accounted for") {
 		t.Fatalf("clean scope should say so:\n%s", out)
+	}
+}
+
+func TestBlindSpotsOnAnOlderArtifactOmitsTheNotes(t *testing.T) {
+	repo := blindSpotRepo(t)
+	path := filepath.Join(repo, ".hobbes", "derived", "graph.json")
+	var doc map[string]any
+	data, _ := os.ReadFile(path)
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	delete(doc, "tail_classes_available")
+	delete(doc, "verification_base")
+	data, _ = json.Marshal(doc)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Open(repo).ListBlindSpots(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{"cannot report", "verification base"} {
+		if strings.Contains(out, absent) {
+			t.Fatalf("%q printed without the artifact carrying it:\n%s", absent, out)
+		}
 	}
 }

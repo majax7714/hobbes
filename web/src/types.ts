@@ -113,8 +113,21 @@ export interface Overview {
   behind: boolean
   schema_version?: number
   languages: string[]
+  /** Per language, the §3.8 verification row the artifact carries (C-31);
+   *  absent on artifacts from before ADR-053. */
+  verification_base?: Record<string, VerificationRow>
   counts: Record<string, number>
   hint?: string
+}
+
+/** How thin "supported" is for one language: how many repos its accuracy
+ *  was hand-verified on (architecture §3.8). A property of Hobbes, not of
+ *  the repo — the badge says it where the language list is read. */
+export interface VerificationRow {
+  repos: number
+  on: string
+  depth: 'multi-repo' | 'single-repo' | 'unverified'
+  note: string
 }
 
 export interface Claim {

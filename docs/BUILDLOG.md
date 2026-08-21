@@ -3146,3 +3146,42 @@ already registered (C-35, C-36).
 
 Docs only; no code, no suites affected. The benchmark milestone opens
 when Max names it, after D1's review.
+
+## 2026-08-21 (twenty-eighth) — two register candidates applied: C-31 and C-32 surfaced (ADR-053)
+
+Max's standing instruction for the session (he was away): review the
+register and apply its easiest candidate fixes, two to four if that many
+exist, nothing new and nothing deep. The register carried three
+candidates. **C-25** (per-repo pack disable list) is the ADR-012 question
+in disguise and was left alone. **C-31** and **C-32** were both a pinned
+table away, and both are done.
+
+- **C-32 — `tail_classes_available`.** `CLASSES_AVAILABLE` in `tail.py`
+  says which classes each language's providers can produce; it rides in
+  `graph.json`; the capture line prints `classes this lane cannot
+  report: …` per language and `list_blind_spots` prints the same. The
+  tests pin the table against the decision tree (builtin-name exactly
+  where a list is pinned, origin classes TS-only, the fixture's tail
+  inside its row). Status partial → surfaced; what stays conceded is the
+  asymmetry itself, now legible.
+- **C-31 — `verification_base`.** §3.8 pinned in
+  `extract/verification.py`, stamped per artifact language, a property
+  of Hobbes and not of the repo. The ingest summary prints it directly
+  under the language list and spells out the single-repo rows; the
+  surface badges read `go · 1 repo` with the row as tooltip and
+  single-repo languages in the stale colour; `list_blind_spots` prints
+  the rows before any percentage, scoped to the languages under the
+  scope. `test_verification.py` parses §3.8 and fails on drift — §3.7
+  step 4 amended to name the twin. The register's only `unsurfaced`
+  entry is gone; the entry keeps what the surfacing cannot say (what a
+  thin sample missed).
+
+Two things worth noting. The first cut of the blind-spots line was
+unscoped, and the existing `web/`-scope test caught it — the verification
+base is now filtered by the tail buckets present under the scope. And
+the dogfood ingest now prints, under its own language list, that Go is
+verified on exactly one repo — this one — which is the line the entry
+existed to make someone read.
+
+703 pytest / Go `./...` green / 52 vitest. SPA, `hobbes-web`, and both
+proxy binaries rebuilt. Nothing else touched; D1 still awaits review.

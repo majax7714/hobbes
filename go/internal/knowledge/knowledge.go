@@ -97,6 +97,20 @@ type graphDoc struct {
 	ResolutionCoverage []coverageRow     `json:"resolution_coverage"`
 	DependencyCoverage []depCoverage     `json:"dependency_coverage"`
 	ExtractionErrors   []extractionError `json:"extraction_errors"`
+
+	// Per tail-view language, the classes its providers could have
+	// reported (C-32) — so an absent class reads as a boundary, not an
+	// absence. Stamped by the pipeline; absent in pre-ADR-053 artifacts.
+	TailClassesAvailable map[string][]string `json:"tail_classes_available"`
+	// Per artifact language, how many repos Hobbes's accuracy was
+	// measured on (architecture §3.8, C-31) — a property of Hobbes, not
+	// of the repo, stamped so the proxy states it where an agent reads.
+	VerificationBase map[string]verificationRow `json:"verification_base"`
+}
+
+type verificationRow struct {
+	Repos int    `json:"repos"`
+	Note  string `json:"note"`
 }
 
 type coverageRow struct {
@@ -687,6 +701,14 @@ var notModelled = map[string]bool{
 	"local-binding": true, "nested-decl": true, "builtin-name": true,
 }
 
+// artifactLangBucket maps graph.json's language names onto the tail
+// view's buckets, so a verification row can be matched to the call
+// sites under a scope. hcl has no call sites and maps to nothing.
+var artifactLangBucket = map[string]string{
+	"python": "python", "typescript": "ts/js", "javascript": "ts/js",
+	"go": "go", "rust": "rust",
+}
+
 var langByExt = map[string]string{
 	".py": "python", ".ts": "ts/js", ".tsx": "ts/js", ".js": "ts/js",
 	".jsx": "ts/js", ".mjs": "ts/js", ".cjs": "ts/js", ".go": "go",
@@ -728,6 +750,26 @@ func (s *Store) ListBlindSpots(scope string) (string, error) {
 		"dispatch and calls through values (C-1), fixture-injected test reach\n" +
 		"(C-4), computed route paths (C-5). Every percentage here is a floor\n" +
 		"over DETECTED call sites, not over the repo.\n")
+	// Languages with detected call sites under the scope, by tail bucket
+	// — the scoped verification line names only these (whole-repo scope
+	// names every language the artifact lists, call sites or not).
+	inScope := map[string]bool{}
+	for _, row := range rows {
+		if lang, ok := langByExt[path.Ext(row.File)]; ok {
+			inScope[lang] = true
+		}
+	}
+	first := true
+	for _, lang := range sortedKeys(g.VerificationBase) {
+		if scope != "." && !inScope[artifactLangBucket[lang]] {
+			continue
+		}
+		if first {
+			b.WriteString("\nverification base — a sample, not the language (C-31, architecture §3.8):\n")
+			first = false
+		}
+		fmt.Fprintf(&b, "  %s: %s\n", lang, g.VerificationBase[lang].Note)
+	}
 
 	type agg struct {
 		sites, unresolved int
@@ -765,6 +807,9 @@ func (s *Store) ListBlindSpots(scope string) (string, error) {
 		}
 		if cannot != "" {
 			fmt.Fprintf(&b, "  cannot resolve: %s\n", cannot)
+		}
+		if missing := classesMissing(lang, g.TailClassesAvailable); missing != "" {
+			fmt.Fprintf(&b, "  classes this lane cannot report: %s (C-32)\n", missing)
 		}
 		for class := range a.tail {
 			present[class] = true
@@ -805,7 +850,7 @@ func (s *Store) ListBlindSpots(scope string) (string, error) {
 		b.WriteString("\nevery detected call site under this scope is accounted for.\n")
 	}
 
-	first := true
+	first = true
 	for _, m := range tailMeanings {
 		if !present[m.class] {
 			continue
@@ -826,6 +871,27 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// classesMissing names, in class order, the tail classes a language's
+// providers could not have reported (C-32) — "" when the artifact does
+// not carry the table or the language can report every class.
+func classesMissing(lang string, available map[string][]string) string {
+	classes, ok := available[lang]
+	if !ok {
+		return ""
+	}
+	can := map[string]bool{}
+	for _, c := range classes {
+		can[c] = true
+	}
+	var out []string
+	for _, m := range tailMeanings {
+		if !can[m.class] {
+			out = append(out, m.class)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // groupLine renders one rollup group of a tail, in class order.
