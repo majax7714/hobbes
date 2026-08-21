@@ -56,8 +56,8 @@ type File struct {
 	// Version is the schema version; only 1 exists.
 	Version int `yaml:"version"`
 	// Scope optionally declares the level this file expects to be loaded at
-	// (box, repo, or folder); LoadChain rejects the file if it is loaded at
-	// a different level.
+	// (box, repo, role, folder, or agent); the loader rejects the file if
+	// it is loaded at a different level.
 	Scope string `yaml:"scope,omitempty"`
 	// Default is the decision applied when no rule in the whole chain
 	// matches; the most specific file that sets one wins (ADR-002).
@@ -67,13 +67,16 @@ type File struct {
 
 	// Source is the path the file was loaded from (diagnostics only).
 	Source string `yaml:"-"`
-	// Level is the scope level the file was loaded at: "box", "repo", or
-	// "folder". Assigned by the loader, not read from YAML.
+	// Level is the scope level the file was loaded at: "box", "repo",
+	// "role", "folder", or "agent". Assigned by the loader, not read from
+	// YAML.
 	Level string `yaml:"-"`
 }
 
 // scopeLevels are the values File.Scope may declare.
-var scopeLevels = map[string]bool{"box": true, "repo": true, "folder": true}
+var scopeLevels = map[string]bool{
+	"box": true, "repo": true, "role": true, "folder": true, "agent": true,
+}
 
 // ParseFile parses and validates one policy file. Parsing is strict: unknown
 // keys are errors, so a typo in a policy file fails loudly instead of
@@ -93,7 +96,7 @@ func ParseFile(data []byte, source string) (*File, error) {
 		return nil, fmt.Errorf("%s: unsupported policy version %d (want 1)", source, f.Version)
 	}
 	if f.Scope != "" && !scopeLevels[f.Scope] {
-		return nil, fmt.Errorf("%s: invalid scope %q (want box, repo, or folder)", source, f.Scope)
+		return nil, fmt.Errorf("%s: invalid scope %q (want box, repo, role, folder, or agent)", source, f.Scope)
 	}
 	if f.Default != "" && !f.Default.valid() {
 		return nil, fmt.Errorf("%s: invalid default %q (want allow, deny, or escalate)", source, f.Default)

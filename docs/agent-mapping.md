@@ -1,11 +1,15 @@
 # Agent Mapping — deriving agents, context, and policy per task
 
 **Status: design record.** §§1–5 are built as of D1 (ADR-051,
-2026-08-19): the mapping runs as `hobbes plan` and the running
-architecture's §6 describes it as it is — that section, not this file,
-is current. §6 (the recorder and loss) and the execution half of §2's
-phases 4–5 are not built; their scope is parked in
-`future_additions.md` under "D2". This file stays as the record of
+2026-08-19, reviewed 2026-08-21): the mapping runs as `hobbes plan`.
+The execution half of §2's phases 4–5 and §6's partition record are
+built as a **base** at D2 (ADR-054, 2026-08-21): `hobbes run`, with the
+owner's agent structure layered on — per-agent policy (repo + role +
+derived agent layer), standing and short-term context, reflections,
+branch harvest. The running architecture's §6 describes both as they
+are — that section, not this file, is current. Loss *fitting*, the
+renegotiation re-pin, and path-grain write enforcement are not built
+(C-38); what remains is in `future_additions.md` under "D2". This file stays as the record of
 where the design started, the way `hobbes-architecture-v1.md` is for
 extraction. The original header follows.
 

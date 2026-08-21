@@ -3185,3 +3185,71 @@ existed to make someone read.
 
 703 pytest / Go `./...` green / 52 vitest. SPA, `hobbes-web`, and both
 proxy binaries rebuilt. Nothing else touched; D1 still awaits review.
+
+## 2026-08-21 (twenty-ninth) — D1 passed; the D2 base (ADR-054)
+
+Max reviewed D1 and passed it, and in the same message set the shape of
+the agents for the execution half, with the benchmark harness as the
+destination: Hobbes runs alone there, so the manual plan-review step
+shifts off for now and proposals are what gets set. His structure, in
+his order: per-agent policy from the shared repo policy plus per-role
+policies; a standing derived context plus a short-term one read as
+role-pushed mail — the orchestrator posts a specific to a specialist's
+short-term context and reads the reflection; commits are what alter
+standing context and the repo/role policies; everything else in the
+mapping stays; the formula learns from the errors benchmark testing
+will show. The ask was a rough base of the current architecture, so
+that the first twenty-odd problems can surface.
+
+Built, split Go/Python (the Go side in a forked session with a precise
+spec; both landed green):
+
+- **Policy chain:** floor → box → repo → **role** → folder → **agent**.
+  Role policies are standing files under `.hobbes/policies/roles/`
+  (three scaffolded here: implementer, verifier, orchestrator — phases,
+  not personas); the agent layer is derived from the unit's policy
+  manifest and loaded last. Deny overrides, so it narrows only; a test
+  pins that an agent allow cannot widen past a role deny.
+- **Agent dir** mounted ro at `/agent`: `policy.yaml`, `context.json`
+  (the proxy tags **context faults** against it — served, never
+  refused), `context.md` (standing), `inbox.jsonl` (short-term),
+  `brief.md` (the prompt: role, proposal, obligations, inbox, standing
+  context, complement first-class).
+- **`reflect`** on the proxy → `<session>/mail.jsonl`, recorded; the
+  orchestrator folds reflections into its own inbox. `hobbes mail
+  post|read` is the human's end of the same channel.
+- **Harvest:** `hobbes-session` now fetches `hobbes/<session>` back into
+  the repo before removing the clone. Until today a session's commits
+  died with its worktree — an M4 exit-check design that D2 could not
+  live with, found the moment something needed the commits.
+- **`hobbes run <task>`:** contract order (owner before consumer), one
+  session per unit, human-first units not spawned (inbox says why),
+  integration onto `hobbes/<task>` in a detached worktree (conflicts
+  recorded at the cut), `hobbes review` over the result, and the
+  **partition record** with rework files, faults, exec counts,
+  reflections, and the loss under ADR-051's declared weights — tokens
+  and wall time named as unobserved, not filled in. The run states
+  that re-ingesting the merged branch is what moves standing context;
+  it does not do it behind the human's back.
+
+Register: **C-38** — write scope is advisory at path grain (the sandbox
+mounts the worktree whole) and is measured as rework rather than
+enforced; renegotiation has no re-pin flow; nothing is metered. All
+stated in every brief and record. Found along the way: the sandbox
+tool allowlist had never included `list_blind_spots` (ADR-047's tool)
+— fixed with the `reflect` addition.
+
+Exit check, quota-free: the full loop against a stand-in session binary
+that writes the exact Go-side shapes (flight log with a tagged fault,
+mail, a harvested branch with one in-manifest and one stray file) —
+the record reads 2 calls / 1 fault, 1 commit, `src/stray.py` as rework,
+the reflection folded back, both branches integrated, loss positive
+from rework alone. Then `hobbes run 2a56 --dry-run` on the dogfood repo
+with the real `hobbes-session`: U2 → U1 → U3, agent dirs mounted ro,
+the brief as the prompt, guarantees first in every derived policy. No
+sandbox session was spawned. 723 pytest (+20) / 212 Go (+15).
+
+Not built, by design of a base: path-grain write enforcement, the
+verifier session, the renegotiation re-pin, metering, loss fitting,
+the generative seed planner (C-36 — still the predicted first
+benchmark friction). D2 base awaits Max's review; the harness is next.

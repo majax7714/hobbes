@@ -234,3 +234,46 @@ func TestCommandOverrideParsedAfterDoubleDash(t *testing.T) {
 		t.Error("override should replace the default claude command")
 	}
 }
+
+func TestHarvestFetchesSessionCommitsIntoTheRepo(t *testing.T) {
+	repo := gitRepo(t)
+	proxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(proxy, []byte("#!/bin/true\n"), 0o755)
+	opt := options{repo: repo, role: "implementer", session: "S-harvest",
+		sessions: t.TempDir(), proxyBin: proxy}
+	_, worktree, startRef, cleanup, err := setupWithStart(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	var stderr bytes.Buffer
+	harvest(repo, worktree, "hobbes/S-harvest", startRef, &stderr)
+	if !strings.Contains(stderr.String(), "no commits to harvest") {
+		t.Errorf("empty harvest message missing: %s", stderr.String())
+	}
+
+	// The session commits twice on its branch.
+	if err := os.WriteFile(filepath.Join(worktree, "new.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "new.txt"},
+		{"-c", "user.name=s", "-c", "user.email=s@s", "commit", "-qm", "one"},
+		{"-c", "user.name=s", "-c", "user.email=s@s", "commit", "-qm", "two", "--allow-empty"},
+	} {
+		if out, err := gitOut(worktree, args...); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+
+	stderr.Reset()
+	harvest(repo, worktree, "hobbes/S-harvest", startRef, &stderr)
+	if !strings.Contains(stderr.String(), "branch hobbes/S-harvest harvested (2 commits)") {
+		t.Errorf("harvest message = %q", stderr.String())
+	}
+	out, err := gitOut(repo, "rev-list", "--count", "HEAD..hobbes/S-harvest")
+	if err != nil || strings.TrimSpace(out) != "2" {
+		t.Errorf("canonical repo branch has %q commits past HEAD (err %v), want 2", out, err)
+	}
+}

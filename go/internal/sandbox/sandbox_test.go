@@ -306,3 +306,40 @@ func TestNoDerivedMountWhenTheRepoHasNone(t *testing.T) {
 		t.Error("an un-ingested repo should mount no derived dir")
 	}
 }
+
+func TestAgentDirIsMountedReadOnlyAndHandedToTheProxy(t *testing.T) {
+	cfg := baseConfig()
+	cfg.HostAgentDir = "/home/u/repo/.hobbes/plans/abc/agents/U1"
+	p, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := strings.Join(p.PodmanArgs(), " ")
+	if !strings.Contains(argv, cfg.HostAgentDir+":"+AgentDir+":ro,z") {
+		t.Errorf("agent dir not mounted ro: %s", argv)
+	}
+	if !strings.Contains(p.MCPConfig(), `"--agent-dir"`) || !strings.Contains(p.MCPConfig(), `"`+AgentDir+`"`) {
+		t.Errorf("proxy not told about the agent dir: %s", p.MCPConfig())
+	}
+	if !strings.Contains(p.DryRun(), "agent:    "+cfg.HostAgentDir) {
+		t.Errorf("dry run omits the agent dir")
+	}
+}
+
+func TestNoAgentDirMeansNoMountAndNoFlag(t *testing.T) {
+	p := planFor(t, "implementer")
+	if strings.Contains(strings.Join(p.PodmanArgs(), " "), AgentDir) || strings.Contains(p.MCPConfig(), "--agent-dir") {
+		t.Errorf("agent dir plumbing present without one configured")
+	}
+}
+
+func TestVerifierIsReadOnlyLikeAReviewer(t *testing.T) {
+	p := planFor(t, "verifier")
+	if p.WorktreeMode() != "ro" {
+		t.Errorf("verifier worktree mode = %s, want ro", p.WorktreeMode())
+	}
+	tools := strings.Join(p.allowedTools(), ",")
+	if strings.Contains(tools, "Edit") || strings.Contains(tools, "mcp__hobbes__exec") {
+		t.Errorf("verifier got write tools: %s", tools)
+	}
+}

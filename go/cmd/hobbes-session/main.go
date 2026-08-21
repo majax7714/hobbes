@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/majax7714/hobbes/go/internal/sandbox"
@@ -49,6 +50,9 @@ flags:
   --proxy-bin FILE static hobbes-proxy binary to mount (default: next to me)
   --sessions DIR   session-state root (default ~/.hobbes/sessions)
   --claude-cred    mount ~/.claude ro (needed for a live Claude Code run)
+  --agent-dir DIR  derived agent dir (ADR-054), mounted ro at /agent: its
+                   policy.yaml is the chain's agent level, its context.json
+                   the manifest knowledge queries are judged against
   --dry-run        print the podman argv and MCP config, run nothing
   -- CMD...        run CMD in the sandbox instead of Claude Code
 `
@@ -77,10 +81,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 // options holds parsed start flags plus the trailing command override.
 type options struct {
 	repo, role, task, session, ref string
-	image, network, box       string
-	proxyBin, sessions        string
-	claudeCred, dryRun        bool
-	command                   []string
+	agentDir                       string
+	image, network, box            string
+	proxyBin, sessions             string
+	claudeCred, dryRun             bool
+	command                        []string
 }
 
 func runStart(args []string, stdout, stderr io.Writer) int {
@@ -89,12 +94,17 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	plan, worktree, cleanup, err := setup(opt)
+	plan, worktree, startRef, cleanup, err := setupWithStart(opt)
 	if err != nil {
 		fmt.Fprintf(stderr, "hobbes-session: %v\n", err)
 		return exitError
 	}
 	defer cleanup()
+	// The clone is disposable; the session's commits are not. Whatever
+	// lands on the session branch is fetched into the canonical repo
+	// before the clone goes (ADR-054) — a dry run has nothing to harvest
+	// and says so.
+	defer harvest(opt.repo, worktree, "hobbes/"+opt.session, startRef, stderr)
 
 	if opt.dryRun {
 		fmt.Fprint(stdout, plan.DryRun())
@@ -120,20 +130,28 @@ func runStart(args []string, stdout, stderr io.Writer) int {
 // setup creates the worktree and session dir, writes the MCP config, and
 // returns the plan plus a teardown that removes the worktree.
 func setup(opt options) (*sandbox.Plan, string, func(), error) {
+	plan, worktree, _, cleanup, err := setupWithStart(opt)
+	return plan, worktree, cleanup, err
+}
+
+// setupWithStart is setup plus the commit the session branch started at,
+// which the harvest after the run counts from (ADR-054).
+func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) {
+	var startRef string
 	noop := func() {}
 
 	repo, err := filepath.Abs(opt.repo)
 	if err != nil {
-		return nil, "", noop, err
+		return nil, "", "", noop, err
 	}
 	if info, err := os.Stat(filepath.Join(repo, ".git")); err != nil || !info.IsDir() {
-		return nil, "", noop, fmt.Errorf("%s is not a git repo (no .git dir)", repo)
+		return nil, "", "", noop, fmt.Errorf("%s is not a git repo (no .git dir)", repo)
 	}
 
 	sessionDir := filepath.Join(opt.sessions, opt.session)
 	worktree := filepath.Join(sessionDir, "worktree")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
-		return nil, "", noop, err
+		return nil, "", "", noop, err
 	}
 
 	// A fresh, self-contained local clone on a session branch (§6:
@@ -152,7 +170,7 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 	// cause. The cost is a real copy of the object store; the benefit is
 	// that a repo on a mounted volume or a ramdisk checkout works at all.
 	if out, err := gitOut(repo, "clone", "--local", "--no-hardlinks", "--quiet", repo, worktree); err != nil {
-		return nil, "", noop, fmt.Errorf("git clone: %v: %s", err, out)
+		return nil, "", "", noop, fmt.Errorf("git clone: %v: %s", err, out)
 	}
 	// --ref pins the session's tree to a specific commit — a soft-verdict
 	// reviewer (V2.M6) must read the *head of the range under review*,
@@ -163,8 +181,16 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 	}
 	if out, err := gitOut(worktree, checkout...); err != nil {
 		os.RemoveAll(worktree)
-		return nil, "", noop, fmt.Errorf("git checkout: %v: %s", err, out)
+		return nil, "", "", noop, fmt.Errorf("git checkout: %v: %s", err, out)
 	}
+	// The branch's start point, for the harvest after the run (ADR-054):
+	// commits past it are the session's work and must outlive the clone.
+	start, err := gitOut(worktree, "rev-parse", "HEAD")
+	if err != nil {
+		os.RemoveAll(worktree)
+		return nil, "", "", noop, fmt.Errorf("git rev-parse: %v: %s", err, start)
+	}
+	startRef = strings.TrimSpace(start)
 	// Seed the session's knowledge layer: derived artifacts are gitignored
 	// (ADR-012), so the clone lacks them; copy the box's current ingest in
 	// so the knowledge tools (ADR-017) have data to answer from.
@@ -187,18 +213,41 @@ func setup(opt options) (*sandbox.Plan, string, func(), error) {
 		HostBoxPath:  opt.box,
 		HostClaude:   claudeMount(opt.claudeCred),
 		HostDerived:  derivedMount(opt.repo),
+		HostAgentDir: opt.agentDir,
 		Command:      opt.command,
 	})
 	if err != nil {
 		cleanup()
-		return nil, "", noop, err
+		return nil, "", "", noop, err
 	}
 
 	if err := os.WriteFile(plan.MCPConfigHostPath(), []byte(plan.MCPConfig()), 0o600); err != nil {
 		cleanup()
-		return nil, "", noop, err
+		return nil, "", "", noop, err
 	}
-	return plan, worktree, cleanup, nil
+	return plan, worktree, startRef, cleanup, nil
+}
+
+// harvest fetches the session branch from the clone into the canonical
+// repo when it carries commits past startRef, and reports either way. The
+// branch lands under the same name (hobbes/<session>); publishing it
+// stays the human's (the repo policy denies push).
+func harvest(repo, worktree, branch, startRef string, stderr io.Writer) {
+	count, err := gitOut(worktree, "rev-list", "--count", startRef+".."+branch)
+	if err != nil {
+		fmt.Fprintf(stderr, "hobbes-session: harvest: %v: %s\n", err, count)
+		return
+	}
+	n := strings.TrimSpace(count)
+	if n == "0" {
+		fmt.Fprintln(stderr, "hobbes-session: no commits to harvest")
+		return
+	}
+	if out, err := gitOut(repo, "fetch", "--quiet", worktree, branch+":"+branch); err != nil {
+		fmt.Fprintf(stderr, "hobbes-session: harvest: git fetch: %v: %s\n", err, out)
+		return
+	}
+	fmt.Fprintf(stderr, "hobbes-session: branch %s harvested (%s commits)\n", branch, n)
 }
 
 func gitOut(repo string, args ...string) (string, error) {
@@ -281,6 +330,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.repo, "repo", "", "")
 	fs.StringVar(&opt.role, "role", "", "")
 	fs.StringVar(&opt.task, "task", "", "")
+	fs.StringVar(&opt.agentDir, "agent-dir", "", "")
 	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")
@@ -317,6 +367,18 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 		if def := filepath.Join(home, ".hobbes", "box.policy"); fileExists(def) {
 			opt.box = def
 		}
+	}
+	if opt.agentDir != "" {
+		abs, err := filepath.Abs(opt.agentDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "hobbes-session start: %v\n", err)
+			return opt, exitError
+		}
+		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+			fmt.Fprintf(stderr, "hobbes-session start: agent dir %q is not a directory\n", opt.agentDir)
+			return opt, exitError
+		}
+		opt.agentDir = abs
 	}
 	if opt.proxyBin == "" {
 		opt.proxyBin = defaultProxyBin()

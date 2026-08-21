@@ -54,11 +54,17 @@ type Config struct {
 	// EscalationTimeout is the park deadline; 0 means the §9 default.
 	EscalationTimeout time.Duration
 	Rec               *recorder.Recorder
+	// AgentDir is the host path of the session's derived agent dir
+	// (ADR-054): policy.yaml is loaded as the chain's agent level on
+	// every exec, and context.json, when present, is the context
+	// manifest knowledge queries are judged against. "" for none.
+	AgentDir string
 }
 
 // Server owns the exec handler for one session.
 type Server struct {
-	cfg Config
+	cfg      Config
+	manifest *contextManifest // nil when the agent dir carries none
 }
 
 // New validates the config and returns a Server.
@@ -83,7 +89,24 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Rec == nil {
 		return nil, fmt.Errorf("proxy: a flight recorder is required — the proxy never runs unaudited")
 	}
-	return &Server{cfg: cfg}, nil
+	s := &Server{cfg: cfg}
+	if cfg.AgentDir != "" {
+		m, err := loadManifest(filepath.Join(cfg.AgentDir, "context.json"))
+		if err != nil {
+			return nil, fmt.Errorf("proxy: %w", err)
+		}
+		s.manifest = m
+	}
+	return s, nil
+}
+
+// agentPolicyPath is the derived agent policy inside the agent dir, or
+// "" when the session has no agent dir.
+func (s *Server) agentPolicyPath() string {
+	if s.cfg.AgentDir == "" {
+		return ""
+	}
+	return filepath.Join(s.cfg.AgentDir, "policy.yaml")
 }
 
 // ExecArgs is the exec tool's input schema (generated for the agent by the
@@ -105,6 +128,7 @@ func (s *Server) MCP() *mcp.Server {
 			"deny). Every call is logged to the session flight recorder.",
 	}, s.handleExec)
 	s.addKnowledgeTools(srv)
+	s.addReflectTool(srv)
 	return srv
 }
 
@@ -131,7 +155,13 @@ func (s *Server) handleExec(ctx context.Context, req *mcp.CallToolRequest, args 
 
 	// The chain is loaded per call: folder policies depend on dir, and a
 	// mid-session policy edit should take effect on the next command.
-	chain, err := policy.LoadChain(s.cfg.BoxPath, s.cfg.RepoRoot, dir)
+	chain, err := policy.LoadChainFor(policy.ChainOpts{
+		BoxPath:     s.cfg.BoxPath,
+		RepoRoot:    s.cfg.RepoRoot,
+		Dir:         dir,
+		Role:        s.cfg.Role,
+		AgentPolicy: s.agentPolicyPath(),
+	})
 	if err != nil {
 		return errResult("exec: loading policy chain: %v", err), nil, nil
 	}

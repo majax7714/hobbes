@@ -422,31 +422,32 @@ surfaced per file rather than silent.)*
   requirement, stated plainly. Parked with the derivation milestone;
   deep extraction testing remains the named current work.
 
-- **D2 — the execution half of the derivation** (from ADR-051,
-  2026-08-19; D1 built the mapping, this is everything it deliberately
-  did not build). Five pieces, in rough dependency order. **Spawning**:
-  a change-spec's policy manifests describe per-unit mounts and flags
-  that nothing consumes — `hobbes-session` takes a repo and a role, not
-  a manifest; wiring it is Go-side work and the first real test of the
-  derived-policy shape. **Context faults**: the manifests bound what an
-  agent holds, but the proxy has no notion of a context manifest, so an
-  out-of-manifest knowledge request is served like any other and logged
-  like any other — the fault signal (agent-mapping §4) needs the proxy
-  to know the manifest and tag the flight log. **The recorder's
-  partition record and loss fitting** (agent-mapping §6): rework,
-  contract failures, fault rate, tokens, wall time per unit — the
-  numbers that would let C-35 be narrowed or lifted; ADR-051 records
-  the initial loss weights as declared guesses. **Contract
-  renegotiation** as an escalate-tier event: today a wrong pin has no
-  flow, it is just a human reading the spec. **A generative planner
-  above the lexical seeds** (C-36): interpret prose into seed sets and
-  declared edges, quota-spending and clearly layered on top of the
-  deterministic mapping (P5), never inside it. Also parked from D1's
-  own review of itself: sub-module partition grain (a single oversize
-  module cannot be split — the flag exists, the mechanism does not),
-  a change-spec approval marker (plan-review approval is out-of-band;
-  the decisions ledger is the natural home), and rendering plans in
-  the web surface beside the blind-spot views this file already parks.
+- **D2 — what the base left out** (ADR-054, 2026-08-21 — spawning,
+  context faults, the partition record, reflections, and branch
+  harvest are built; this is the remainder). **Path-grain write
+  enforcement** (C-38): bind interior paths rw over a ro worktree, or
+  a per-unit overlay, so `write_mounts` becomes a guarantee instead of
+  a measured rework term — do it after the first benchmark runs show
+  where agents actually stray. **The verifier session**: the role
+  exists (ro worktree) and the review runs in-process; a spawned
+  verifier with the integration branch and the contracts in its brief
+  is the §2 phase-5 agent. **Renegotiation re-pin**: a reflection that
+  proposes a contract amendment should become an escalate-tier record
+  whose approval re-pins both sides' manifests; today it lands in the
+  orchestrator's inbox for a human. **Metering**: tokens and wall time
+  per unit — the loss lists them as unobserved; the harness's dual-arm
+  accounting (ADR-052) is the natural place. **Loss fitting**: the
+  record exists with ADR-051's declared weights; fitting needs runs.
+  **Re-ingest on integrate** as an explicit flag, never a default (the
+  run states that commits move standing context; it does not move it).
+  **A generative planner above the lexical seeds** (C-36): interpret
+  prose into seed sets and declared edges, quota-spending and layered
+  on top of the deterministic mapping (P5), never inside it — the
+  predicted first benchmark friction. Also still parked from D1's own
+  review: sub-module partition grain, a change-spec approval marker
+  (the decisions ledger is the natural home — for benchmarks the manual
+  gate is off by direction), and rendering plans and partition records
+  in the web surface.
 
 - **The benchmark harness** (Max, 2026-08-19; ADR-052 — direction and
   preregistration only, deliberately not started). Verify Hobbes by

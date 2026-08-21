@@ -685,9 +685,10 @@ guarded_by: [test_token_boundary]
 
 ---
 
-## 6. Derivation — the task mapping (D1)
+## 6. Derivation — the task mapping (D1) and its execution (D2 base)
 
-Built at D1 (ADR-051), designed in [`agent-mapping.md`](agent-mapping.md).
+Built at D1 (ADR-051) and D2 (ADR-054, the base), designed in
+[`agent-mapping.md`](agent-mapping.md).
 `hobbes plan "<proposal>"` derives a **change-spec** — the plan phase's
 artifact and the unit of concept-level review — deterministically and
 without quota: same graph, same proposal, same flags, byte-identical
@@ -741,11 +742,62 @@ The mapping, in pipeline order (`pipeline/src/hobbes/derive/`):
 Every weight and threshold is pinned in ADR-051's table and **declared
 a guess** — partition quality is a number the flight recorder will
 measure, not a claim this section makes (C-35, printed on every run).
-What D1 deliberately does not build, parked with reasoning in
-`future_additions.md`: spawning the per-unit sessions the manifests
-describe, context-fault serving and logging, the recorder's partition
-record and loss fitting, the renegotiation flow, and a generative
-planner above the lexical seeds.
+### 6.1 Execution — `hobbes run` (D2 base, ADR-054)
+
+A change-spec is run by the one orchestrator agent-mapping §3.4 allows:
+a scheduler and contract arbiter that owns no code
+(`pipeline/src/hobbes/run/`). The agent it forms per unit follows the
+owner's structure (2026-08-21):
+
+- **Policy is layered per agent.** The chain is floor → box → repo →
+  **role** → folder → **agent** (`go/internal/policy`). The role layer
+  (`.hobbes/policies/roles/<role>.policy`) is standing: versioned,
+  changed only by commits; `implementer`, `verifier`, `orchestrator`
+  are phases, not personas, scaffolded once and never overwritten. The
+  agent layer is derived from the unit's policy manifest
+  (`<agent-dir>/policy.yaml`): the P10 guarantees first as denies, the
+  unit's guarding tests as allows, every write denied for a
+  human-first unit. Deny overrides, so a derived layer narrows and
+  never widens.
+- **Two context horizons.** The **standing** context is the unit's
+  manifest rendered (`context.md`) plus `derived/` mounted ro — it
+  moves only when a commit changes the graph and it is re-ingested.
+  The **short-term** context is mail: `inbox.jsonl` per agent, pushed
+  by the orchestrator or a human (`hobbes mail post`), carried in full
+  by the brief at spawn; the agent answers through the proxy's
+  `reflect` tool, and reflections fold back into the orchestrator's
+  inbox. When the orchestrator needs a specific, it posts and reads
+  the reflection — nothing is a transcript.
+- **Context faults are tagged, never refused.** The agent dir is
+  mounted ro at `/agent`; the proxy reads `context.json` (interior,
+  boundary, neighborhood, paths) and marks any knowledge query outside
+  it `context_fault: true` in the flight log while serving it — §4's
+  page-fault signal, the first loss term the recorder observes.
+- **Commits alter standing context.** `hobbes-session` harvests the
+  session branch into the repo before the clone is removed; `hobbes
+  run` integrates the unit branches onto `hobbes/<task>` in contract
+  order in a detached worktree (a conflict is an integration failure
+  at the cut, recorded, never guessed), runs `hobbes review` over the
+  result, and states that re-ingesting the merged branch is what
+  refreshes every manifest — it does not re-ingest on its own.
+- **Order, human-first, the record.** Units run owner-before-consumer
+  (cycles broken by name, said so). A human-first unit is not spawned;
+  the orchestrator's inbox says why. Every run writes
+  `.hobbes/plans/<task>/partition-record.json`: per unit the session,
+  exit, knowledge calls and faults, exec decisions, reflections,
+  commits, files changed and **rework files** (outside the manifest);
+  integration and review; and §6's loss under ADR-051's declared
+  weights, labelled a guess (C-35), unobserved terms (tokens, wall
+  time) named rather than imputed.
+
+What the base states rather than enforces is **C-38**: write scope is
+advisory at path grain and measured as rework; renegotiation has no
+approval flow; nothing is metered. Still parked in
+`future_additions.md`: path-grain write enforcement, the verifier
+session, the renegotiation re-pin, metering, loss fitting, and the
+generative planner above the lexical seeds (C-36). The base exists to be
+run under the benchmark harness (ADR-052) and corrected from what it
+gets wrong.
 
 ---
 
@@ -811,8 +863,8 @@ The v2 extraction programme — **complete and fully reviewed as of
 
 | Milestone | State | What it settled |
 |---|---|---|
-| **D1** — the plan derivation | built, **awaiting review** | ADR-051: `hobbes plan` — impact, partition, contracts, manifests with enforced complements, the plan-review gate; C-35..C-37 registered surfaced |
-| **D2** — execution | not started | spawning the per-unit sessions, context faults, the recorder's partition record; scope parked in `future_additions.md` |
+| **D1** — the plan derivation | done, **reviewed 2026-08-21** | ADR-051: `hobbes plan` — impact, partition, contracts, manifests with enforced complements, the plan-review gate; C-35..C-37 registered surfaced |
+| **D2** — execution | **base built**, awaiting review | ADR-054: `hobbes run` — role + agent policy levels, standing/short-term context, context faults tagged, `reflect`, branch harvest, integration + review, the partition record with the declared loss; C-38 registered surfaced; what remains in `future_additions.md` |
 | **Benchmark verification** | preregistered, not started | ADR-052: Hobbes as a harness under known benchmarks vs pure-model baselines; H1–H3 with metrics and falsifiers in [`benchmark-hypotheses.md`](benchmark-hypotheses.md); end-to-end needs D2 |
 
 Sequencing rules carry from v1 unchanged: deterministic before generative,

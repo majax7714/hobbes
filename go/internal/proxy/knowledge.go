@@ -116,16 +116,24 @@ func (s *Server) addKnowledgeTools(srv *mcp.Server) {
 	})
 }
 
-// answer runs one knowledge query and logs it (§6: every tool call).
+// scopeTools are the knowledge tools that ask about a region, not a
+// node; they never fault against the manifest.
+var scopeTools = map[string]bool{"list_invariants": true, "list_blind_spots": true}
+
+// answer runs one knowledge query and logs it (§6: every tool call). With
+// a context manifest loaded, a query for a node outside it is tagged a
+// context fault (ADR-054) — and still served: starving an agent to prove
+// a point helps no one; the tag is the allocator's error signal.
 func (s *Server) answer(tool, query string, run func(string) (string, error)) *mcp.CallToolResult {
 	ev := recorder.Event{
-		Session:    s.cfg.Session,
-		Role:       s.cfg.Role,
-		Tool:       tool,
-		Argv:       []string{query},
-		PolicyRule: "builtin:knowledge-read",
-		Decision:   "allow",
-		SHA:        headSHA(s.cfg.RepoRoot),
+		Session:      s.cfg.Session,
+		Role:         s.cfg.Role,
+		Tool:         tool,
+		Argv:         []string{query},
+		PolicyRule:   "builtin:knowledge-read",
+		Decision:     "allow",
+		SHA:          headSHA(s.cfg.RepoRoot),
+		ContextFault: s.manifest != nil && !scopeTools[tool] && query != "" && !s.manifest.covers(query),
 	}
 	if query == "" {
 		return s.record(ev, errResult("%s: empty query", tool))

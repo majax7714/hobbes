@@ -25,6 +25,7 @@ const (
 	BoxPath      = "/policy/box.policy"         // ro, only when a host box policy exists
 	DerivedDir   = WorkDir + "/.hobbes/derived" // ro, the knowledge layer
 	ClaudeHome   = "/root/.claude"              // session's own credential, ro, opt-in
+	AgentDir     = "/agent"                     // ro, the derived agent dir (ADR-054)
 )
 
 // Config is the wrapper's validated input.
@@ -43,8 +44,13 @@ type Config struct {
 	// worktree so the knowledge tools have artifacts to answer from — a
 	// fresh worktree has none, because derived/ is gitignored. "" omits it.
 	HostDerived string
-	Timeout     time.Duration // proxy per-command wall clock, 0 = proxy default
-	Escalation  time.Duration // proxy park deadline, 0 = proxy default
+	// HostAgentDir is the derived agent dir for this unit (ADR-054):
+	// policy.yaml + context.json + the standing/short-term context the
+	// brief was built from. Mounted ro — the session must not be able
+	// to edit the policy it is judged by. "" omits it.
+	HostAgentDir string
+	Timeout      time.Duration // proxy per-command wall clock, 0 = proxy default
+	Escalation   time.Duration // proxy park deadline, 0 = proxy default
 	// Command overrides the in-container command (the exit check passes a
 	// scripted implementer here); empty means the default Claude Code call.
 	Command []string
@@ -121,6 +127,9 @@ func (p *Plan) MCPConfig() string {
 	if p.cfg.HostBoxPath != "" {
 		args = append(args, "--box", BoxPath)
 	}
+	if p.cfg.HostAgentDir != "" {
+		args = append(args, "--agent-dir", AgentDir)
+	}
 	if p.cfg.Timeout > 0 {
 		args = append(args, "--timeout", p.cfg.Timeout.String())
 	}
@@ -145,7 +154,10 @@ func (p *Plan) MCPConfig() string {
 // enforcement tiers — the one that actually guarantees anything — so a
 // reviewer's inability to write is a mount flag, not a policy rule an
 // agent might talk its way around.
-var ReadOnlyRoles = map[string]bool{"reviewer": true}
+//
+// verifier is D2's verify phase (ADR-054): it judges a merged result and
+// owns no code, so it reads like a reviewer.
+var ReadOnlyRoles = map[string]bool{"reviewer": true, "verifier": true}
 
 // WorktreeMode is "ro" or "rw" for this session's role.
 func (p *Plan) WorktreeMode() string {
@@ -179,6 +191,9 @@ func (p *Plan) mounts() []string {
 		// edit them could edit the map it is being judged against.
 		m = append(m, p.cfg.HostDerived+":"+DerivedDir+":ro,z")
 	}
+	if p.cfg.HostAgentDir != "" {
+		m = append(m, p.cfg.HostAgentDir+":"+AgentDir+":ro,z")
+	}
 	return m
 }
 
@@ -191,6 +206,11 @@ var knowledgeTools = []string{
 	"mcp__hobbes__tests_guarding",
 	"mcp__hobbes__get_module_doc",
 	"mcp__hobbes__list_invariants",
+	"mcp__hobbes__list_blind_spots",
+	// reflect (ADR-054) is not a query but it is every role's: the
+	// short-term channel back to the orchestrator must be reachable
+	// from a read-only session too — a verifier reports through it.
+	"mcp__hobbes__reflect",
 }
 
 // allowedTools is the native tool allowlist for a role. A reviewer gets
@@ -259,6 +279,9 @@ func (p *Plan) DryRun() string {
 	fmt.Fprintf(&b, "session:  %s (role %s)\n", p.cfg.SessionID, p.cfg.Role)
 	fmt.Fprintf(&b, "image:    %s   network: %s\n", p.cfg.Image, p.cfg.Network)
 	fmt.Fprintf(&b, "worktree: %s (%s)\n", p.cfg.HostWorktree, p.WorktreeMode())
+	if p.cfg.HostAgentDir != "" {
+		fmt.Fprintf(&b, "agent:    %s (ro at %s)\n", p.cfg.HostAgentDir, AgentDir)
+	}
 	b.WriteString("\npodman " + strings.Join(p.PodmanArgs(), " ") + "\n")
 	b.WriteString("\nMCP config (" + p.MCPConfigHostPath() + "):\n")
 	b.WriteString(p.MCPConfig() + "\n")

@@ -55,6 +55,10 @@ serve --repo DIR --role ROLE   run the tool proxy for one agent session:
     --log-dir DIR             session-state root (default: ~/.hobbes/sessions)
     --timeout DUR             per-command wall clock (default 10m)
     --escalation-timeout DUR  park deadline, expires to deny (default 30m)
+    --agent-dir DIR           derived agent dir (ADR-054): policy.yaml joins the
+                              chain as its agent level; context.json, if present,
+                              tags out-of-manifest knowledge queries as context
+                              faults; adds the reflect tool's inbox channel
 
 escalations [list | approve <id> | deny <id>]   the human side of the
   queue: parked commands across all sessions, oldest first.
@@ -135,6 +139,7 @@ func parseServe(args []string, stderr io.Writer) (proxy.Config, string, error) {
 	timeoutFlag := fs.Duration("timeout", proxy.DefaultTimeout, "per-command wall clock")
 	escalationFlag := fs.Duration("escalation-timeout", proxy.DefaultEscalationTimeout,
 		"park deadline, expires to deny")
+	agentDirFlag := fs.String("agent-dir", "", "derived agent dir (policy.yaml, context.json)")
 	if err := fs.Parse(args); err != nil {
 		return proxy.Config{}, "", errUsage
 	}
@@ -170,6 +175,17 @@ func parseServe(args []string, stderr io.Writer) (proxy.Config, string, error) {
 	}
 	sessionDir := filepath.Join(logDir, session)
 
+	agentDir := ""
+	if *agentDirFlag != "" {
+		agentDir, err = filepath.Abs(*agentDirFlag)
+		if err != nil {
+			return proxy.Config{}, "", err
+		}
+		if info, err := os.Stat(agentDir); err != nil || !info.IsDir() {
+			return proxy.Config{}, "", fmt.Errorf("agent dir %s is not a directory", agentDir)
+		}
+	}
+
 	cfg := proxy.Config{
 		Session:           session,
 		Role:              *roleFlag,
@@ -178,6 +194,7 @@ func parseServe(args []string, stderr io.Writer) (proxy.Config, string, error) {
 		SessionDir:        sessionDir,
 		Timeout:           *timeoutFlag,
 		EscalationTimeout: *escalationFlag,
+		AgentDir:          agentDir,
 	}
 	return cfg, filepath.Join(sessionDir, "flight.jsonl"), nil
 }

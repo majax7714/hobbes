@@ -144,3 +144,85 @@ func TestLoadChainPropagatesParseErrors(t *testing.T) {
 		t.Fatalf("err = %v, want strict-parse error mentioning the typo", err)
 	}
 }
+
+func TestLoadChainForRoleAndAgentLevels(t *testing.T) {
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "repo")
+	agent := filepath.Join(tmp, "agent", "policy.yaml")
+	write(t, filepath.Join(repo, ".hobbes/policies/repo.policy"), "version: 1\nscope: repo\ndefault: escalate\nrules: []\n")
+	write(t, filepath.Join(repo, ".hobbes/policies/roles/implementer.policy"), "version: 1\nscope: role\ndefault: deny\nrules: []\n")
+	write(t, filepath.Join(repo, "src/.hobbes/folder.policy"), "version: 1\nscope: folder\nrules: []\n")
+	write(t, agent, "version: 1\nscope: agent\ndefault: allow\nrules: []\n")
+
+	chain, err := LoadChainFor(ChainOpts{RepoRoot: repo, Dir: filepath.Join(repo, "src"),
+		Role: "implementer", AgentPolicy: agent})
+	if err != nil {
+		t.Fatalf("LoadChainFor: %v", err)
+	}
+	var levels []string
+	for _, f := range chain.Files {
+		levels = append(levels, f.Level)
+	}
+	want := "box,repo,role,folder,agent"
+	if got := strings.Join(levels, ","); got != want {
+		t.Errorf("levels = %s, want %s", got, want)
+	}
+	// The agent layer is the most specific: its default wins.
+	if res := chain.Resolve("anything"); res.Decision != Allow || !res.ByDefault {
+		t.Errorf("resolve = %+v, want the agent default (allow)", res)
+	}
+	// A role policy for a role with none is simply absent.
+	chain, err = LoadChainFor(ChainOpts{RepoRoot: repo, Dir: repo, Role: "reviewer"})
+	if err != nil || len(chain.Files) != 2 {
+		t.Errorf("reviewer chain = %v files, err %v; want floor + repo only", len(chain.Files), err)
+	}
+}
+
+func TestLoadChainForAgentPolicyCannotWidenPastADeny(t *testing.T) {
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "repo")
+	agent := filepath.Join(tmp, "policy.yaml")
+	write(t, filepath.Join(repo, ".hobbes/policies/roles/implementer.policy"),
+		"version: 1\nscope: role\nrules:\n  - pattern: \"git push*\"\n    decision: deny\n")
+	write(t, agent, "version: 1\nscope: agent\nrules:\n  - pattern: \"git push*\"\n    decision: allow\n")
+	chain, err := LoadChainFor(ChainOpts{RepoRoot: repo, Dir: repo, Role: "implementer", AgentPolicy: agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := chain.Resolve("git push origin main"); res.Decision != Deny {
+		t.Errorf("derived allow widened past the role deny: %+v", res)
+	}
+}
+
+func TestLoadChainForScopeMismatchAtNewLevels(t *testing.T) {
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "repo")
+	write(t, filepath.Join(repo, ".hobbes/policies/roles/r.policy"), "version: 1\nscope: folder\nrules: []\n")
+	if _, err := LoadChainFor(ChainOpts{RepoRoot: repo, Dir: repo, Role: "r"}); err == nil ||
+		!strings.Contains(err.Error(), "loaded as role policy") {
+		t.Errorf("role scope mismatch not reported: %v", err)
+	}
+	agent := filepath.Join(tmp, "policy.yaml")
+	write(t, agent, "version: 1\nscope: repo\nrules: []\n")
+	if _, err := LoadChainFor(ChainOpts{RepoRoot: repo, Dir: repo, AgentPolicy: agent}); err == nil ||
+		!strings.Contains(err.Error(), "loaded as agent policy") {
+		t.Errorf("agent scope mismatch not reported: %v", err)
+	}
+}
+
+func TestLoadChainForMissingAgentPolicyIsAnError(t *testing.T) {
+	repo := t.TempDir()
+	_, err := LoadChainFor(ChainOpts{RepoRoot: repo, Dir: repo,
+		AgentPolicy: filepath.Join(repo, "nope.yaml")})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("missing agent policy not an error: %v", err)
+	}
+}
+
+func TestParseFileAcceptsRoleAndAgentScopes(t *testing.T) {
+	for _, scope := range []string{"role", "agent"} {
+		if _, err := ParseFile([]byte("version: 1\nscope: "+scope+"\nrules: []\n"), "x"); err != nil {
+			t.Errorf("scope %s rejected: %v", scope, err)
+		}
+	}
+}

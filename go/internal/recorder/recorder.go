@@ -49,6 +49,11 @@ type Event struct {
 	SHA string `json:"sha"`
 	// Escalation is set on the two lines of a parked command (ADR-016).
 	Escalation *EscalationRef `json:"escalation,omitempty"`
+	// ContextFault is set on a knowledge query for a node outside the
+	// session's context manifest (agent-mapping §4, ADR-054): the
+	// allocator predicted this agent would not need it, and it did. The
+	// query is served anyway; the flag is the partition's error signal.
+	ContextFault bool `json:"context_fault,omitempty"`
 }
 
 // Recorder appends events to one session's flight log. Safe for

@@ -70,6 +70,10 @@ the interactive graph.
   the graph-diff engine (`src/hobbes/graphdiff.py`), the D1 plan
   derivation (`src/hobbes/derive/`: impact → cochange → partition →
   contracts → manifests → changespec, behind `hobbes plan`, ADR-051),
+  the D2 execution base (`src/hobbes/run/`: spec → agents (layered
+  policy, standing context, inbox) → orchestrate (spawn per unit in
+  contract order, harvest, integrate, review, partition record) +
+  roles + mail, behind `hobbes run` / `hobbes mail`, ADR-054),
   and the M5 narrative
   pass (`src/hobbes/narrate/`: ADR-019 artifact schema + blob-level
   staleness, ADR-020 headless tool-less `claude -p` runner, orchestrator
@@ -175,6 +179,12 @@ uv run hobbes lanes --json
 uv run hobbes plan "proposal text" --seed some.module   # → .hobbes/plans/
 uv run hobbes plan "..." --adds "a -> b"      # gate-checks the declared edge;
                                               # exits 1 on an invariant hit
+
+# Execution (D2 base, ADR-054) — one sandboxed session per unit
+uv run hobbes run <task> --dry-run            # agents, briefs, record; spawns nothing
+uv run hobbes run <task>                      # needs go/bin/hobbes-session + the image
+uv run hobbes mail post <task> U1 "text"      # short-term context for a unit
+uv run hobbes mail read <task> orchestrator   # reflections land here
 ```
 
 ## Conventions
@@ -218,14 +228,44 @@ ADR-040) passed 2026-08-16, closing the v2 extraction programme.**
 thats actually what were handling now." **The derivation programme
 opened on 2026-08-19 at Max's direction** — he added
 `docs/agent-mapping.md` and named the build; D1 (the plan derivation)
-is built and awaiting his review, and D2 (execution) starts only after
-that review, per milestone discipline. **The named verification method
+passed his review on 2026-08-21 and the D2 **base** (execution,
+ADR-054) is built and awaiting review; the benchmark harness is what
+comes after. **The named verification method
 is the benchmark harness** (Max, 2026-08-19, ADR-052): Hobbes run as a
 harness over known benchmarks vs pure-model baselines, hypotheses
 H1–H3 preregistered in `docs/benchmark-hypotheses.md` — testing itself
 deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
+
+**2026-08-21 (D1 reviewed and passed; D2 base built, ADR-054 — awaiting
+Max's review):** Max passed D1 and set the agent structure: per-agent
+policy = repo + role + derived agent layer; standing derived context +
+short-term context as role-pushed mail (orchestrator posts a specific,
+the agent reflects it back); commits alter standing context and
+policies; the rest of the mapping stays; the formula learns from
+benchmark errors — **for benchmarks Hobbes runs alone, the manual
+plan-review gate is off, proposals are what gets set.** Built as a
+rough base to find the first errors under testing: Go policy chain
+gains `role` and `agent` levels (narrow-only by deny-overrides);
+proxy tags **context faults** from `<agent-dir>/context.json` (served,
+never refused) and gains `reflect` → `<session>/mail.jsonl`;
+`hobbes-session --agent-dir` mounts the agent dir ro at `/agent` and
+**harvests** the session branch (commits used to die with the clone);
+`verifier` is a read-only role. Python `hobbes/run/`: `hobbes run
+<task>` materializes agents (policy.yaml / context.json / context.md /
+inbox / brief), spawns per unit in contract order, skips human-first
+units, folds reflections into the orchestrator inbox, integrates onto
+`hobbes/<task>` in a detached worktree, runs the review, writes
+`partition-record.json` with rework, faults, exec counts, and the
+declared-weight loss (tokens/wall time listed unobserved). **C-38**
+registered surfaced (write scope advisory at path grain — measured as
+rework). `.hobbes/policies/roles/` scaffolded in the dogfood repo.
+Not built (future_additions): path-grain write enforcement, verifier
+session, renegotiation re-pin, metering, loss fitting, generative
+seeds. 723 pytest (+20) / 212 Go (+15). No sandbox session spawned —
+the dogfood exit check is `hobbes run 2a56 --dry-run` with the real
+binary. **Next is Max's review, then the benchmark harness.**
 
 **2026-08-21 (C-31 and C-32 surfaced, ADR-053 — built, awaiting Max's
 review):** Max's standing instruction (away for the day): apply the

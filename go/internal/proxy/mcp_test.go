@@ -46,10 +46,11 @@ func TestSessionToolSurface(t *testing.T) {
 	// list_invariants joined at M8, when its data arrived, and
 	// list_blind_spots at ADR-047, when the tail view gave it data:
 	// the captured fraction's tools plus the one that serves its
-	// boundary.
+	// boundary. reflect (ADR-054) is the short-term channel back to the
+	// orchestrator.
 	want := []string{
 		"exec", "graph_neighborhood", "who_calls", "tests_guarding",
-		"get_module_doc", "list_invariants", "list_blind_spots",
+		"get_module_doc", "list_invariants", "list_blind_spots", "reflect",
 	}
 	for _, name := range want {
 		if _, ok := names[name]; !ok {

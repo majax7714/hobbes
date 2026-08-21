@@ -806,6 +806,35 @@ information appears in both, and the entries cross-reference.
   (C-37)` inline.
 - **Source:** ADR-051 (2026-08-19).
 
+### C-38 — A derived write scope is measured, not mounted
+- **Cannot tell you:** that an agent *could not* have written outside
+  its unit. The change-spec's policy manifest names write mounts over
+  the interior and its guarding tests; the sandbox mounts the worktree
+  **whole** (rw for an implementer), and the agent policy layer is
+  command-pattern, which cannot express "these paths only". What the
+  base does instead is observe: the orchestrator diffs the harvested
+  branch against the manifest and records every file outside it as
+  **rework** — §6's first loss term. Two neighbours of the same shape:
+  contract **renegotiation has no approval flow** (a reflection lands
+  in the orchestrator's inbox for a human; nothing re-pins both sides),
+  and **tokens and wall time are unmetered** (the loss lists them as
+  unobserved rather than filling them in).
+- **Because:** path-grain write enforcement is mount work inside the
+  session image — a per-unit overlay, or bind-mounting interior paths
+  rw over a ro worktree — and the base was built to run under the
+  benchmark harness first and be corrected from its errors (ADR-052,
+  ADR-054). Measuring rework costs nothing and is the signal the loss
+  needs; enforcing it before a run has shown where agents actually
+  stray would be tuning a guess.
+- **Bites at:** the policy manifest's `write_mounts` list, read as a
+  guarantee; the partition record's `rework_files`, which is the
+  honest form — "wrote outside", not "could not".
+- **You find out:** **surfaced** — every `context.md` and brief states
+  "write scope is advisory at path grain (C-38)" under its derived
+  policy; `partition-record.json` carries `c38` and the per-unit
+  `rework_files`; the loss lists its unobserved terms by name.
+- **Source:** ADR-054 (2026-08-21).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language
@@ -1048,7 +1077,7 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Three of **thirty-seven** entries are **unsurfaced** (C-4, C-19 — narrowed
+Three of **thirty-eight** entries are **unsurfaced** (C-4, C-19 — narrowed
 to two tools — and C-20). C-31 left that list on 2026-08-21 (ADR-053:
 the verification base stamped into the artifact and stated wherever a
 language list is read), as did C-32's `partial`. The three derivation entries (C-35..C-37,

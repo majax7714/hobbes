@@ -643,6 +643,75 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     return 1 if spec.gate.result == "fail" else 0
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    """`hobbes run`: execute a change-spec (ADR-054, D2 base).
+
+    The orchestrator loop: materialize each unit's agent (layered
+    policy, standing context, inbox), spawn one single-use session per
+    unit in contract order, harvest, integrate, review, and write the
+    partition record. `--dry-run` writes everything and spawns nothing.
+    Exit 0 when every spawned unit exited 0, integration merged, and the
+    review is clean; 1 when any of those needs attention; 2 on trouble.
+    """
+    from hobbes.run import RunError, SpecError, run_task
+    from hobbes.run.orchestrate import format_record
+
+    repo_root = _repo_root_from(args)
+    try:
+        record = run_task(
+            repo_root,
+            args.task,
+            dry_run=args.dry_run,
+            only_units=args.unit or None,
+            session_bin=args.session_bin,
+            sessions_root=Path(args.sessions) if args.sessions else None,
+            extra_args=args.session_arg or [],
+        )
+    except (SpecError, RunError, artifacts.ArtifactError) as exc:
+        print(f"hobbes run: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(record, indent=2, sort_keys=True))
+    else:
+        print(format_record(record))
+    bad_exit = any(u["spawned"] and u["exit"] not in (0, None) for u in record["units"])
+    failed = bool(record["integration"].get("failed")) or bool(record["integration"].get("error"))
+    attention = bool(record["review"].get("needs_attention"))
+    return 1 if (bad_exit or failed or attention) else 0
+
+
+def _cmd_mail(args: argparse.Namespace) -> int:
+    """`hobbes mail post|read`: the short-term channel (ADR-054).
+
+    `post` appends a message to a unit's inbox (it rides the next
+    brief); `read` prints an inbox. The orchestrator's own inbox is
+    unit `orchestrator` — reflections and human-first notices land
+    there.
+    """
+    from hobbes.run import SpecError, mail
+    from hobbes.run.agents import agent_dir
+    from hobbes.run.spec import plan_dir, resolve_task
+
+    repo_root = _repo_root_from(args)
+    try:
+        task = resolve_task(repo_root, args.task)
+    except SpecError as exc:
+        print(f"hobbes mail: {exc}", file=sys.stderr)
+        return 2
+    directory = agent_dir(plan_dir(repo_root, task), args.unit)
+    if args.mail_command == "post":
+        message = mail.post(directory, args.sender, args.text, kind=args.kind)
+        print(f"posted [{message['seq']}] to {args.unit} ({task})")
+        return 0
+    messages = mail.read(directory)
+    if not messages:
+        print(f"{args.unit} ({task}): inbox empty")
+        return 0
+    for message in messages:
+        print(f"[{message['seq']}] from {message['from']} ({message['kind']}): {message['text']}")
+    return 0
+
+
 def _cmd_up(args: argparse.Namespace) -> int:
     """`hobbes up`: bring Hobbes up on a repo and hold for decisions (ADR-026).
 
@@ -979,6 +1048,59 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="machine-readable output"
     )
 
+    run_parser = sub.add_parser(
+        "run",
+        help="execute a change-spec: one single-use session per unit, then "
+        "harvest, integrate, review, record",
+        description=(
+            "The orchestrator loop (ADR-054, D2 base). Per unit, in contract "
+            "order: write the brief (standing context + inbox), spawn "
+            "`hobbes-session start --agent-dir`, read back the flight log, "
+            "the reflections, and the harvested branch. Then integrate the "
+            "unit branches onto hobbes/<task>, run the review, and write "
+            ".hobbes/plans/<task>/partition-record.json. Human-first units "
+            "are not spawned. --dry-run writes everything and spawns nothing."
+        ),
+    )
+    run_parser.add_argument("task", help="a plan id from .hobbes/plans/ (a unique prefix will do)")
+    run_parser.add_argument("--dry-run", action="store_true",
+                            help="materialize agents and briefs; spawn nothing")
+    run_parser.add_argument("--unit", action="append",
+                            help="run only this unit (repeatable)")
+    run_parser.add_argument("--session-bin",
+                            help="hobbes-session binary (default: $HOBBES_SESSION_BIN or PATH)")
+    run_parser.add_argument("--sessions",
+                            help="session-state root (default: $HOBBES_SESSIONS or ~/.hobbes/sessions)")
+    run_parser.add_argument("--session-arg", action="append",
+                            help="extra flag passed through to hobbes-session start (repeatable), "
+                            "e.g. --session-arg=--claude-cred")
+    run_parser.add_argument("--repo", help="repo root (default: auto-detected via .git)")
+    run_parser.add_argument("--json", action="store_true", help="machine-readable output")
+
+    mail_parser = sub.add_parser(
+        "mail",
+        help="the short-term channel: post to or read a unit's inbox",
+        description=(
+            "Short-term context (ADR-054): the orchestrator pushes specifics "
+            "to a unit's inbox, the agent reflects back through the proxy, "
+            "and reflections land in the `orchestrator` inbox."
+        ),
+    )
+    mail_sub = mail_parser.add_subparsers(dest="mail_command", required=True)
+    post_parser = mail_sub.add_parser("post", help="append a message to a unit's inbox")
+    post_parser.add_argument("task")
+    post_parser.add_argument("unit", help="a unit name (U1) or `orchestrator`")
+    post_parser.add_argument("text")
+    post_parser.add_argument("--from", dest="sender", default="human",
+                             help="sender (default: human)")
+    post_parser.add_argument("--kind", default="request",
+                             help="request | reply | warning (default: request)")
+    post_parser.add_argument("--repo", help="repo root (default: auto-detected via .git)")
+    read_parser = mail_sub.add_parser("read", help="print a unit's inbox")
+    read_parser.add_argument("task")
+    read_parser.add_argument("unit")
+    read_parser.add_argument("--repo", help="repo root (default: auto-detected via .git)")
+
     review_parser = sub.add_parser(
         "review",
         help="concept-level review of a range: delta, invariants, coverage",
@@ -1089,6 +1211,8 @@ def main(argv: list[str] | None = None) -> int:
         "invariants": _cmd_invariants,
         "review": _cmd_review,
         "plan": _cmd_plan,
+        "run": _cmd_run,
+        "mail": _cmd_mail,
         "up": _cmd_up,
         "policy": _cmd_policy_resolve,
     }
