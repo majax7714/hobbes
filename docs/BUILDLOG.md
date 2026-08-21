@@ -3253,3 +3253,16 @@ Not built, by design of a base: path-grain write enforcement, the
 verifier session, the renegotiation re-pin, metering, loss fitting,
 the generative seed planner (C-36 — still the predicted first
 benchmark friction). D2 base awaits Max's review; the harness is next.
+
+*Close-out, same day.* Both of today's commits were made on a branch
+(`c31-c32-surfacing`, cut from `main` at the session's start) and the
+first report did not say so; Max found three local branches and no
+upstream on the new one, asked where the commits went, fast-forwarded
+`main` to `99e6a29`, pushed, and deleted the branch and the long-merged
+`m8-exit-check`. Standing rule recorded in CLAUDE.md: commit to `main`
+unless directed otherwise, and always state when work lands elsewhere.
+Doc sweep done: BUILDLOG (28th, 29th), ADR-053/054, register (C-31,
+C-32 surfaced; C-38 added; three unsurfaced remain), architecture
+§3.4/§3.7/§3.8/§6/§8, agent-mapping header, future_additions D2
+remainder, CLAUDE.md status. D2 base awaits Max's review; the benchmark
+harness is next.

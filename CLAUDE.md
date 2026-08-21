@@ -211,8 +211,13 @@ uv run hobbes mail read <task> orchestrator   # reflections land here
 - **Hobbes files are personal (ADR-012):** in Max's repos, the entire
   `.hobbes/` directory is gitignored — `ingest`/`init` enforce it
   automatically. Only this repo (dogfooding §10) versions its `.hobbes/`.
-- **Never `git push`.** Sessions commit to a branch; Max publishes after
-  review. The repo policy denies `git push*` outright rather than
+- **Commit to `main` unless Max directs otherwise** (2026-08-21). If a
+  session works on another branch for any reason, say so plainly in
+  the report — the 2026-08-21 session branched off `main` for ADR-053
+  and stacked ADR-054 on it without flagging it, and the branch picture
+  cost Max a review detour. He fast-forwarded `main` and deleted the
+  branch; `m8-exit-check` (fully merged since M8) is gone too.
+- **Never `git push`.** Sessions commit; Max publishes after review. The repo policy denies `git push*` outright rather than
   escalating it — an escalation is for commands a human might reasonably
   approve. This also applies when testing the escalation queue: pick
   read-only commands, because an *approved* escalation really runs.
