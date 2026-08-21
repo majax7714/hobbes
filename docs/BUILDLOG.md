@@ -3531,3 +3531,22 @@ to act on after the results):**
   the reading rule (P11: results do not re-scope the hypotheses).
 
 Run continues; polling every 20 minutes.
+
+## 2026-08-21 (thirty-fifth) — the nudge becomes pipeline discipline (ADR-058)
+
+Watching the capped run, Max caught the real issue behind a slow
+instance: `astropy-13579` U10, an **implementer** whose interior
+(`asdf/conftest.py`) was unrelated to the WCS-slicing proposal, called
+one read-only tool 55 times and edited nothing. His point — an
+implementer *with derived context* should not need 20 turns of reading;
+integrate the nudge as pipeline discipline, make it stricter. Two
+causes: a **spurious unit** (lexical seeds, C-36 — the unit-selection
+case, parked) and **no loop discipline against repetition**. Fixed the
+second: the loop refuses an identical read-only call (`repeats_refused`
+in the envelope), nudges at `--nudge-after` (3) dry turns, and stops a
+stall with a reason at `--stall-after` (6) — U10's pattern stops at
+turn 9, not 55 calls. Disciplines *how* the model works, never *what*
+it writes (H1 stays the model's). Pure-Python loop change (copied into
+each session at spawn — no Go rebuild). pytest +3: **797 / Go green**.
+Restarted the run under the stricter pipeline for clean decision-point
+data.

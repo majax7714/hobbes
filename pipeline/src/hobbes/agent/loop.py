@@ -263,6 +263,15 @@ NUDGE = (
     "write_file or edit_file tool (and run the guarding tests with the "
     "exec tool). Do not reply with a summary until the files are edited."
 )
+#: Returned in place of re-running a tool the model already called with
+#: the exact same arguments (ADR-058, sixth finding — a 7B unit called
+#: one read-only tool 55 times). The pipeline refuses the repeat rather
+#: than pay for it; the model must do something new.
+REPEAT_REFUSAL = (
+    "You already called this tool with these exact arguments and the "
+    "result has not changed. Stop repeating it. Read something new, edit "
+    "a file with write_file/edit_file, or finish — do not call it again."
+)
 
 
 class ContextOverflow(RuntimeError):
@@ -374,6 +383,8 @@ def run(args: argparse.Namespace) -> dict:
     usage = {"input_tokens": 0, "output_tokens": 0}
     turns, tool_calls_made, text_calls, final, error = 0, 0, 0, "", ""
     edited, nudges_left, nudges = False, args.max_nudges, 0
+    seen_calls: set[tuple[str, str]] = set()
+    repeats, dry_turns = 0, 0
     try:
         while turns < args.max_turns:
             turns += 1
@@ -388,35 +399,57 @@ def run(args: argparse.Namespace) -> dict:
                 text_calls += len(calls)
             messages.append({"role": "assistant", "content": message.get("content") or "",
                              **({"tool_calls": calls} if calls else {})})
-            if not calls:
-                if not edited and nudges_left > 0:
-                    # A prose plan before any edit: nudge once toward acting.
-                    nudges_left -= 1
-                    nudges += 1
-                    messages.append({"role": "user", "content": NUDGE})
-                    continue
-                final = message.get("content") or ""
-                break
+            productive = False
             for call in calls:
                 fn = call.get("function") or {}
                 name = fn.get("name", "")
+                raw = fn.get("arguments") or "{}"
                 try:
-                    targs = json.loads(fn.get("arguments") or "{}")
+                    targs = json.loads(raw)
                 except json.JSONDecodeError as exc:
                     text, is_err = f"arguments were not valid JSON: {exc}", True
                 else:
-                    if mcp and name in mcp_names:
-                        text, is_err = mcp.call(name, targs)
+                    sig = (name, json.dumps(targs, sort_keys=True))
+                    mutating = name in MUTATING_TOOLS or name.endswith("__exec") or name == "bash"
+                    if sig in seen_calls and not mutating:
+                        # A repeated read-only call: refuse, do not re-run it.
+                        text, is_err = REPEAT_REFUSAL, True
+                        repeats += 1
                     else:
-                        text, is_err = native_call(name, targs, workdir, allow_bash=mcp is None,
-                                                   allow_write=not read_only)
+                        seen_calls.add(sig)
+                        if mcp and name in mcp_names:
+                            text, is_err = mcp.call(name, targs)
+                        else:
+                            text, is_err = native_call(name, targs, workdir, allow_bash=mcp is None,
+                                                       allow_write=not read_only)
+                        if not is_err and mutating:
+                            edited = True
+                            productive = True
                 tool_calls_made += 1
-                if not is_err and (name in MUTATING_TOOLS or name.endswith("__exec") or name == "bash"):
-                    edited = True
                 print(f"[turn {turns}] {name}({json.dumps(targs)[:160]}) → {'error' if is_err else 'ok'}",
                       file=sys.stderr, flush=True)
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name,
                                  "content": clip(("ERROR: " if is_err else "") + text, args.max_result_chars)})
+            # Pipeline discipline (ADR-058): a turn that changed nothing is
+            # "dry". Nudge toward acting; once nudges are spent, a run of
+            # dry turns is a stall, not progress — stop with a reason
+            # rather than burn the turn budget (the 55-identical-calls loop).
+            if productive:
+                dry_turns = 0
+            else:
+                dry_turns += 1
+                if not edited and nudges_left > 0 and (not calls or dry_turns >= args.nudge_after):
+                    nudges_left -= 1
+                    nudges += 1
+                    dry_turns = 0
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
+                if not calls:
+                    final = message.get("content") or ""
+                    break
+                if not edited and dry_turns >= args.stall_after:
+                    error = f"no progress: {dry_turns} turns without an edit after {nudges} nudge(s)"
+                    break
         else:
             error = f"turn budget ({args.max_turns}) exhausted"
     except Exception as exc:  # noqa: BLE001 — the envelope carries it
@@ -430,7 +463,7 @@ def run(args: argparse.Namespace) -> dict:
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
         "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
         "context_fitted": endpoint.fitted, "context_elided": endpoint.elided,
-        "nudges": nudges, "edited": edited,
+        "nudges": nudges, "edited": edited, "repeats_refused": repeats,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,
     }
@@ -453,6 +486,10 @@ def parse(argv: list[str]) -> argparse.Namespace:
                    help="a tool result is clipped to this many characters, the cut stated (default 12000)")
     p.add_argument("--max-nudges", type=int, default=2,
                    help="how many times to nudge a model that stops at a prose plan before editing (default 2)")
+    p.add_argument("--nudge-after", type=int, default=3,
+                   help="dry (no-edit) turns before a mid-stream nudge (default 3)")
+    p.add_argument("--stall-after", type=int, default=6,
+                   help="dry (no-edit) turns before stopping a stalled session with a reason (default 6)")
     p.add_argument("--timeout", type=float, default=600.0)
     return p.parse_args(argv)
 

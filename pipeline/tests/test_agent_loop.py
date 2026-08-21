@@ -410,3 +410,50 @@ class TestProsePlanNudge:
         finally:
             model.close()
         assert env["nudges"] == 0 and env["edited"] is True
+
+
+class TestStrictPipeline:
+    """ADR-058, sixth finding: the pipeline refuses repeated read-only
+    calls and stops a non-editing stall instead of burning the budget."""
+
+    def test_identical_readonly_call_is_refused_not_rerun(self, tree):
+        model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],
+            [("read_file", {"path": "src/a.py"})],   # exact repeat
+            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--max-nudges", "0")
+        finally:
+            model.close()
+        assert env["repeats_refused"] == 1 and env["edited"] is True and not env["is_error"]
+        # the refusal reached the model as the tool result for the repeat
+        msgs = model.requests[2]["body"]["messages"]
+        tool_msgs = [m for m in msgs if m["role"] == "tool"]
+        assert any("Stop repeating it" in m["content"] for m in tool_msgs)
+
+    def test_a_nonediting_loop_stops_with_a_reason(self, tree):
+        # tests_guarding-style: a read-only call repeated forever, never editing
+        model = ScriptedModel([[("read_file", {"path": "README"})]] * 12)
+        try:
+            env = run_loop(model, tree, "--max-nudges", "1", "--nudge-after", "2", "--stall-after", "5", "--max-turns", "20")
+        finally:
+            model.close()
+        assert env["is_error"] and "no progress" in env["result"]
+        assert env["edited"] is False
+        # it stopped well before the turn budget, not at turn 20
+        assert env["num_turns"] < 20
+
+    def test_a_dry_run_of_reads_then_an_edit_is_fine(self, tree):
+        model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],
+            [("list_files", {"path": "src"})],
+            [("write_file", {"path": "src/a.py", "content": "x\n"})],
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--max-nudges", "0", "--nudge-after", "2")
+        finally:
+            model.close()
+        assert env["edited"] is True and not env["is_error"] and env["repeats_refused"] == 0

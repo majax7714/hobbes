@@ -166,6 +166,36 @@ capable-enough model then solves the task is H1's to measure. The
 nudge sits exactly on that line — it removes "the agent never tried to
 edit" as a harness artifact without supplying the fix.
 
+## The sixth finding: an implementer with a map still needs discipline
+
+Watching the capped run, `astropy-13579` unit U10 — an **implementer**
+whose assigned interior was `astropy/io/misc/asdf/conftest.py`, a file
+unrelated to the WCS-slicing proposal — called `tests_guarding` on one
+symbol **55 times** and `reflect` 54 times, editing nothing, burning
+its whole turn budget (~14 min). Two things behind it:
+
+- **A spurious unit.** The lexical seeds (C-36) produced a unit whose
+  interior does not intersect the change; it had no real work, so it
+  thrashed. This is the *unit-selection* case (spawn a stream of
+  *selected* units, not all of them) — the bigger fix, parked in
+  `future_additions.md`, named by the owner watching this run.
+- **No loop discipline against repetition.** The brief carries a *map*
+  (module names, one-hop signatures — "internals deliberately absent"),
+  never source, so an implementer still reads; but nothing stopped it
+  repeating one read-only call 55 times.
+
+9. **The nudge becomes pipeline discipline** (the owner's direction:
+   "integrate the nudge as part of the pipeline… make it stricter").
+   The loop every implementer runs now: **refuses an identical
+   read-only tool call** (same name+args) rather than re-running it,
+   telling the model to do something new (`repeats_refused` in the
+   envelope); counts a turn that changed nothing as **dry**, nudges
+   toward editing at `--nudge-after` (3) dry turns while nudges remain,
+   and **stops a stalled session with a reason** at `--stall-after` (6)
+   dry turns instead of burning the budget. On U10's real pattern this
+   stops at turn 9, not 55 calls. It disciplines *how* the model works,
+   never *what* it writes — H1 stays the model's.
+
 ## What this is not
 
 - Not a change to the sandbox boundary. The mounts, the network
@@ -196,8 +226,9 @@ edit" as a harness artifact without supplying the fix.
   each record's `detail.environment` carries the image and digest.
 - Tests: Go +5 (env binding; no wrapper without `--pre`; clone
   identity; `--task-file`; commit-on-exit excludes `.hobbes/`),
-  pytest +24 (cap ×6, environment ×8, brief limit ×3, window ×4,
-  exit-commit, prose-plan nudge ×3). 794 pytest / Go green.
+  pytest +27 (cap ×6, environment ×8, brief limit ×3, window ×4,
+  exit-commit, prose-plan nudge ×3, strict pipeline ×3). 797 pytest /
+  Go green.
 - **Confirmed on one instance** (`pytest-5787`, harness arm): outcome
   `patch`, a real branch diff — the harness produces a candidate end
   to end. Correctness is the evaluator's verdict, not this ADR's.
