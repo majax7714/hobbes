@@ -3419,3 +3419,41 @@ after the debugging, so the first full run is deliberately handed off.
 
 769 pytest (+7 across bench/loop) / Go green. 7B endpoint live;
 nothing else run — the complex-set run is the next session's.
+
+## 2026-08-21 (thirty-third) — the first full run, stopped and relaunched (ADR-058)
+
+Max's direction: review, start the complex-set run from the handoff,
+poll at 20 minutes. Started it (45 instances, 7B, both arms, eval on
+Modal). The poll found two structural problems on instance 1
+(`astropy__astropy-13398`), both the harness's, neither the model's:
+the plan had **210 units** (~7.5 min a session → ~26 h for one
+instance), and inside every session `pytest` was exit 127, `pip` 127,
+`git commit` 128 — the bare Alpine image has no test environment and
+the clone has no identity — after which the 7B tried `apt-get`,
+`get-pip.py`, `git config --global`, each escalate-denied at 5s (the
+solo policy doing its job on an empty room). Stopped the run rather
+than spend Modal credit on an empty-by-construction result.
+
+Max: cap at 20 units ("adjust after with n max sizing"), install the
+environment as an acknowledged benchmark practice, relaunch, poll.
+
+Built: **`bench/environment.py`** — both arms run in the instance's
+own swebench image (the evaluator's), the workspace bound by
+`PYTHONPATH=/work` (a path entry precedes the editable finder) and a
+pre-command copying `/testbed`'s untracked build artifacts into the
+worktree; verified on astropy that `/work` and `/testbed` give the same
+pytest result. `hobbes-session` gained `--path`, `--env`, `--pre`,
+`--runtime-python` (the loop runs on the image's base python 3.11; the
+conda env carries the target's, 3.6 on old django) and **seeds a commit
+identity** into every clone. The pure arm now runs contained in the
+same image (ADR-055's containment item). **`build_units(max_units=)`**:
+merge past the budget, strongest coupling first then lightest, every
+touched unit flagged `capped`; `hobbes bench run --max-units` defaults
+to 20, `hobbes plan --max-units` has no default. Register: **C-43**
+(binding, not rebuild — compiled-extension changes unseen in-session;
+4 of 45 instances are compiled repos), **C-44** (capped = count, not
+coupling). Architecture §6.2 amended; handoff updated with what to
+check first. Go +3 / pytest +14: **783 pytest / Go green**.
+
+Relaunched into the same `--out` (instance 1's pure record from the
+stopped run is superseded — see the relaunch note below). Poll set.

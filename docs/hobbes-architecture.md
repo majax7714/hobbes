@@ -864,8 +864,24 @@ via `--box` with a short `--escalation-timeout`) grants those inside
 the sealed sandbox while the guarantees stay denied — **C-42**. The
 focus benchmark is SWE-bench Verified on the Qwen2.5-Coder 7B→32B
 ladder, the bar being harnessed-N ≈ pure-(N+1) on the rated complex
-multi-step set; the first full run is the next session's
-(`docs/bench-run-handoff.md`).
+multi-step set (`docs/bench-run-handoff.md`).
+
+The first full run's first instance surfaced two more (ADR-058),
+both the harness's own. **Both arms now run in the instance's own
+swebench image** — the environment the evaluator judges in — with the
+workspace mounted at `/work` and bound to it by `PYTHONPATH` (the
+worktree shadows the image's editable install) and a host-authored
+pre-command that copies the image's in-place build artifacts into
+the worktree; the pure arm, which had run on the host, is contained
+the same way. The binding is a benchmark practice, listed in the
+argv and recorded per arm with the image digest; its edge — a change
+needing a rebuild of a compiled extension is not seen by the
+in-session tests — is **C-43**. And a **unit cap** (`--max-units`,
+default 20) bounds how many sessions one instance may spawn after a
+plan reached 210 units on astropy; units merged past the budget to
+fit are flagged `capped` — **C-44**, a count decision, not a
+partition improvement (C-35 stands). Every session clone now carries
+a commit identity, which no sandbox had.
 
 ---
 

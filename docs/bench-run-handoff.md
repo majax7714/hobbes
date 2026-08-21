@@ -57,12 +57,21 @@ uv run hobbes bench run verified.jsonl --secrets secrets.txt \
   --difficulty complex \
   --runtime openai --llm-base-url $(uv run pipeline/scripts/modal_vllm.py url) \
   --model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --session-bin go/bin/hobbes-session --session-arg=--network=pasta \
+  --session-bin go/bin/hobbes-session \
   --out ~/.hobbes/bench/verified-complex-7b --max-turns 40 \
   --evaluate --eval-modal
 ```
-- **Both arms run per instance.** The run is **resumable** — a record
-  that exists is skipped, so re-invoking continues after an interruption.
+- **Both arms run per instance, in the instance's own swebench image**
+  (`--environment swebench`, the default, ADR-058): the image is pulled
+  on first use (~1–3 GB each; `podman images | grep sweb.eval`), the
+  workspace is bound to it by `PYTHONPATH=/work` plus copied build
+  artifacts (C-43), and `--network pasta` applies to both arms (no
+  `--session-arg=--network=` needed any more). The run is
+  **resumable** — a record that exists is skipped, so re-invoking
+  continues after an interruption.
+- **`--max-units 20`** is the default unit cap (ADR-058): units merged to
+  fit are flagged `capped` (C-44). Max's first sizing; adjust from the
+  run's verdicts, and say so in the results.
 - `--eval-modal` runs the swebench evaluator on Modal (needs the Modal
   token; no local Docker). Without it, the evaluator needs a local
   container engine (`systemctl --user enable --now podman.socket`,
@@ -87,6 +96,17 @@ A harness session that stalls shows no `→` line for minutes — check
 finding below). A container list: `podman ps`.
 
 ## What is already known (don't rediscover)
+
+- **The first full run's first instance (2026-08-21, ADR-058)** found
+  a 210-unit plan on astropy (~7.5 min a session → ~26 h for one
+  harness arm) and that neither arm could run tests (`pytest` 127,
+  `git commit` 128 in the bare Alpine image / on the host). Both fixed:
+  the unit cap and the environment binding above, plus a commit
+  identity in every session clone. **Check first on a new run:** the
+  banner's `environment: swebench` line, a `pulling …sweb.eval…` line
+  on the first instance, and in the first harness session's
+  `flight.jsonl` an `exec … pytest` row with `"exit":0` or a real
+  test failure — not 127.
 
 - **The solo policy finding (fixed, ADR-057).** A benchmark checkout is
   a committed-only clone, so repo/role policies don't reach the session;

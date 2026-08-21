@@ -293,3 +293,54 @@ class TestContracts:
         unit = Unit(name="U1", weight=10,
                     modules=["app.api", "app.auth", "app.core", "billing"])
         assert build_contracts(graph_fixture(), [unit], []) == []
+
+
+class TestUnitCap:
+    """ADR-058: the unit cap merges past the budget, flags what it merged."""
+
+    def test_no_cap_leaves_the_budgeted_partition_alone(self):
+        weights = {"a": 50, "b": 50, "c": 50, "d": 50}
+        assert len(build_units(list(weights), weights, {}, budget=60)) == 4
+        assert len(build_units(list(weights), weights, {}, budget=60, max_units=None)) == 4
+
+    def test_cap_merges_strongest_coupling_first_then_lightest(self):
+        weights = {"a": 50, "b": 50, "c": 50, "d": 10}
+        coupling = {("a", "b"): 5.0}
+        units = build_units(list(weights), weights, coupling, budget=60, max_units=2)
+        assert len(units) == 2
+        members = [u.modules for u in units]
+        assert ["a", "b"] in members          # coupled pair merged past the budget
+        assert ["c", "d"] in members          # then the lightest uncoupled pair
+        assert all(any(f.startswith("capped") for f in u.flags) for u in units)
+
+    def test_cap_flags_only_the_units_it_touched(self):
+        weights = {"a": 50, "b": 50, "c": 50}
+        units = build_units(list(weights), weights, {("a", "b"): 1.0}, budget=60, max_units=2)
+        flagged = {tuple(u.modules): any(f.startswith("capped") for f in u.flags) for u in units}
+        assert flagged == {("a", "b"): True, ("c",): False}
+
+    def test_cap_is_deterministic(self):
+        weights = {f"m{i}": 30 for i in range(12)}
+        coupling = {("m1", "m5"): 2.0, ("m2", "m9"): 2.0, ("m0", "m11"): 0.5}
+        one = build_units(list(weights), weights, coupling, budget=40, max_units=3)
+        two = build_units(list(weights), weights, coupling, budget=40, max_units=3)
+        assert [u.modules for u in one] == [u.modules for u in two]
+        assert len(one) == 3
+
+    def test_cap_below_one_is_ignored(self):
+        weights = {"a": 50, "b": 50}
+        assert len(build_units(list(weights), weights, {}, budget=60, max_units=0)) == 2
+
+    def test_plan_records_the_cap_and_the_summary_counts_it(self, tmp_path):
+        from hobbes.derive import changespec
+        from hobbes.derive.partition import Unit
+        import dataclasses
+        unit = Unit(name="U1", modules=["a", "b"], weight=10, flags=["capped: merged to meet the unit cap (max_units=1)"])
+        spec = changespec.ChangeSpec(
+            task="t", proposal="p", graph_sha="s", graph_dirty=False, budget=60_000, seeds={},
+            unresolved_terms=[], units=[unit], contracts=[], contexts=[], policies=[],
+            gate=changespec.Gate(proposed_edges=[], human_first_units=[], result="pass"), max_units=1,
+        )
+        assert changespec.spec_to_dict(spec)["max_units"] == 1
+        text = changespec.format_spec(spec)
+        assert "1-unit cap (1 capped, C-44)" in text

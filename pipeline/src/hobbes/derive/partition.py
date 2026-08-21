@@ -138,8 +138,19 @@ def build_units(
     weights: dict[str, int],
     coupling: dict[tuple[str, str], float],
     budget: int = DEFAULT_BUDGET,
+    max_units: int | None = None,
 ) -> list[Unit]:
-    """Agglomerative merge under *budget*; returns named, ordered units."""
+    """Agglomerative merge under *budget*; returns named, ordered units.
+
+    *max_units* is the unit cap (ADR-058): when the budgeted partition
+    leaves more units than this, the strongest-coupled pairs merge
+    **past the budget**, and — once no coupling is left — the lightest
+    units merge together, until the count fits. Every unit that
+    crossed the budget or absorbed an uncoupled neighbour is flagged
+    ``capped``: the cap is a sizing decision about how many sessions a
+    run may spawn, not a claim that the merged modules belong
+    together (C-44). ``None`` means no cap.
+    """
     members: dict[int, list[str]] = {i: [m] for i, m in enumerate(modules)}
     home = {m: i for i, m in enumerate(modules)}
 
@@ -200,12 +211,42 @@ def build_units(
                 home[m] = j
             members[j] = sorted({m for m, h in home.items() if h == j})
 
+    # The unit cap (ADR-058): merge past the budget, strongest coupling
+    # first, then the lightest pairs when nothing couples. Deterministic
+    # by the same tie rule as above (smallest member id).
+    capped: set[int] = set()
+    if max_units is not None and max_units >= 1:
+        while len(members) > max_units:
+            ids = sorted(members)
+            best: tuple[float, int, str, int, int] | None = None
+            for x, i in enumerate(ids):
+                for j in ids[x + 1:]:
+                    strength = pair_coupling(i, j)
+                    combined = unit_weight(i) + unit_weight(j)
+                    first = min(members[i][0], members[j][0])
+                    key = (-strength, combined, first, i, j)
+                    if best is None or key < best:
+                        best = key
+            assert best is not None
+            _, _, _, i, j = best
+            absorbed = members.pop(j)
+            for m in absorbed:
+                home[m] = i
+            members[i] = sorted(members[i] + absorbed)
+            capped.discard(j)
+            capped.add(i)
+
     units: list[Unit] = []
-    ordered = sorted(members.values(), key=lambda ms: (-sum(
-        weights.get(m, 0) for m in ms), ms[0]))
-    for index, ms in enumerate(ordered, start=1):
+    ordered = sorted(members.items(), key=lambda kv: (-sum(
+        weights.get(m, 0) for m in kv[1]), kv[1][0]))
+    for index, (uid, ms) in enumerate(ordered, start=1):
         weight = sum(weights.get(m, 0) for m in ms)
         flags: list[str] = []
+        if uid in capped:
+            flags.append(
+                f"capped: merged to meet the unit cap (max_units={max_units}); "
+                "the merge was for session count, not coupling (C-44)"
+            )
         if len(ms) == 1 and weight > budget:
             flags.append(
                 "oversize: one module exceeds the budget alone; the "

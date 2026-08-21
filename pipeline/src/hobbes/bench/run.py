@@ -22,7 +22,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from hobbes.bench import arms, results, verdict, workspace
+from hobbes.bench import arms, environment, results, verdict, workspace
 from hobbes.bench.instances import Selection
 
 ARMS = ("pure", "harness")
@@ -63,24 +63,54 @@ def run(
     clean: bool = False,
     timeout: float = 3600.0,
     runtime: arms.Runtime | None = None,
+    environment_kind: str = "none",
+    network: str = "pasta",
+    max_units: int | None = None,
     log=print,
 ) -> list[results.Record]:
-    """Run every (instance, model, arm) not yet recorded; return all records."""
+    """Run every (instance, model, arm) not yet recorded; return all records.
+
+    *environment_kind* ``swebench`` binds both arms to the instance's
+    own image (ADR-058); ``none`` runs the pure arm on the host and the
+    harness arm in the bare session image. *max_units* caps the
+    harness arm's plan (C-44). *network* is the podman network both
+    arms get when an environment is bound, and the harness arm's
+    ``--network`` unless a session arg already names one."""
     run_dir = Path(run_dir)
     runtime = runtime or arms.Runtime()
+    if environment_kind not in environment.KINDS:
+        raise ValueError(f"environment must be one of {environment.KINDS}, not {environment_kind!r}")
+    session_args = list(session_args or [])
+    if not any(a == "--network" or a.startswith("--network=") for a in session_args):
+        session_args += [f"--network={network}"]
     write_manifest(run_dir, selection, models, list(which), {
-        "session_bin": session_bin, "session_args": session_args or [], "budget": budget,
+        "session_bin": session_bin, "session_args": session_args, "budget": budget,
+        "max_units": max_units, "environment": environment_kind, "network": network,
         "timeout": timeout, "clean": clean,
         "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns},
     })
     done = {(r.instance_id, r.arm, r.model) for r in results.load(run_dir)}
     for instance in selection.selected:
-        for model in models:
-            for arm in which:
-                if (instance.instance_id, arm, model) in done:
-                    continue
+        pending = [(m, a) for m in models for a in which if (instance.instance_id, a, m) not in done]
+        if not pending:
+            continue
+        env: environment.Environment | None = None
+        env_error = ""
+        if environment_kind == "swebench":
+            try:
+                env = environment.ensure_image(environment.swebench_environment(instance), log=log)
+            except environment.EnvironmentError_ as exc:
+                env_error = str(exc)
+        for model, arm in pending:
                 ws = run_dir / "work" / instance.instance_id / f"{arm}-{model or 'default'}".replace("/", "_")
-                log(f"{instance.instance_id} [{arm}/{model or 'default'}] checkout {instance.base_commit[:12]}")
+                log(f"{instance.instance_id} [{arm}/{model or 'default'}] checkout {instance.base_commit[:12]}"
+                    + (f" in {env.image}" if env else ""))
+                if env_error:
+                    result = arms.ArmResult(arm, model, "env-error", error=env_error)
+                    record = results.make_record(instance, result)
+                    results.append(run_dir, record)
+                    log(f"  → env-error; {env_error[:120]}")
+                    continue
                 try:
                     workspace.checkout(instance, ws)
                 except workspace.WorkspaceError as exc:
@@ -88,11 +118,13 @@ def run(
                                             error=f"checkout: {exc}")
                 else:
                     if arm == "pure":
-                        result = arms.run_pure_arm(instance, ws, model, timeout=timeout, runtime=runtime)
+                        result = arms.run_pure_arm(instance, ws, model, timeout=timeout, runtime=runtime,
+                                                   environment=env, network=network)
                     else:
                         result = arms.run_harness_arm(
                             instance, ws, model, session_bin=session_bin, sessions_root=sessions_root,
                             extra_session_args=session_args, budget=budget, runtime=runtime,
+                            environment=env, max_units=max_units,
                         )
                 record = results.make_record(instance, result)
                 results.append(run_dir, record)

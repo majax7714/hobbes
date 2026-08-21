@@ -97,6 +97,8 @@ class ChangeSpec:
     gate: Gate
     warnings: list[str] = field(default_factory=list)
     validation: str = VALIDATION
+    #: The unit cap the partition ran under (ADR-058), None when uncapped.
+    max_units: int | None = None
 
 
 def task_id(proposal: str) -> str:
@@ -171,6 +173,7 @@ def derive_plan(
     seeds: list[str] | None = None,
     adds: list[str] | None = None,
     budget: int = partition.DEFAULT_BUDGET,
+    max_units: int | None = None,
 ) -> ChangeSpec:
     """The whole derivation: proposal to change-spec. Deterministic."""
     repo_root = Path(repo_root)
@@ -187,7 +190,7 @@ def derive_plan(
 
     weights = partition.node_weights(repo_root, graph, tests)
     coupling = partition.module_coupling(graph, modules, history)
-    units = partition.build_units(modules, weights, coupling, budget)
+    units = partition.build_units(modules, weights, coupling, budget, max_units=max_units)
 
     guards = partition.guarding_tests(graph, tests)
     pinned = contracts_mod.build_contracts(graph, units, invariants)
@@ -211,6 +214,7 @@ def derive_plan(
         policies=policies,
         gate=gate,
         warnings=warnings,
+        max_units=max_units,
     )
 
 
@@ -259,9 +263,11 @@ def format_spec(spec: ChangeSpec) -> str:
     for warning in spec.warnings:
         lines.append(f"  warning: {warning}")
 
+    capped = sum(1 for u in spec.units if any(f.startswith("capped") for f in u.flags))
     lines.append(
         f"\n{len(spec.units)} unit(s) under a {spec.budget:,}-token budget "
-        "— the partition's output, not a parameter:"
+        + (f"and a {spec.max_units}-unit cap ({capped} capped, C-44) " if spec.max_units else "")
+        + "— the partition's output, not a parameter:"
     )
     contexts = {c.unit: c for c in spec.contexts}
     for unit in spec.units:

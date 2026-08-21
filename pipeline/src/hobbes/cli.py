@@ -624,6 +624,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             seeds=args.seed or [],
             adds=args.adds or [],
             budget=args.budget,
+            max_units=args.max_units,
         )
     except (artifacts.ArtifactError, SeedError, DeriveError, GuaranteeError) as exc:
         print(f"hobbes plan: {exc}", file=sys.stderr)
@@ -779,6 +780,14 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     print(inst.format_selection(selection))
     print(f"run: {run_dir} — arms {', '.join(which)}; models {', '.join(m or 'default' for m in models)}; "
           f"runtime {runtime.kind}" + (f" @ {runtime.base_url}" if runtime.base_url else ""))
+    print(f"  environment: {args.environment}"
+          + (" — both arms run in the instance's swebench image, worktree bound by PYTHONPATH + copied "
+             "build artifacts (ADR-058, C-43)" if args.environment == "swebench" else
+             " — the pure arm on the host, the harness arm in the bare session image; tests need the "
+             "target's dependencies, which neither has")
+          + f"; network {args.network}")
+    print(f"  unit cap: {args.max_units if args.max_units else 'none'}"
+          + (" — units merged past the budget to fit are flagged `capped` (C-44)" if args.max_units else ""))
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)
         return 2
@@ -788,6 +797,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         sessions_root=Path(args.sessions) if args.sessions else None,
         session_args=args.session_arg or [], budget=args.budget,
         clean=args.clean, timeout=args.timeout, runtime=runtime,
+        environment_kind=args.environment, network=args.network, max_units=args.max_units,
     )
     failed = False
     if args.evaluate:
@@ -1131,6 +1141,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="per-unit context budget in estimated tokens (default: 60000)",
     )
     plan_parser.add_argument(
+        "--max-units", type=int, default=None,
+        help="cap on the number of units; units merged past the budget to fit are flagged "
+        "`capped` (ADR-058, C-44). Default: no cap",
+    )
+    plan_parser.add_argument(
         "--repo", help="repo root (default: auto-detected via .git)"
     )
     plan_parser.add_argument(
@@ -1244,6 +1259,14 @@ def build_parser() -> argparse.ArgumentParser:
                              "environment the tools read (values never printed)")
     brun_parser.add_argument("--timeout", type=float, default=3600.0, help="per-arm wall clock in seconds (default 3600)")
     brun_parser.add_argument("--budget", type=int, help="per-unit context budget for the harness arm's plan")
+    brun_parser.add_argument("--max-units", type=int, default=20,
+                             help="cap on units per harness plan — the number of sessions an instance may "
+                             "spawn; 0 = no cap (default 20, ADR-058; capped units flagged, C-44)")
+    brun_parser.add_argument("--environment", choices=["swebench", "none"], default="swebench",
+                             help="bind both arms to the instance's own swebench image (default) or run "
+                             "without the target's environment (tests cannot run)")
+    brun_parser.add_argument("--network", default="pasta",
+                             help="podman network for both arms (default pasta: the model endpoint needs egress, C-41)")
     brun_parser.add_argument("--session-bin", help="hobbes-session binary for the harness arm")
     brun_parser.add_argument("--sessions", help="session-state root for the harness arm")
     brun_parser.add_argument("--session-arg", action="append",

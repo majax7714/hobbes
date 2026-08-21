@@ -402,3 +402,62 @@ func TestRuntimeCommandReplacesClaudeAndRedactsTheKey(t *testing.T) {
 		t.Error("a runtime without an endpoint must be refused")
 	}
 }
+
+func TestEnvironmentBindingIsExplicitAndPrinted(t *testing.T) {
+	// ADR-058: a benchmark binds the target's environment — image, PATH,
+	// named env vars, a pre-command — and every piece is visible in the
+	// argv; nothing from the host environment leaks alongside it.
+	cfg := baseConfig()
+	cfg.Image = "docker.io/swebench/sweb.eval.x86_64.x_1776_y:latest"
+	cfg.Path = "/opt/miniconda3/envs/testbed/bin:/usr/bin:/bin"
+	cfg.Env = []string{"PYTHONPATH=/work"}
+	cfg.Pre = "cd /testbed && git ls-files -o -z | tar --null -T - -cf - | tar -C /work -xf -"
+	cfg.Runtime = "/sessions/S-x/agent.py"
+	cfg.RuntimePython = "/opt/miniconda3/bin/python3"
+	cfg.LLMBaseURL = "https://llm.example/v1"
+	cfg.Model = "m"
+	p, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := p.PodmanArgs()
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		"--env PATH=/opt/miniconda3/envs/testbed/bin:/usr/bin:/bin",
+		"--env PYTHONPATH=/work",
+		"sweb.eval.x86_64.x_1776_y:latest",
+		"/opt/miniconda3/bin/python3 /sessions/S-x/agent.py",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in:\n%s", want, joined)
+		}
+	}
+	envs := 0
+	for _, a := range args {
+		if a == "--env" {
+			envs++
+		}
+	}
+	if envs != 3 {
+		t.Errorf("want HOME, PATH and the one bound var, got %d --env flags", envs)
+	}
+	// The pre-command wraps the session command and hands its argv through verbatim.
+	cmd := p.command()
+	if cmd[0] != "/bin/sh" || cmd[1] != "-c" || !strings.HasPrefix(cmd[2], cfg.Pre+" && exec") {
+		t.Errorf("pre-command must run first and exec the session command: %v", cmd[:3])
+	}
+	tail := strings.Join(cmd[4:], " ")
+	if !strings.HasPrefix(tail, "/opt/miniconda3/bin/python3 /sessions/S-x/agent.py") {
+		t.Errorf("session command not passed through after the pre-command: %q", tail)
+	}
+	if !strings.Contains(p.DryRun(), "PYTHONPATH=/work") {
+		t.Error("the dry run must print the bound environment")
+	}
+}
+
+func TestNoPreCommandMeansNoWrapper(t *testing.T) {
+	p, _ := NewPlan(baseConfig())
+	if p.command()[0] == "/bin/sh" {
+		t.Error("without --pre the session command runs bare")
+	}
+}

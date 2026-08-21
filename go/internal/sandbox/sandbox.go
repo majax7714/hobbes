@@ -45,9 +45,23 @@ type Config struct {
 	// talks to, and LLMKey the bearer token passed through as the
 	// HOBBES_LLM_API_KEY env var — the one secret a live session
 	// carries, stated in C-41.
-	Runtime      string
-	LLMBaseURL   string
-	LLMKey       string
+	Runtime    string
+	LLMBaseURL string
+	LLMKey     string
+	// RuntimePython is the in-container interpreter that runs the owned
+	// loop; "" means the image's python3. A benchmark environment image
+	// (ADR-058) carries the target repo's own, possibly old, python as
+	// the first on PATH, and the loop needs a modern one.
+	RuntimePython string
+	// Path overrides the in-container PATH; "" keeps the image-neutral
+	// default. Env adds KEY=VALUE pairs on top of HOME and PATH — an
+	// environment binding the host authored (ADR-058: PYTHONPATH=/work
+	// so the worktree shadows the image's installed copy). Pre is a
+	// host-authored shell command run before the session command in
+	// the same container; it is not the agent's and is not policed.
+	Path         string
+	Env          []string
+	Pre          string
 	Network      string // podman --network (default "none")
 	HostWorktree string // absolute host path of the session worktree
 	HostSessions string // absolute host ~/.hobbes/sessions
@@ -278,8 +292,12 @@ func (p *Plan) DefaultCommand() []string {
 // loop withholds it whenever an MCP config is present, so the shell is
 // reachable only through the policy-checked exec tool.
 func (p *Plan) RuntimeCommand() []string {
+	python := p.cfg.RuntimePython
+	if python == "" {
+		python = "python3"
+	}
 	cmd := []string{
-		"python3", p.cfg.Runtime,
+		python, p.cfg.Runtime,
 		"--base-url", p.cfg.LLMBaseURL,
 		"--model", p.cfg.Model,
 		"--prompt-file", p.sessionHome() + "/brief.md",
@@ -291,27 +309,50 @@ func (p *Plan) RuntimeCommand() []string {
 }
 
 // command is the in-container command: the override, the owned runtime,
-// or the default Claude Code call.
+// or the default Claude Code call — wrapped by the pre-command when the
+// host authored one (the session command still receives its argv
+// verbatim; the wrapper only runs the setup first and fails the session
+// if it fails).
 func (p *Plan) command() []string {
-	if len(p.cfg.Command) > 0 {
-		return p.cfg.Command
+	var cmd []string
+	switch {
+	case len(p.cfg.Command) > 0:
+		cmd = p.cfg.Command
+	case p.cfg.Runtime != "":
+		cmd = p.RuntimeCommand()
+	default:
+		cmd = p.DefaultCommand()
 	}
-	if p.cfg.Runtime != "" {
-		return p.RuntimeCommand()
+	if p.cfg.Pre == "" {
+		return cmd
 	}
-	return p.DefaultCommand()
+	return append([]string{"/bin/sh", "-c", p.cfg.Pre + ` && exec "$@"`, "hobbes-pre"}, cmd...)
+}
+
+// containerPath is the in-container PATH: image-neutral unless the
+// caller bound an environment.
+func (p *Plan) containerPath() string {
+	if p.cfg.Path != "" {
+		return p.cfg.Path
+	}
+	return "/usr/local/bin:/usr/bin:/bin"
 }
 
 // PodmanArgs is the full argv for `podman`, ready to exec. Env is
 // deliberately just HOME and PATH — rootless podman passes no host env, so
-// no repo or infra secret can reach the session (ADR-018, §5.2).
+// no repo or infra secret can reach the session (ADR-018, §5.2) — plus
+// whatever the caller bound explicitly in Config.Env, which is a list
+// the dry run prints, never the host's environment.
 func (p *Plan) PodmanArgs() []string {
 	args := []string{
 		"run", "--rm",
 		"--network", p.cfg.Network,
 		"--env", "HOME=" + p.sessionHome(),
-		"--env", "PATH=/usr/local/bin:/usr/bin:/bin",
+		"--env", "PATH=" + p.containerPath(),
 		"--workdir", WorkDir,
+	}
+	for _, kv := range p.cfg.Env {
+		args = append(args, "--env", kv)
 	}
 	if p.cfg.Runtime != "" && p.cfg.LLMKey != "" {
 		// The model credential: the one secret a live session carries

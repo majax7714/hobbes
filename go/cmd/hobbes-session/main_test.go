@@ -319,3 +319,40 @@ func TestRuntimeFlagCopiesLoopAndBriefIntoTheSessionDir(t *testing.T) {
 		t.Errorf("brief not written: %v %q", err, b)
 	}
 }
+
+func TestSessionCloneHasACommitIdentity(t *testing.T) {
+	// ADR-058: a clone carries no identity and the sandbox has no global
+	// git config, so without seeding every in-session commit fails 128.
+	repo := gitRepo(t)
+	gitOut(repo, "config", "user.name", "Repo Owner")
+	gitOut(repo, "config", "user.email", "owner@example.test")
+	sessions := t.TempDir()
+	proxy := filepath.Join(t.TempDir(), "hobbes-proxy")
+	os.WriteFile(proxy, []byte("#!/bin/sh\n"), 0o755)
+	opt := options{repo: repo, role: "implementer", session: "S-id", sessions: sessions, proxyBin: proxy}
+	_, worktree, cleanup, err := setup(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	name, _ := gitOut(worktree, "config", "--get", "user.name")
+	email, _ := gitOut(worktree, "config", "--get", "user.email")
+	if strings.TrimSpace(name) != "Repo Owner" || strings.TrimSpace(email) != "owner@example.test" {
+		t.Errorf("identity not copied: %q %q", name, email)
+	}
+	// and a repo without one — nor a global one — gets the session default
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	bare := gitRepo(t)
+	gitOut(bare, "config", "--unset", "user.name")
+	gitOut(bare, "config", "--unset", "user.email")
+	_, wt2, cleanup2, err := setup(options{repo: bare, role: "implementer", session: "S-id2", sessions: sessions, proxyBin: proxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup2()
+	name, _ = gitOut(wt2, "config", "--get", "user.name")
+	if strings.TrimSpace(name) != "hobbes-session" {
+		t.Errorf("default identity missing: %q", name)
+	}
+}

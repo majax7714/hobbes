@@ -11,6 +11,7 @@ a model's answer.
 
 import json
 import os
+import pathlib
 import stat
 import subprocess
 
@@ -411,7 +412,8 @@ class TestCLI:
         path = tmp_path / "i.jsonl"
         path.write_text(json.dumps(row(base_commit=instance.base_commit)) + "\n")
         code = cli.main(["bench", "run", str(path), "--model", "m", "--out", str(tmp_path / "out"),
-                         "--session-bin", fake_session, "--sessions", str(tmp_path / "s"), "--evaluate"])
+                         "--session-bin", fake_session, "--sessions", str(tmp_path / "s"), "--evaluate",
+                         "--environment", "none"])
         out = capsys.readouterr().out
         assert code == 0, out
         assert "H1 — solve rate" in out and "100.0% (1/1)" in out
@@ -504,3 +506,121 @@ class TestSoloPolicy:
         override = solo_session_args(["--box", "/my/policy", "--escalation-timeout", "1m"])
         assert override.count("--box") == 1 and "/my/policy" in override
         assert "5s" not in override
+
+
+# --- ADR-058: the environment binding and the unit cap ---------------------
+
+FAKE_PODMAN = r'''#!/usr/bin/env python3
+"""A stand-in podman: `image exists` says yes, `inspect` gives a digest,
+and `run` edits the mounted workspace and prints an envelope — proving
+the pure arm reached the container with the binding in place."""
+import json, sys, pathlib
+argv = sys.argv[1:]
+if argv[:2] == ["image", "exists"]:
+    sys.exit(0)
+if argv[:2] == ["image", "inspect"]:
+    print("sha256:feedface"); sys.exit(0)
+if argv[:1] == ["pull"]:
+    sys.exit(0)
+assert argv[0] == "run", argv
+work = None
+for i, a in enumerate(argv):
+    if a == "-v" and argv[i + 1].endswith(":/work:rw,z"):
+        work = pathlib.Path(argv[i + 1].split(":")[0])
+assert work is not None, argv
+(pathlib.Path(__file__).parent / "podman-argv.txt").write_text(" ".join(argv))
+core = work / "src" / "app" / "core.py"
+core.write_text(core.read_text() + "\n# fixed in the environment\n")
+print(json.dumps({"type": "result", "num_turns": 2, "duration_ms": 10,
+                  "usage": {"input_tokens": 5, "output_tokens": 5}, "total_cost_usd": 0}))
+'''
+
+
+@pytest.fixture
+def fake_podman(tmp_path, monkeypatch):
+    (tmp_path / "bin").mkdir()
+    path = pathlib.Path(_script(tmp_path / "bin" / "podman", FAKE_PODMAN))
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    return path
+
+
+class TestEnvironment:
+    def test_image_name_follows_swebench_convention(self):
+        from hobbes.bench import environment as env
+        assert env.image_name("astropy__astropy-13398") == \
+            "docker.io/swebench/sweb.eval.x86_64.astropy_1776_astropy-13398:latest"
+
+    def test_binding_reaches_the_session_as_flags(self, instance):
+        from hobbes.bench import environment as env
+        e = env.swebench_environment(instance)
+        args = e.session_args()
+        assert args[:2] == ["--image", env.image_name(instance.instance_id)]
+        assert "--runtime-python" in args and env.RUNTIME_PYTHON in args
+        assert "--env" in args and "PYTHONPATH=/work" in args
+        assert "--pre" in args and "git ls-files -o -z" in args[args.index("--pre") + 1]
+        assert e.podman_env()[:2] == ["--env", f"PATH={e.path}"]
+
+    def test_ensure_image_pulls_when_absent_and_records_the_digest(self, instance):
+        from hobbes.bench import environment as env
+        calls = []
+
+        def runner(cmd, **kw):
+            calls.append(cmd)
+            code = 1 if cmd[:2] == ["podman", "image"] and cmd[2] == "exists" else 0
+            return subprocess.CompletedProcess(cmd, code, stdout="sha256:abc\n", stderr="")
+        e = env.ensure_image(env.swebench_environment(instance), runner=runner, log=lambda *_: None)
+        assert any(c[:2] == ["podman", "pull"] for c in calls) and e.digest == "sha256:abc"
+
+    def test_ensure_image_failure_is_an_error_not_a_run(self, instance):
+        from hobbes.bench import environment as env
+
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no such image")
+        with pytest.raises(env.EnvironmentError_):
+            env.ensure_image(env.swebench_environment(instance), runner=runner, log=lambda *_: None)
+
+    def test_pure_arm_runs_in_the_image_with_the_binding(self, upstream, instance, fake_podman, tmp_path, monkeypatch):
+        from hobbes.bench import environment as env
+        monkeypatch.setenv("HOBBES_LLM_API_KEY", "k")
+        ws = workspace.checkout(instance, tmp_path / "ws")
+        rt = arms.Runtime(kind="openai", base_url="http://llm/v1", max_turns=3)
+        e = env.swebench_environment(instance)
+        result = arms.run_pure_arm(instance, ws, "m", runtime=rt, environment=e, network="pasta")
+        assert result.outcome == "patch" and "src/app/core.py" in result.patch
+        assert result.detail["environment"]["image"] == e.image
+        argv = (fake_podman.parent / "podman-argv.txt").read_text()
+        assert "--network pasta" in argv and "PYTHONPATH=/work" in argv and e.image in argv
+        assert "/hobbes/loop.py" in argv and env.RUNTIME_PYTHON in argv and "git ls-files -o -z" in argv
+        assert "HOBBES_LLM_API_KEY=k" in argv
+
+    def test_run_binds_both_arms_and_caps_the_plan(self, upstream, instance, fake_podman, fake_session, tmp_path,
+                                                   monkeypatch):
+        monkeypatch.setenv("HOBBES_LLM_API_KEY", "k")
+        sel = instances.select([instance], source="local")
+        rt = arms.Runtime(kind="openai", base_url="http://llm/v1", max_turns=3)
+        recs = bench_run.run(tmp_path / "r", sel, ["m"], session_bin=fake_session, sessions_root=tmp_path / "s",
+                             runtime=rt, environment_kind="swebench", max_units=20, log=lambda *_: None)
+        by_arm = {r.arm: r for r in recs}
+        assert by_arm["pure"].outcome == "patch" and by_arm["harness"].outcome == "patch"
+        harness = by_arm["harness"]
+        assert harness.detail["environment"]["digest"] == "sha256:feedface"
+        assert harness.detail["plan"]["max_units"] == 20 and harness.detail["plan"]["capped"] == 0
+        manifest = json.loads((tmp_path / "r" / "run.json").read_text())
+        assert manifest["params"]["environment"] == "swebench" and manifest["params"]["max_units"] == 20
+        assert "--network=pasta" in manifest["params"]["session_args"]
+        # the binding is recorded per arm, image and digest, so a verdict
+        # can be tied to the environment that produced it
+        assert by_arm["pure"].detail["environment"]["image"] == harness.detail["environment"]["image"]
+
+    def test_run_without_an_image_records_env_error(self, upstream, instance, fake_session, tmp_path, monkeypatch):
+        from hobbes.bench import environment as env
+        monkeypatch.setattr(env, "ensure_image", lambda e, **kw: (_ for _ in ()).throw(env.EnvironmentError_("no pull")))
+        sel = instances.select([instance], source="local")
+        recs = bench_run.run(tmp_path / "r", sel, ["m"], session_bin=fake_session, environment_kind="swebench",
+                             log=lambda *_: None)
+        assert {r.outcome for r in recs} == {"env-error"} and all("no pull" in r.error for r in recs)
+
+    def test_unknown_environment_kind_refused(self, instance, tmp_path):
+        sel = instances.select([instance], source="local")
+        with pytest.raises(ValueError):
+            bench_run.run(tmp_path / "r", sel, ["m"], environment_kind="docker")

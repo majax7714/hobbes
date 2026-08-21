@@ -944,6 +944,51 @@ information appears in both, and the entries cross-reference.
   the policy file is committed and commented with exactly this scope.
 - **Source:** ADR-057 (2026-08-21).
 
+### C-43 — The benchmark environment is bound, not rebuilt
+- **Cannot tell you:** that a candidate patch which changes a compiled
+  extension (a `.pyx`, a C source, a generated module) was tested
+  against that change. Both arms run in the instance's own swebench
+  image (ADR-058); the worktree at `/work` shadows the image's
+  installed copy through `PYTHONPATH`, and the in-place build
+  artifacts (`.so` files, generated version modules) are **copied**
+  from the image's `/testbed` into the worktree before the session —
+  never rebuilt. A pure-python change is tested exactly; a change that
+  needs a rebuild runs the old extension under the new source.
+- **Because:** rebuilding per unit session is minutes of compile per
+  spawn (astropy, scikit-learn), and the evaluator (C-40) does its own
+  install in the same image anyway — the verdict is unaffected, only
+  the agent's in-session test signal is. Four of the 45 complex
+  instances are compiled repos; the other 41 are pure python.
+- **Bites at:** an agent editing a compiled module and trusting a green
+  in-session test run; the evaluator then disagrees.
+- **You find out:** **surfaced** — `hobbes bench run` prints the binding
+  in its banner (`worktree bound by PYTHONPATH + copied build
+  artifacts (ADR-058, C-43)`); every record's `detail.environment`
+  names the image, digest, the `PYTHONPATH` binding and the
+  pre-command; `hobbes-session --dry-run` prints all of them.
+- **Source:** ADR-058 (2026-08-21).
+
+### C-44 — A capped unit was merged for count, not coupling
+- **Cannot tell you:** that the modules in a `capped` unit belong
+  together. The benchmark unit cap (`--max-units`, default 20,
+  ADR-058) merges the budgeted partition past its context budget —
+  strongest coupling first, then the lightest units regardless of
+  coupling — until the count fits. A unit the cap touched may carry
+  an over-budget context or unrelated modules; the number of sessions
+  was the decision, not the partition.
+- **Because:** one instance's plan reached 210 units on a large repo
+  under lexical seeds (C-35/C-36), at ~7.5 minutes a session; the cap
+  bounds the run's cost while the partition's quality is still
+  unvalidated. It does not improve the partition.
+- **Bites at:** reading a capped plan's unit boundaries as derived
+  structure; measuring H2 (per-unit context) on capped units without
+  separating them.
+- **You find out:** **surfaced** — every touched unit carries a
+  `capped: … (C-44)` flag in the spec; `max_units` is recorded in the
+  spec and `run.json`; the record's `detail.plan.capped` counts them;
+  `hobbes plan` and the bench banner print the cap.
+- **Source:** ADR-058 (2026-08-21).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

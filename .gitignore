@@ -47,3 +47,5 @@ go/internal/web/dist/*
 !go/internal/web/dist/.gitkeep
 
 secrets.txt
+# SWE-bench exports (bench_fetch.py output) — data, not source
+/*.jsonl

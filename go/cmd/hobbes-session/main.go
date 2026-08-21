@@ -56,6 +56,12 @@ flags:
   --ref REF        commit/branch the session worktree checks out (default HEAD)
   --session ID     session id (default: generated)
   --image IMG      session image (default hobbes-session:local)
+  --path PATH      in-container PATH (default /usr/local/bin:/usr/bin:/bin)
+  --env K=V        extra in-container env var (repeatable; printed by --dry-run)
+  --pre CMD        host-authored shell command run before the session
+                   command in the same container (an environment binding,
+                   ADR-058); not the agent's, not policed
+  --runtime-python P  interpreter for --runtime (default: the image's python3)
   --network NET    podman --network (default none)
   --box FILE       box policy (default ~/.hobbes/box.policy if present)
   --proxy-bin FILE static hobbes-proxy binary to mount (default: next to me)
@@ -96,10 +102,18 @@ type options struct {
 	runtime, llmBaseURL            string
 	escalation                     time.Duration
 	image, network, box            string
+	path, pre, runtimePython       string
+	env                            multiFlag
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
 	command                        []string
 }
+
+// multiFlag collects a repeatable string flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 func runStart(args []string, stdout, stderr io.Writer) int {
 	opt, code := parseStart(args, stderr)
@@ -196,6 +210,12 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		os.RemoveAll(worktree)
 		return nil, "", "", noop, fmt.Errorf("git checkout: %v: %s", err, out)
 	}
+	// A clone carries no identity, and the sandbox has no global git
+	// config, so a session's `git commit` died with exit 128 — found
+	// on the first benchmark run (ADR-058). The canonical repo's
+	// identity is copied when it has one; otherwise the session
+	// commits as itself.
+	seedIdentity(repo, worktree)
 	// The branch's start point, for the harvest after the run (ADR-054):
 	// commits past it are the session's work and must outlive the clone.
 	start, err := gitOut(worktree, "rev-parse", "HEAD")
@@ -215,24 +235,28 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 	}
 
 	plan, err := sandbox.NewPlan(sandbox.Config{
-		SessionID:    opt.session,
-		Role:         opt.role,
-		Image:        opt.image,
-		Task:         opt.task,
-		Model:        opt.model,
-		Runtime:      runtimePath(opt.runtime, opt.session),
-		LLMBaseURL:   opt.llmBaseURL,
-		LLMKey:       os.Getenv("HOBBES_LLM_API_KEY"),
-		Escalation:   opt.escalation,
-		Network:      opt.network,
-		HostWorktree: worktree,
-		HostSessions: opt.sessions,
-		HostProxyBin: opt.proxyBin,
-		HostBoxPath:  opt.box,
-		HostClaude:   claudeMount(opt.claudeCred),
-		HostDerived:  derivedMount(opt.repo),
-		HostAgentDir: opt.agentDir,
-		Command:      opt.command,
+		SessionID:     opt.session,
+		Role:          opt.role,
+		Image:         opt.image,
+		Task:          opt.task,
+		Model:         opt.model,
+		Runtime:       runtimePath(opt.runtime, opt.session),
+		LLMBaseURL:    opt.llmBaseURL,
+		LLMKey:        os.Getenv("HOBBES_LLM_API_KEY"),
+		RuntimePython: opt.runtimePython,
+		Path:          opt.path,
+		Env:           []string(opt.env),
+		Pre:           opt.pre,
+		Escalation:    opt.escalation,
+		Network:       opt.network,
+		HostWorktree:  worktree,
+		HostSessions:  opt.sessions,
+		HostProxyBin:  opt.proxyBin,
+		HostBoxPath:   opt.box,
+		HostClaude:    claudeMount(opt.claudeCred),
+		HostDerived:   derivedMount(opt.repo),
+		HostAgentDir:  opt.agentDir,
+		Command:       opt.command,
 	})
 	if err != nil {
 		cleanup()
@@ -330,6 +354,22 @@ func runtimePath(runtime, session string) string {
 	return sandbox.SessionsRoot + "/" + session + "/agent.py"
 }
 
+// seedIdentity gives the session clone a commit identity: the canonical
+// repo's local one when set, else a named session default. Without it
+// every `git commit` inside the sandbox fails (no global config there).
+func seedIdentity(repo, worktree string) {
+	for key, def := range map[string]string{
+		"user.name":  "hobbes-session",
+		"user.email": "session@hobbes.local",
+	} {
+		val := def
+		if out, err := gitOut(repo, "config", "--get", key); err == nil && strings.TrimSpace(out) != "" {
+			val = strings.TrimSpace(out)
+		}
+		_, _ = gitOut(worktree, "config", key, val)
+	}
+}
+
 // derivedMount is the host repo's .hobbes/derived when it exists. A
 // session's worktree is a fresh checkout and derived/ is gitignored, so
 // without this the knowledge tools have nothing to read and a reviewer
@@ -386,6 +426,10 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.ref, "ref", "", "")
 	fs.StringVar(&opt.session, "session", "", "")
 	fs.StringVar(&opt.image, "image", "", "")
+	fs.StringVar(&opt.path, "path", "", "")
+	fs.StringVar(&opt.pre, "pre", "", "")
+	fs.StringVar(&opt.runtimePython, "runtime-python", "", "")
+	fs.Var(&opt.env, "env", "")
 	fs.StringVar(&opt.network, "network", "", "")
 	fs.StringVar(&opt.box, "box", "", "")
 	fs.StringVar(&opt.proxyBin, "proxy-bin", "", "")

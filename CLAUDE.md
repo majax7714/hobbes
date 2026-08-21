@@ -202,8 +202,9 @@ uv run hobbes bench run v.jsonl --model claude-sonnet-5 --limit 5 --evaluate
 uv run hobbes bench report ~/.hobbes/bench/run
 # small-model ladder on an OpenAI-compatible endpoint (ADR-056):
 HOBBES_LLM_API_KEY=… uv run hobbes bench run v.jsonl --runtime openai \
-    --llm-base-url https://…/v1 --model Qwen/Qwen2.5-Coder-7B-Instruct \
-    --session-arg=--network=pasta     # a live session needs egress (C-41)
+    --llm-base-url https://…/v1 --model Qwen/Qwen2.5-Coder-7B-Instruct
+    # both arms run in the instance's swebench image (ADR-058, C-43),
+    # --network pasta by default (egress, C-41), --max-units 20 (C-44)
 ```
 
 ## Conventions
@@ -262,6 +263,22 @@ H1–H3 preregistered in `docs/benchmark-hypotheses.md` — testing itself
 deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
+
+**2026-08-21 (the first full run: stopped, fixed, relaunched —
+ADR-058):** The handoff's run started and was polled at 20 min;
+instance 1 showed a **210-unit plan** (~7.5 min/session) and sessions
+in which **no test could run** (`pytest` 127 in the bare Alpine image,
+`git commit` 128 with no identity), so the run was stopped. Max's
+calls: **cap benchmark plans at 20 units** and **install the
+environment as a benchmark practice**. Built: `bench/environment.py`
+— both arms run in the instance's own **swebench image**, workspace
+bound by `PYTHONPATH=/work` + copied build artifacts (C-43);
+`hobbes-session --path/--env/--pre/--runtime-python` and a seeded
+commit identity in every clone; `build_units(max_units=)` with
+`capped` flags (C-44); `hobbes bench run --environment swebench`
+(default) `--max-units 20` (default) `--network pasta` (default).
+783 pytest / Go green. Relaunched; `docs/bench-run-handoff.md` says
+what to check first.
 
 **2026-08-21 (small-model ladder live + the solo policy, ADR-057):**
 Focus benchmark set: **SWE-bench Verified, complex multi-step set** (45

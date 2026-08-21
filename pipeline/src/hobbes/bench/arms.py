@@ -37,6 +37,7 @@ from pathlib import Path
 from hobbes.bench import accounting
 from hobbes.bench.instances import Instance
 from hobbes.bench.workspace import candidate_patch
+from hobbes.bench.environment import Environment
 from hobbes.narrate.runner import CLAUDE_BIN_ENV
 
 #: The owned agent loop (ADR-056): one stdlib-only file, run by the host
@@ -80,8 +81,8 @@ class Runtime:
         return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url]
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
-HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error")
-PURE_OUTCOMES = ("patch", "empty-patch", "claude-error")
+HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error", "env-error")
+PURE_OUTCOMES = ("patch", "empty-patch", "claude-error", "env-error")
 
 
 @dataclass
@@ -128,14 +129,31 @@ def run_pure_arm(
     permission_mode: str = "acceptEdits",
     allowed_tools: str = "Bash,Edit,Write,Read,Glob,Grep",
     runtime: Runtime | None = None,
+    environment: Environment | None = None,
+    network: str = "pasta",
 ) -> ArmResult:
     """The model, pure, on *workspace*: Claude Code (``HOBBES_CLAUDE_BIN``
     names the binary — the narrate runner's precedent and the tests'
     stand-in), or the owned loop with bash and file tools when
-    *runtime* is ``openai``."""
+    *runtime* is ``openai``. With an *environment* (ADR-058) the owned
+    loop runs inside the benchmark's image over the mounted workspace
+    — the same binding the harness arm gets, so the arms differ in
+    Hobbes and nothing else."""
     runtime = runtime or Runtime()
     bin_ = os.environ.get(CLAUDE_BIN_ENV, "claude")
-    if runtime.kind == "openai":
+    if runtime.kind == "openai" and environment is not None:
+        loop = ["--base-url", runtime.base_url, "--model", model, "--api-key-env", runtime.api_key_env,
+                "--prompt", pure_prompt(instance), "--workdir", "/work", "--max-turns", str(runtime.max_turns)]
+        inner = [environment.runtime_python, "/hobbes/loop.py", *loop]
+        if environment.pre:
+            inner = ["/bin/sh", "-c", environment.pre + ' && exec "$@"', "hobbes-pre", *inner]
+        cmd = ["podman", "run", "--rm", "--network", network, "--env", "HOME=/tmp",
+               *environment.podman_env(),
+               "--env", f"{runtime.api_key_env}={os.environ.get(runtime.api_key_env, '')}",
+               "-v", f"{Path(workspace).resolve()}:/work:rw,z",
+               "-v", f"{LOOP_PATH}:/hobbes/loop.py:ro,z",
+               "--workdir", "/work", environment.image, *inner]
+    elif runtime.kind == "openai":
         cmd = [sys.executable, str(LOOP_PATH), "--base-url", runtime.base_url, "--model", model,
                "--api-key-env", runtime.api_key_env, "--prompt", pure_prompt(instance),
                "--workdir", str(workspace), "--max-turns", str(runtime.max_turns)]
@@ -159,8 +177,10 @@ def run_pure_arm(
     (Path(workspace) / ".hobbes").mkdir(exist_ok=True)
     (Path(workspace) / ".hobbes" / "pure-arm.log").write_text(proc.stdout + proc.stderr)
     patch = candidate_patch(workspace, instance.base_commit)
-    result = ArmResult("pure", model, _classify_patch(patch), patch=patch, usage=usage,
-                       detail={"exit": proc.returncode, "turns": usage.turns, "runtime": runtime.kind})
+    detail = {"exit": proc.returncode, "turns": usage.turns, "runtime": runtime.kind}
+    if environment is not None:
+        detail["environment"] = environment.to_dict()
+    result = ArmResult("pure", model, _classify_patch(patch), patch=patch, usage=usage, detail=detail)
     if proc.returncode != 0:
         result.outcome = "claude-error" if not patch.strip() else result.outcome
         result.error = (proc.stderr or proc.stdout).strip()[-400:]
@@ -174,6 +194,8 @@ def run_harness_arm(
     session_bin: str | None = None,
     sessions_root: Path | None = None,
     extra_session_args: list[str] | None = None,
+    environment: Environment | None = None,
+    max_units: int | None = None,
     budget: int | None = None,
     seeds: list[str] | None = None,
     runtime: Runtime | None = None,
@@ -212,7 +234,7 @@ def run_harness_arm(
         "capture": _capture(graph),
     }
     try:
-        kwargs = {"seeds": seeds or []}
+        kwargs = {"seeds": seeds or [], "max_units": max_units}
         if budget:
             kwargs["budget"] = budget
         spec = derive_plan(workspace, instance.problem_statement, **kwargs)
@@ -227,11 +249,16 @@ def run_harness_arm(
         "seeds": dict(spec.seeds),
         "unresolved_terms": list(spec.unresolved_terms),
         "units": len(spec.units),
+        "max_units": max_units,
+        "capped": sum(1 for u in spec.units if any(f.startswith("capped") for f in u.flags)),
         "contracts": len(spec.contracts),
         "human_first": [c.unit for c in spec.contexts if c.human_first],
         "gate": spec.gate.result,
     }
     session_args = solo_session_args(extra_session_args) + runtime.session_args()
+    if environment is not None:
+        session_args += environment.session_args()
+        detail["environment"] = environment.to_dict()
     if model:
         session_args += ["--model", model]
     try:
