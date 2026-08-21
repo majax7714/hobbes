@@ -195,6 +195,20 @@ Reflecting the build as it is, not as the plan wants it:
    that benchmark's shape, not "Hobbes makes small models better."
    Every result entry below names its sample.
 
+
+## Run note — the first 7B complex-set pass (2026-08-21)
+
+The first live pass runs the 45-instance complex set on the 7B rung
+(`--max-turns 20 --max-units 10`, both arms in each instance's swebench
+image). Getting the harness to produce a candidate at all took five
+fixes (ADR-058); it now does. **Reading rule set before the numbers
+(P11):** the pass **need not finish** — the **first 10–20 completed
+instances are the decision point**. A drastic outcome (harness solve ≈
+0, or harness far below pure) is a signal to refocus the harness
+(future_additions: unit selection, harness re-evaluation), not to
+re-scope H1/H2/H3. Interpretation still lands in the Results section
+below, dated, once verdicts exist — the hypotheses do not move.
+
 ## Results
 
 None yet. The harness exists (ADR-055, 2026-08-21); no live run has

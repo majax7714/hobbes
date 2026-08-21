@@ -3492,3 +3492,42 @@ turn, capped at `--max-nudges` (default 2); envelope reports
 **patch** (2 of 5 units edited, 2 commits; 3 declined after two
 nudges). Go +1 / pytest +5 across the loop fixes: **794 pytest / Go
 green**. Harness confirmed on one instance; the full run relaunched.
+
+## 2026-08-21 (thirty-fourth) — the first 7B complex-set pass, capped, running
+
+The first full run is live: 45-instance complex set, 7B, both arms in
+each instance's swebench image, `--max-turns 20 --max-units 10`
+(`~/.hobbes/bench/verified-complex-7b`, resumable). It follows five
+harness fixes found by successive 20-minute polls and a single-instance
+debug loop (all ADR-058, committed `4ee079a`/`bbb9173`/`e21a759`, 794
+pytest / Go green):
+
+1. no test env / no git identity → the swebench-image env binding
+   (PYTHONPATH + copied build artifacts, C-43) + seeded clone identity;
+   unit cap after a 210-unit astropy plan (C-44).
+2. 488 KB brief as argv → `--task-file` + brief limit (C-45).
+3. 32k window as a hard wall → the loop fits/elides (C-46).
+4. edited-but-never-committed → `--commit-on-exit` on the solo path.
+5. prose plan, no edit → the bounded prose-plan nudge (`--max-nudges`).
+
+Harness **confirmed** on `pytest-5787`: outcome `patch`, a real branch
+diff end to end (the diff itself was wrong — that is the model, and
+what H1 measures). First full-run timing: pure arm ~1 min; harness arm
+~40–50 min on heavy repos (astropy), so the harness is nearly the whole
+cost — the reason for the 20/10 caps (Max's call to cut per-instance
+cost).
+
+**Max's strategic notes on this run (parked in `future_additions.md`,
+to act on after the results):**
+- **Unit selection, not all-spawn.** The orchestrator spawns a session
+  for every unit; most reflected "No changes made." The plan should be
+  a *stream of selected* units — those the task reaches — with the cap
+  a ceiling, not a target. The execution-side twin of C-35.
+- **Re-evaluate the harness if its weight stays this high.** ~40–50
+  min/instance of harness vs ~1 min pure is most of the cost. The full
+  run **need not finish**; the **first 10–20 results are the decision
+  point** — a drastic outcome could force a refocus of the harness
+  shape itself, not a tuning pass. `benchmark-hypotheses.md` carries
+  the reading rule (P11: results do not re-scope the hypotheses).
+
+Run continues; polling every 20 minutes.

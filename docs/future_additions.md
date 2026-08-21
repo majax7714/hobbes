@@ -477,3 +477,39 @@ surfaced per file rather than silent.)*
   2–3**: a vLLM app on Modal plus `swebench --modal`, then Daytona as a
   `hobbes-session` backend with the sandbox's mount/env guarantees
   re-expressed and registered, and the pure arm in a Daytona sandbox.)*
+
+- **Task-tailored unit selection — spawn a selected stream, not every
+  unit** (Max, 2026-08-21, from watching the first 7B run). Today the
+  orchestrator spawns a session for **every** unit the partition
+  produces, in contract order, up to the cap (ADR-058's `--max-units`).
+  On the first run most spawned units reflected "No changes made" — the
+  proposal did not touch them, but they still cost a full session each.
+  The direction: **the plan should largely be a stream of *selected*
+  units — the ones the task actually reaches — with the cap as a
+  ceiling we *may* spawn, not a target we fill.** Selection is the
+  impact set doing real work: a unit with no seed-reachable interior,
+  or whose contracts the change never crosses, is context to hand a
+  neighbour, not a session to run. Open design: the selection signal
+  (seed reach into the unit's interior? a nonzero cut the change
+  crosses? a declared-edge touch?), whether an unselected unit still
+  contributes standing context to its neighbours, and how selection
+  interacts with the cap (select first, then cap the selected). This is
+  the execution-side twin of D1's partition quality (C-35) and the
+  thing that most reduces the harness's per-instance weight below.
+
+- **Re-evaluate the harness if its weight stays this high** (Max,
+  2026-08-21). The first 7B run measured the harness arm at ~40–50 min
+  on heavy repos (ingest + plan + one session per unit) against ~1 min
+  for the pure arm — the harness is almost the entire cost. Max: "if
+  the harness is as much weight as it's presenting then we need to
+  eventually re-evaluate the harness." Not now — the full run is fine
+  and **need not finish**; **the first 10–20 results are the decision
+  point, and a drastic outcome (harness ≈ pure, or far worse) could
+  force a refocus** of the whole approach, not just a tuning pass.
+  Levers already in hand: unit selection (above), the `--max-turns` /
+  `--max-units` caps (the run uses 20/10), and re-using ingest across
+  arms. A refocus would question the shape itself — whether a
+  per-unit-session fan-out is the right execution model for a
+  single-issue benchmark task, or whether a leaner derived-context
+  single agent is the better arm to measure.
+
