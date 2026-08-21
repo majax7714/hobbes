@@ -45,3 +45,5 @@ node_modules/
 !go/internal/web/dist/
 go/internal/web/dist/*
 !go/internal/web/dist/.gitkeep
+
+secrets.txt
