@@ -513,3 +513,17 @@ surfaced per file rather than silent.)*
   single-issue benchmark task, or whether a leaner derived-context
   single agent is the better arm to measure.
 
+- **The nudge's blind spot: read-only tool looping** (observed
+  2026-08-21, first 7B run). The prose-plan nudge (ADR-058) fires only
+  when a turn returns **no tool calls**. A 7B unit on `astropy-13579`
+  instead looped ~20 turns calling `tests_guarding`/`reflect`
+  (read-only) without ever editing — tool calls every turn, so the
+  nudge never triggered, and it burned the full `--max-turns` at ~40s a
+  round-trip (~14 min for one unproductive unit). Refinement: treat **N
+  consecutive turns with no *mutating* tool call** (edit/write/exec) as
+  a nudge trigger too, not just zero-tool-call turns; the loop already
+  tracks `edited`. Bounded today by the turn cap, but it is most of the
+  harness weight on the units that never solve — related to unit
+  selection (an unselected unit would not have spawned) and to the
+  harness re-evaluation trigger above. Tune from verdicts, not before.
+
