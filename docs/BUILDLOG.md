@@ -3894,3 +3894,18 @@ the blind write, U10 read the 308-line file and wrote a 1,088-byte
 stub regardless — the guard forces a read, not comprehension (the ADR
 said so). The 7B is the wall on this instance, now cleanly. Recorded
 in `benchmark-hypotheses.md`. Stopped for Max's review.
+
+## 2026-08-22 (forty-eighth) — instances run concurrently on the shared endpoint (ADR-065)
+
+Max: since the 7B is served from Modal, not a physical box, run the 5
+instances in parallel and review by finishing time. Built
+`--instance-workers N` (default 1): a thread pool over instances, each
+end to end on its thread, records appended under a lock as they finish.
+Honest caveat stated in the ADR and the banner — the speedup is
+endpoint-throughput-bound (one A10G, vLLM KV-batched), ~2–3× on five,
+not 5×. Removed a latent hazard on the way: session dirs are now
+namespaced per instance, so two instances sharing a proposal can't
+collide under the pool. One instance's failure is caught, not fatal;
+the run stays resumable. 841 pytest / Go green. Relaunching the 5-fresh
+set (django, sympy, xarray, sphinx, scikit-learn) at
+`--instance-workers 5`.

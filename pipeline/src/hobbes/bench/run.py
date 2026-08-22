@@ -17,6 +17,7 @@ skipped, so an interrupted run continues where it stopped.
 from __future__ import annotations
 
 import os
+import threading
 
 import json
 import shutil
@@ -71,6 +72,7 @@ def run(
     brief_limit: int | None = None,
     stages: tuple[str, ...] | None = None,
     parallel_setting: str | int | None = 1,
+    instance_workers: int = 1,
     log=print,
 ) -> list[results.Record]:
     """Run every (instance, model, arm) not yet recorded; return all records.
@@ -107,10 +109,38 @@ def run(
                     "max_tokens": runtime.max_tokens},
     })
     done = {(r.instance_id, r.arm, r.model) for r in results.load(run_dir)}
-    for instance in selection.selected:
+    # Appends and log lines are shared across instance threads; a lock
+    # keeps a record and its planner line intact and the JSONL uncorrupted.
+    write_lock = threading.Lock()
+
+    def emit(record, result, instance, arm, model):
+        with write_lock:
+            results.append(run_dir, record)
+            log(f"{instance.instance_id} [{arm}/{model or 'default'}] "
+                + f"→ {record.outcome}, {len(record.patch_files)} files, "
+                + (f"usage unobserved: {', '.join(record.usage['unobserved'])}"
+                   if record.usage["unobserved"] else f"{record.usage['total_tokens']} tokens")
+                + (f"; {record.error[:120]}" if record.error else ""))
+            planner = record.detail.get("planner")
+            if planner and "hit" in planner:
+                log(f"  → {instance.instance_id} seed_source {record.detail.get('seed_source')}; planner "
+                    + (f"hit {planner['hits']}/{planner['gold']} gold files" if planner["hit"]
+                       else f"missed the {planner['gold']} gold files")
+                    + "; stage wall " + ", ".join(f"{k} {v:.0f}s" for k, v in
+                                                  record.detail.get("run", {}).get("stage_wall", {}).items()))
+            (run_dir / "patches").mkdir(exist_ok=True)
+            (run_dir / "patches" / f"{instance.instance_id}.{arm}.{(model or 'default').replace('/', '_')}.diff"
+             ).write_text(result.patch)
+
+    def run_instance(instance):
+        """One instance end to end (both arms): pull its image, then run
+        each pending (model, arm). Runs on its own thread so instances
+        overlap — the shared Modal endpoint batches their requests
+        (ADR-065). The intra-instance unit pool (ADR-063) still runs
+        beneath this, so peak concurrency is instance_workers × workers."""
         pending = [(m, a) for m in models for a in which if (instance.instance_id, a, m) not in done]
         if not pending:
-            continue
+            return
         env: environment.Environment | None = None
         env_error = ""
         if environment_kind == "swebench":
@@ -118,50 +148,54 @@ def run(
                 env = environment.ensure_image(environment.swebench_environment(instance), log=log)
             except environment.EnvironmentError_ as exc:
                 env_error = str(exc)
+        # Session dirs are named from the proposal hash; two instances
+        # that happen to share a proposal would collide under a pool, so
+        # each instance gets its own sessions subtree (ADR-065).
+        inst_sessions = (sessions_root / instance.instance_id) if sessions_root else None
         for model, arm in pending:
-                ws = run_dir / "work" / instance.instance_id / f"{arm}-{model or 'default'}".replace("/", "_")
-                log(f"{instance.instance_id} [{arm}/{model or 'default'}] checkout {instance.base_commit[:12]}"
-                    + (f" in {env.image}" if env else ""))
-                if env_error:
-                    result = arms.ArmResult(arm, model, "env-error", error=env_error)
-                    record = results.make_record(instance, result)
-                    results.append(run_dir, record)
-                    log(f"  → env-error; {env_error[:120]}")
-                    continue
-                try:
-                    workspace.checkout(instance, ws)
-                except workspace.WorkspaceError as exc:
-                    result = arms.ArmResult(arm, model, "ingest-error" if arm == "harness" else "claude-error",
-                                            error=f"checkout: {exc}")
+            ws = run_dir / "work" / instance.instance_id / f"{arm}-{model or 'default'}".replace("/", "_")
+            log(f"{instance.instance_id} [{arm}/{model or 'default'}] checkout {instance.base_commit[:12]}"
+                + (f" in {env.image}" if env else ""))
+            if env_error:
+                result = arms.ArmResult(arm, model, "env-error", error=env_error)
+                emit(results.make_record(instance, result), result, instance, arm, model)
+                continue
+            try:
+                workspace.checkout(instance, ws)
+            except workspace.WorkspaceError as exc:
+                result = arms.ArmResult(arm, model, "ingest-error" if arm == "harness" else "claude-error",
+                                        error=f"checkout: {exc}")
+            else:
+                if arm == "pure":
+                    result = arms.run_pure_arm(instance, ws, model, timeout=timeout, runtime=runtime,
+                                               environment=env, network=network)
                 else:
-                    if arm == "pure":
-                        result = arms.run_pure_arm(instance, ws, model, timeout=timeout, runtime=runtime,
-                                                   environment=env, network=network)
-                    else:
-                        result = arms.run_harness_arm(
-                            instance, ws, model, session_bin=session_bin, sessions_root=sessions_root,
-                            extra_session_args=session_args, budget=budget, runtime=runtime,
-                            environment=env, max_units=max_units, brief_limit=brief_limit,
-                            stages=stages, workers=workers,
-                        )
-                record = results.make_record(instance, result)
-                results.append(run_dir, record)
-                log(f"  → {record.outcome}, {len(record.patch_files)} files, "
-                    + (f"usage unobserved: {', '.join(record.usage['unobserved'])}"
-                       if record.usage["unobserved"] else f"{record.usage['total_tokens']} tokens")
-                    + (f"; {record.error[:120]}" if record.error else ""))
-                planner = record.detail.get("planner")
-                if planner and "hit" in planner:
-                    log(f"  → seed_source {record.detail.get('seed_source')}; planner "
-                        + (f"hit {planner['hits']}/{planner['gold']} gold files" if planner["hit"]
-                           else f"missed the {planner['gold']} gold files")
-                        + "; stage wall " + ", ".join(f"{k} {v:.0f}s" for k, v in
-                                                      record.detail.get("run", {}).get("stage_wall", {}).items()))
-                (run_dir / "patches").mkdir(exist_ok=True)
-                (run_dir / "patches" / f"{instance.instance_id}.{arm}.{(model or 'default').replace('/', '_')}.diff"
-                 ).write_text(result.patch)
-                if clean:
-                    shutil.rmtree(ws, ignore_errors=True)
+                    result = arms.run_harness_arm(
+                        instance, ws, model, session_bin=session_bin, sessions_root=inst_sessions,
+                        extra_session_args=session_args, budget=budget, runtime=runtime,
+                        environment=env, max_units=max_units, brief_limit=brief_limit,
+                        stages=stages, workers=workers,
+                    )
+            emit(results.make_record(instance, result), result, instance, arm, model)
+            if clean:
+                shutil.rmtree(ws, ignore_errors=True)
+
+    if max(1, instance_workers) == 1:
+        for instance in selection.selected:
+            run_instance(instance)
+    else:
+        # Instances overlap on the shared endpoint (ADR-065). One failing
+        # instance must not sink the others: a thread that raises is
+        # logged and the rest continue, the record for its unreached arm
+        # simply absent (resumable — a re-run picks it up).
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=min(instance_workers, len(selection.selected) or 1)) as pool:
+            futs = {pool.submit(run_instance, ins): ins for ins in selection.selected}
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception as exc:  # noqa: BLE001 — one instance's failure is not the run's
+                    log(f"{futs[fut].instance_id}: instance failed: {type(exc).__name__}: {exc}")
     return results.load(run_dir)
 
 

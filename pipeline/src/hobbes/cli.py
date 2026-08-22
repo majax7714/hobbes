@@ -822,6 +822,9 @@ def _cmd_bench(args: argparse.Namespace) -> int:
           + (" — the lowest-impact units are deferred (never a seed-bearing one); seed units merged to fit are flagged `capped` (C-44)" if args.max_units else "")
           + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else 'none'}")
     print(f"  harness arm: {'staged — ' + args.stages + ' (ADR-059)' if args.stages else 'per-unit (ADR-054)'}")
+    if args.instance_workers > 1:
+        print(f"  instance workers: {args.instance_workers} — instances overlap on the shared endpoint "
+              "(ADR-065); speedup is endpoint-throughput-bound")
     if not selection.selected:
         print("hobbes bench run: nothing selected", file=sys.stderr)
         return 2
@@ -835,6 +838,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         brief_limit=args.brief_limit or None,
         stages=tuple(s.strip() for s in args.stages.split(",") if s.strip()) if args.stages else None,
         parallel_setting=args.parallel,
+        instance_workers=args.instance_workers,
     )
     failed = False
     if args.evaluate:
@@ -1333,6 +1337,10 @@ def build_parser() -> argparse.ArgumentParser:
                              help="implementers alive at once in the staged harness arm (ADR-063): 'auto' "
                                   "(default) asks the endpoint and uses 4 workers when it is vLLM, else runs "
                                   "sequentially and says why (C-51); an integer is the owner's call; 1 = chained")
+    brun_parser.add_argument("--instance-workers", type=int, default=1,
+                             help="instances run concurrently on the shared endpoint (ADR-065): the served "
+                                  "model batches their requests, so N>1 overlaps I/O-bound sessions; the "
+                                  "speedup is endpoint-throughput-bound, not N× (default 1 = sequential)")
     brun_parser.add_argument("--stages", default=None,
                              help="staged harness arm (ADR-059): comma-separated from "
                                   "plan,review,implement,verify,rework — a planner names the change and a "

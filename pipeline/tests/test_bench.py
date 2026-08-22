@@ -463,6 +463,28 @@ class TestReport:
 
 
 class TestRun:
+    def test_instance_workers_run_concurrently_with_the_same_records(self, upstream, fake_claude, fake_session, tmp_path):
+        # ADR-065: three instances, both arms, run under a pool; the
+        # records must match a sequential run exactly (order aside) and
+        # every patch file must be written. The stand-in session is
+        # in-process, so this checks the pool wiring and the write lock,
+        # not real endpoint batching.
+        _, sha = upstream
+        sel = instances.select([instances.parse_instance(row(iid=f"acme__app-{i}", base_commit=sha))
+                                 for i in range(3)], source="local")
+        seq = bench_run.run(tmp_path / "seq", sel, ["m"], session_bin=fake_session,
+                            sessions_root=tmp_path / "s1", instance_workers=1, log=lambda *_: None)
+        par = bench_run.run(tmp_path / "par", sel, ["m"], session_bin=fake_session,
+                            sessions_root=tmp_path / "s2", instance_workers=3, log=lambda *_: None)
+        key = lambda recs: sorted((r.instance_id, r.arm, r.outcome) for r in recs)
+        assert key(seq) == key(par)
+        assert len({(r.instance_id, r.arm) for r in par}) == 6  # 3 instances × 2 arms, none dropped
+        for i in range(3):
+            assert (tmp_path / "par" / "patches" / f"acme__app-{i}.harness.m.diff").exists()
+        # the JSONL is intact under concurrent appends: every line parses
+        lines = (tmp_path / "par" / "records.jsonl").read_text().splitlines()
+        assert len(lines) == 6 and all(json.loads(l) for l in lines)
+
     def test_both_arms_record_resume_and_evaluate(self, upstream, instance, fake_claude, fake_session,
                                                   fake_evaluator, tmp_path):
         sel = instances.select([instance], source="local")
