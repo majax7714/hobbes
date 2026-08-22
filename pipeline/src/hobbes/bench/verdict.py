@@ -65,6 +65,13 @@ def evaluator_command(dataset: str, predictions: Path, run_id: str, instance_ids
     *modal*, the evaluator builds and runs the instance images on Modal
     (its own ``--modal`` mode; ``MODAL_TOKEN_ID``/``_SECRET`` must be in
     the environment) instead of a local Docker-API engine."""
+    # The evaluator runs from run_dir/eval (cwd), so a dataset given as a
+    # *file* must be absolute or it will not resolve there — the first
+    # full-stage run passed `../verified.jsonl` and every judge died with
+    # FileNotFoundError after the patches were already produced. A HF
+    # dataset *name* (no such file) is left untouched.
+    if os.path.exists(dataset):
+        dataset = os.path.abspath(dataset)
     prefix = os.environ.get(CMD_ENV)
     head = shlex.split(prefix) if prefix else [
         "uv", "run", "--no-project", "--with", f"swebench[modal]=={SWEBENCH_VERSION}" if modal

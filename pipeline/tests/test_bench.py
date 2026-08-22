@@ -335,6 +335,20 @@ class TestHarnessArm:
 
 
 class TestVerdict:
+    def test_a_dataset_file_is_made_absolute_for_the_evaluator(self, tmp_path, monkeypatch):
+        # the evaluator runs from run_dir/eval; a relative dataset file
+        # would not resolve there (the first full-stage run's judge died
+        # on `../verified.jsonl` after producing every patch)
+        monkeypatch.delenv(verdict.CMD_ENV, raising=False)
+        ds = tmp_path / "verified.jsonl"; ds.write_text("{}\n")
+        monkeypatch.chdir(tmp_path)
+        cmd = verdict.evaluator_command("verified.jsonl", tmp_path / "p.json", "run", ["i-1"])
+        i = cmd.index("--dataset_name")
+        assert cmd[i + 1] == str(ds.resolve()) and os.path.isabs(cmd[i + 1])
+        # a HF dataset name (not a file) is left as-is
+        cmd2 = verdict.evaluator_command("princeton-nlp/SWE-bench_Verified", tmp_path / "p.json", "run", ["i-1"])
+        assert cmd2[cmd2.index("--dataset_name") + 1] == "princeton-nlp/SWE-bench_Verified"
+
     def test_default_command_is_the_pinned_evaluator(self, monkeypatch, tmp_path):
         monkeypatch.delenv(verdict.CMD_ENV, raising=False)
         cmd = verdict.evaluator_command("ds", tmp_path / "p.json", "r1", ["a", "b"])
