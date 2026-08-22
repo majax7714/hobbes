@@ -199,6 +199,9 @@ class TestAgents:
         policy = agents.build_policy(spec, spec["contexts"][0]["unit"], {})
         denied = {r["pattern"] for r in policy["rules"] if r["decision"] == "deny"}
         assert {"git commit*", "git add *"} <= denied
+        # C-53: a benchmark that runs alone may spawn it with its write scope kept
+        spawned = agents.build_policy(spec, spec["contexts"][0]["unit"], {}, human_first="spawn")
+        assert not {"git commit*", "git add *"} & {r["pattern"] for r in spawned["rules"] if r["decision"] == "deny"}
 
     def test_boundary_is_the_far_side_of_each_contract(self, planned):
         repo, task = planned
@@ -814,3 +817,34 @@ def test_planner_brief_bounds_the_handoff():
     from hobbes.run.stages import planner_brief
     brief = planner_brief("fix it", {"nodes": [], "edges": []})
     assert "at most 5" in brief and "under 15 lines" in brief and "ADR-070" in brief
+
+
+def test_handoff_paths_lose_trailing_sentence_punctuation():
+    from hobbes.run.handoff import parse_handoff
+    h = parse_handoff("files: sympy/functions/special/zeta_functions.py, sympy/tests/test_zeta_functions.py.\nsymbols: polylog.")
+    assert h["files"] == ["sympy/functions/special/zeta_functions.py", "sympy/tests/test_zeta_functions.py"]
+    assert h["symbols"] == ["polylog"]
+
+
+class TestHumanFirstInABenchmark:
+    """C-53 / ADR-071: a benchmark that runs alone may spawn a human-first
+    unit; the abstention is still on the record."""
+
+    def test_park_skips_and_spawn_runs_with_the_reason_recorded(self, plan_repo, staged_session, tmp_path, monkeypatch):  # noqa: F811
+        from hobbes.derive import manifests
+        from hobbes.run.stages import run_staged
+        # every unit's complement "rivals" the captured fraction
+        import dataclasses
+        real = manifests.build_complement
+
+        def blind(*a, **k):
+            return dataclasses.replace(real(*a, **k), sites=20, unresolved=19, tail={"unclassified": 19})
+        monkeypatch.setattr(manifests, "build_complement", blind)
+        parked = run_staged(plan_repo, "improve app.core handle retry", session_bin=staged_session,
+                            sessions_root=tmp_path / "park", max_units=5)
+        assert parked["units"] and all(not u["spawned"] for u in parked["units"])
+        assert all(u["reason"].startswith("human-first: not spawned") for u in parked["units"])
+        spawned = run_staged(plan_repo, "improve app.core handle retry", session_bin=staged_session,
+                             sessions_root=tmp_path / "spawn", max_units=5, human_first="spawn")
+        live = [u for u in spawned["units"] if u["spawned"]]
+        assert live and all("spawned anyway" in u["reason"] and "C-53" in u["reason"] for u in live)

@@ -80,11 +80,14 @@ def _module_of(target: str, kind: str) -> str:
     return target if kind == "module" else target.rsplit(".", 1)[0]
 
 
-def build_policy(spec: dict, unit: str, test_files: dict[str, str]) -> dict:
-    """The agent policy layer for *unit* as a policy-file dict."""
+def build_policy(spec: dict, unit: str, test_files: dict[str, str], human_first: str = "park") -> dict:
+    """The agent policy layer for *unit* as a policy-file dict. With
+    *human_first* ``"spawn"`` (a benchmark Hobbes runs alone, C-53) a
+    human-first unit keeps its write scope — the complement is still in
+    its brief; ``"park"`` (the default) denies its commits."""
     context = _by_unit(spec, "contexts")[unit]
     rules = [dict(r) for r in GUARANTEE_RULES]
-    if context.get("human_first"):
+    if context.get("human_first") and human_first != "spawn":
         rules.append({
             "pattern": "git commit*", "decision": "deny",
             "reason": "human-first unit: " + context.get("human_first_reason", ""),
@@ -351,7 +354,7 @@ def render_brief(spec: dict, unit: str, role: str, inbox: list[dict], session: s
 
 
 def materialize(
-    plan_dir: Path, spec: dict, tests: dict, role: str = "implementer"
+    plan_dir: Path, spec: dict, tests: dict, role: str = "implementer", human_first: str = "park"
 ) -> dict[str, Path]:
     """Write every unit's agent dir (and the orchestrator's inbox dir);
     returns ``unit -> dir``. Briefs are written separately at spawn
@@ -363,7 +366,7 @@ def materialize(
         directory = agent_dir(plan_dir, name)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "policy.yaml").write_text(
-            yaml.safe_dump(build_policy(spec, name, test_files), sort_keys=False)
+            yaml.safe_dump(build_policy(spec, name, test_files, human_first=human_first), sort_keys=False)
         )
         (directory / "context.json").write_text(
             json.dumps(build_context_json(spec, name), indent=2) + "\n"

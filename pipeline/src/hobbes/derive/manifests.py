@@ -251,7 +251,7 @@ def build_context_manifests(
 
         complement = build_complement(graph, interior_paths, warnings)
         human_first = (
-            complement.sites >= HUMAN_FIRST_MIN_SITES
+            complement.sites >= max(HUMAN_FIRST_MIN_SITES, 1)
             and complement.cannot_resolve / complement.sites > HUMAN_FIRST_FRACTION
         )
         reason = ""

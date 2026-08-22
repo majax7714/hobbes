@@ -561,6 +561,60 @@ search exists and every refusal points at it; if the next run shows
 Planner localization is unchanged (3/5 hit; sympy prose, sphinx
 verbose) — the 27B question.
 
+### 2026-08-22 — the ADR-070 verification run, `five-fresh-7b-adr070`
+
+Same five, both arms, ADR-067–070. **0/5 both arms** (harness 2
+unresolved / 3 empty; pure 5 loop-errors). **n=5, not an H1–H3 result.**
+Max's ask: verify honestly whether the failures are now the 7B's.
+
+**Planner:** all five handoffs **parsed** (no lexical fallback — the
+bound worked). Hits: django 1/3, sklearn 1/2, xarray 2/2 (recorded 1/2:
+`dataset.py.` with a sentence dot — fixed), sympy **1/1** (first time),
+sphinx 0/2 (named `domains/python|cpp|javascript`, wrong — a clean
+localisation miss).
+
+**The chain, verified per session** (`search_file` / reads / clipped /
+ranged / unread refusals / anchor misses):
+
+| session | what happened | whose |
+|---|---|---|
+| sklearn U2 | refusal → `search_file` → `read_file` 10–150 → `edit_file` with the anchor copied → **edited** (merged; wrong fix, unresolved) — then its `pytest` was refused as a repeat | model did the chain; **harness** refused the test (exec name, ADR-071) |
+| xarray U2 | 6 searches, **0 reads**, 6 unread refusals | model |
+| sphinx U1 | 7 searches, 0 reads, 7 unread refusals | model |
+| django U4 (harness) | 1 search, 0 reads, prose, no edit | model |
+| sympy (harness) | planner hit → owner unit **human-first, parked**; six others unnamed → **zero units ran** | design (C-53) |
+| django pure | search found both classes (`:162`, `:419`); read a **range**; `old_text` = invented code not in the file | model |
+| sympy pure | `search_file("def polylog")` ×3 → no match (it is a `class`); anchor `if n == 1:` vs real `if z == 1:` | model |
+| sklearn pure | searched `sklearn/utils/_output.py` (hallucinated; real `_set_output.py`) → "(no matches)" → kept editing it | **harness** (missing path ≠ empty result) + model |
+| sphinx pure | same: `sphinx/ext/autodoc.py` (a package) → "(no matches)" ×2 | harness + model |
+| xarray pure | searched a call shape, not the def; guessed anchors again | model |
+
+**Two harness findings, both fixed (ADR-071):** the loop's shell check
+only matched `…__exec`, and the proxy's tool is `exec` — so in **every
+harness run since ADR-058** a test re-run after an edit was refused as
+a read-only repeat, which is the "refused repeated calls" exit most
+harness sessions end on; and `search_file` answered a missing path as
+"(no matches)". One design finding: the better planner produced the
+emptier run — sympy's gold owner is human-first in this partition and
+was parked, as it had been in both earlier partitions; a benchmark has
+no human to park on (C-53, `--human-first spawn`, Max's call).
+
+**Also observed:** the pure arm at temperature 0 is **not
+reproducible** across runs (django: patch, patch, loop-error; sympy hit
+the gold line in one run of three) — vLLM batching makes decode
+order-dependent, so n=1 per instance is noisier than the temperature
+suggests.
+
+**Reading.** Seven of ten arms now fail in the model cleanly: it uses
+the search, receives ground truth, and writes from memory anyway; or it
+searches and never reads though the refusal tells it to. That is the
+7B's shape, stated for the first time without a harness excuse beside
+it — except the exec defect, which ended sessions early and whose size
+on this set is unknown until a run without it. So: one more 7B run on
+ADR-071 (with `--human-first spawn`) is the honest minimum before the
+27B; it is cheap, and it is the first run whose harness we have no
+known reason to doubt.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

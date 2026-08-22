@@ -743,3 +743,18 @@ class TestSearchFile:
         assert tools[2].startswith("ERROR:") and "outside the working tree" in tools[2]
         assert tools[3].startswith("ERROR:") and "regular expression" in tools[3]
         assert "NOT the whole file" in tools[4] and "search_file" in tools[4]
+
+    def test_search_of_a_missing_path_is_an_error_not_an_empty_result(self, tree):
+        model = ScriptedModel([[("search_file", {"path": "src/nope.py", "pattern": "x"})], "done"])
+        try:
+            run_loop(model, tree)
+        finally:
+            model.close()
+        out = [m["content"] for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"][0]
+        assert out.startswith("ERROR:") and "no such file or directory: src/nope.py" in out
+
+
+def test_the_proxy_exec_is_the_shell_under_every_name():
+    # ADR-071: the proxy's MCP tool is plain "exec"; the loop accepted only a prefixed form.
+    assert loop.is_exec_tool("exec") and loop.is_exec_tool("mcp__hobbes__exec") and loop.is_exec_tool("bash")
+    assert not loop.is_exec_tool("read_file") and not loop.is_exec_tool("execute_plan")

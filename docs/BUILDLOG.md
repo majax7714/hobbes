@@ -4027,3 +4027,23 @@ or tree, both arms), the clip notice and the unread-edit refusal both
 name it, the planner brief bounds the handoff (≤5 files, <15 lines).
 853 pytest. Recorded in benchmark-hypotheses.md. Next launch is Max's
 call; the 27B remains the rung after the 7B's failures read clean.
+
+## 2026-08-22 (fifty-sixth) — the verification run: the 7B's shape, and the exec name (ADR-071)
+
+Max: run the 7B again to verify, fully honest. 0/5 both arms. All five
+planner handoffs parsed (the ADR-070 bound worked; sympy hit 1/1 for
+the first time); sklearn U2 did the entire search → ranged read → copied
+anchor → edit chain, then had its `pytest` refused as a repeat —
+because the loop's shell check matched only `…__exec` and the proxy's
+tool is `exec`: in every harness run since ADR-058 a test re-run after
+an edit was refused, which is the exit most harness sessions end on.
+Also: `search_file` answered a missing path as "(no matches)" (two
+pure arms edited phantoms on that); a planner path with a sentence dot
+went unresolved; and sympy's gold owner was **human-first, parked** in
+this and both earlier partitions — the better planner produced the
+emptier run. Built ADR-071: `is_exec_tool`, `hobbes bench run
+--human-first park|spawn` (default park; spawn keeps write scope,
+records the abstention; C-53), missing-path search error, handoff
+punctuation strip, zero-site guard. Seven of ten arms read as the
+model's, cleanly, for the first time. 857 pytest. Not re-run: the next
+run is the first with no known harness doubt, and it is Max's go.

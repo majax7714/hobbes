@@ -810,7 +810,9 @@ owner's structure (2026-08-21):
   result, and states that re-ingesting the merged branch is what
   refreshes every manifest — it does not re-ingest on its own.
 - **Order, human-first, the record.** Units run owner-before-consumer
-  (cycles broken by name, said so). A human-first unit is not spawned;
+  (cycles broken by name, said so). A human-first unit is not spawned
+  (a benchmark Hobbes runs alone may spawn it anyway, recorded — C-53,
+  ADR-071);
   the orchestrator's inbox says why. Every run writes
   `.hobbes/plans/<task>/partition-record.json`: per unit the session,
   exit, knowledge calls and faults, exec decisions, reflections,

@@ -1256,6 +1256,28 @@ information appears in both, and the entries cross-reference.
   the un-selected path.
 - **Source:** ADR-064 (2026-08-22).
 
+### C-53 — In a benchmark, a human-first unit may run anyway
+- **Cannot tell you:** that a benchmark's harness arm honoured the
+  derivation contract's human-first shape. ADR-047 parks a unit whose
+  unresolved complement rivals what the graph sees (no writes, a human
+  first). `hobbes bench run --human-first spawn` runs such a unit with
+  its write scope kept, because a benchmark has no human to hand it to
+  and a parked unit is an empty patch counted against the harness
+  (ADR-071). The complement stays in the unit's brief; the contract's
+  *policy* half is waived for that run.
+- **Because:** sympy-13852's gold file sat in a 1,783-site unit, 87 %
+  unresolved — parked in every run, so its owner never ran. Max's D2
+  rule for benchmarks Hobbes runs alone (the manual gate is off) is the
+  analogue.
+- **Bites at:** reading a benchmark solve on a human-first unit as
+  evidence the derived context was sufficient — the agent was told what
+  it could not see and went ahead; a human was the contract's answer.
+- **You find out:** **surfaced** — the run banner states the mode; each
+  such unit's record reads `human-first: spawned anyway (--human-first
+  spawn, C-53) — <reason>`; `run.json` carries `human_first`. The
+  default is still `park`, and `hobbes run` has no such switch.
+- **Source:** ADR-071 (2026-08-22).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

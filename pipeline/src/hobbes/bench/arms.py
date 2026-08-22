@@ -214,6 +214,7 @@ def run_harness_arm(
     runtime: Runtime | None = None,
     stages: tuple[str, ...] | None = None,
     workers: int = 1,
+    human_first: str = "park",
 ) -> ArmResult:
     """``ingest`` → ``plan`` → ``run`` → patch on *workspace*. The
     sessions run on *runtime* (Claude Code, or the owned loop through
@@ -254,7 +255,7 @@ def run_harness_arm(
     if stages:
         return _run_staged_arm(instance, workspace, model, detail, started, stages,
                                session_bin, sessions_root, extra_session_args, environment,
-                               max_units, brief_limit, budget, seeds, runtime, workers)
+                               max_units, brief_limit, budget, seeds, runtime, workers, human_first)
     try:
         kwargs = {"seeds": seeds or [], "max_units": max_units}
         if budget:
@@ -317,7 +318,7 @@ def run_harness_arm(
 
 def _run_staged_arm(instance, workspace, model, detail, started, stages, session_bin,
                     sessions_root, extra_session_args, environment, max_units, brief_limit,
-                    budget, seeds, runtime, workers: int = 1) -> ArmResult:
+                    budget, seeds, runtime, workers: int = 1, human_first: str = "park") -> ArmResult:
     """The staged harness arm (ADR-059): run_staged does ingest's
     successor stages. The candidate patch is the integration branch's
     diff, exactly as the per-unit path. The record carries every stage
@@ -340,7 +341,8 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
         record = run_staged(workspace, instance.problem_statement, stages=stages,
                             session_bin=session_bin, sessions_root=sessions_root,
                             extra_args=session_args, brief_limit=brief_limit,
-                            max_units=max_units, budget=budget, seeds=seeds or None, workers=workers)
+                            max_units=max_units, budget=budget, seeds=seeds or None, workers=workers,
+                            human_first=human_first)
     except SeedError as exc:
         detail["plan"] = {"unresolved_terms": _unresolved_from(str(exc))}
         return ArmResult("harness", model, "no-seed", detail=detail, error=str(exc))

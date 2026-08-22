@@ -835,7 +835,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         session_args=args.session_arg or [], budget=args.budget,
         clean=args.clean, timeout=args.timeout, runtime=runtime,
         environment_kind=args.environment, network=args.network, max_units=args.max_units,
-        brief_limit=args.brief_limit, brief_window_share=args.brief_window_share,
+        brief_limit=args.brief_limit, brief_window_share=args.brief_window_share, human_first=args.human_first,
         stages=tuple(s.strip() for s in args.stages.split(",") if s.strip()) if args.stages else None,
         parallel_setting=args.parallel,
         instance_workers=args.instance_workers,
@@ -1328,6 +1328,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "standing-context sections with a stated cut (C-45). Default: sized to the "
                              "endpoint's window — --brief-window-share × max_model_len (ADR-069); 60000 "
                              "when the window is unknown; 0 = no limit")
+    brun_parser.add_argument("--human-first", choices=("park", "spawn"), default="park",
+                             help="a human-first unit (ADR-047: its unresolved complement rivals what the graph "
+                             "sees) is parked (default) or spawned anyway with its write scope kept — a benchmark "
+                             "has no human to hand it to (C-53); recorded per unit either way")
     brun_parser.add_argument("--brief-window-share", type=float, default=None,
                              help="share of the model's window a brief may take when --brief-limit is not "
                              "given (default 0.35, ADR-069)")

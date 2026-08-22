@@ -228,6 +228,12 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
             # own — 15 of 18 anchor-missing sessions had a clipped read.
             # The search is how it finds the line to read.
             full = _confine(workdir, args.get("path") or ".")
+            if not os.path.exists(full):
+                # A missing path is an answer, not an empty result: two
+                # pure arms of the ADR-070 run searched a hallucinated
+                # file, read "(no matches)", and kept editing it.
+                return (f"no such file or directory: {args.get('path')} — list_files its parent "
+                        "directory, or search_file the directory instead"), True
             try:
                 rx = re.compile(str(args["pattern"]))
             except re.error as exc:
@@ -381,6 +387,16 @@ ANCHOR_STACK_REFUSAL = (
 #: still bounds it. A cut completion is never what the model meant —
 #: the sphinx-8548 planner lost a correct-shaped handoff three times.
 CUT_RETRY_FACTOR = 2
+
+
+def is_exec_tool(name: str) -> bool:
+    """Is *name* the shell — the proxy's ``exec`` (its MCP name is plain
+    ``exec``; a client that prefixes server names yields ``…__exec``) or
+    the pure arm's ``bash``? ADR-071: the check used to accept only the
+    prefixed form, so in every harness run the shell was treated as a
+    read-only tool — a test re-run after an edit was refused as a
+    repeat, which is how most harness sessions ended."""
+    return name == "exec" or name.endswith("__exec") or name == "bash"
 
 
 class ContextOverflow(RuntimeError):
@@ -569,7 +585,7 @@ def run(args: argparse.Namespace) -> dict:
                     text, is_err = f"arguments were not valid JSON: {exc}", True
                 else:
                     sig = (name, json.dumps(targs, sort_keys=True))
-                    is_exec = name.endswith("__exec") or name == "bash"
+                    is_exec = is_exec_tool(name)
                     mutating = name in MUTATING_TOOLS or is_exec
                     if sig in seen_calls and not mutating:
                         # A repeated read-only call: refuse, do not re-run it.

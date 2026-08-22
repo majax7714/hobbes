@@ -76,6 +76,7 @@ def run(
     max_units: int | None = None,
     brief_limit: int | None = None,
     brief_window_share: float | None = None,
+    human_first: str = "park",
     stages: tuple[str, ...] | None = None,
     parallel_setting: str | int | None = 1,
     instance_workers: int = 1,
@@ -123,11 +124,15 @@ def run(
             brief_reason = f"absolute default — {window_reason}"
     elif brief_limit == 0:
         brief_limit, brief_reason = None, "none"
+    if human_first == "spawn":
+        log("  human-first units: spawned anyway — the benchmark runs alone; the abstention is recorded per unit (C-53)")
+    else:
+        log("  human-first units: parked (ADR-047) — a benchmark with no human counts them as empty; --human-first spawn runs them (C-53)")
     log(f"  brief limit: {f'{brief_limit:,} chars' if brief_limit else 'none'} — {brief_reason} (C-45, ADR-069)")
     write_manifest(run_dir, selection, models, list(which), {
         "session_bin": session_bin, "session_args": session_args, "budget": budget,
         "max_units": max_units, "brief_limit": brief_limit, "brief_window": window, "brief_reason": brief_reason,
-        "environment": environment_kind, "network": network,
+        "environment": environment_kind, "network": network, "human_first": human_first,
         "stages": list(stages) if stages else None,
         "parallel": {"setting": str(parallel_setting), "workers": workers, "reason": parallel_reason},
         "timeout": timeout, "clean": clean,
@@ -199,7 +204,7 @@ def run(
                     result = arms.run_harness_arm(
                         instance, ws, model, session_bin=session_bin, sessions_root=inst_sessions,
                         extra_session_args=session_args, budget=budget, runtime=runtime,
-                        environment=env, max_units=max_units, brief_limit=brief_limit,
+                        environment=env, max_units=max_units, human_first=human_first, brief_limit=brief_limit,
                         stages=stages, workers=workers,
                     )
             emit(results.make_record(instance, result), result, instance, arm, model)

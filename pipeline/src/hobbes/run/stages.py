@@ -210,6 +210,7 @@ def run_staged(
     seeds: list[str] | None = None,
     dry_run: bool = False,
     max_rework: int = 1,
+    human_first: str = "park",
 ) -> dict:
     """Run a proposal end to end through the stages. Returns the
     partition record, extended with a ``stages`` list and ``seed_source``."""
@@ -260,7 +261,7 @@ def run_staged(
         verdict = run_review(repo, spec, pdir, session_bin, sessions_root, extra_args, brief_limit, dry_run)
         stage_log.append(verdict["stage"])
 
-    dirs = agents.materialize(pdir, spec, tests_doc, role="implementer")
+    dirs = agents.materialize(pdir, spec, tests_doc, role="implementer", human_first=human_first)
     orchestrator = agents.agent_dir(pdir, agents.ORCHESTRATOR)
     contexts = {c["unit"]: c for c in spec.get("contexts", [])}
     # The planner's handoff is the first short memory every implementer
@@ -311,6 +312,9 @@ def run_staged(
             record.spawned = not dry_run
             record.exit = proc.returncode if proc else None
             record.wall_seconds = _wall(proc)
+            if contexts[unit].get("human_first"):
+                record.reason = ("human-first: spawned anyway (--human-first spawn, C-53) — "
+                                 + contexts[unit].get("human_first_reason", ""))
             return record
 
         def finish(unit: str, record: UnitRecord):
@@ -325,9 +329,11 @@ def run_staged(
             done.add(unit)
 
         # Human-first units are never spawned; they count as done for
-        # their consumers (the orchestrator's inbox says why).
+        # their consumers (the orchestrator's inbox says why). With
+        # human_first="spawn" (a benchmark Hobbes runs alone, C-53)
+        # they run anyway, the abstention recorded on the unit.
         for unit in list(pending):
-            if contexts[unit].get("human_first"):
+            if contexts[unit].get("human_first") and human_first != "spawn":
                 record = UnitRecord(unit=unit, role="implementer", session=f"{task}-{unit.lower()}", spawned=False)
                 record.reason = "human-first: not spawned — " + contexts[unit].get("human_first_reason", "")
                 mail.post(orchestrator, unit, record.reason, kind="human-first")

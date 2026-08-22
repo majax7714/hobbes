@@ -73,33 +73,28 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 
 ## The next step
 
-**Two re-runs done on 2026-08-22, both 0/5 both arms** — read the last
-two dated entries in `docs/benchmark-hypotheses.md` Results before
-anything else. Each run moved the failure one layer deeper and built
-the harness fix it exposed:
+**Three 7B runs on 2026-08-22, all 0/5 both arms** — read the last three
+dated entries in `docs/benchmark-hypotheses.md` Results first. Each run
+moved the failure one layer deeper and built the harness fix it exposed:
+ADR-067 (read-before-edit, anchor stack, cut retry, fences), ADR-068
+(per-call log, pure transcript), ADR-069 (window-sized brief), ADR-070
+(`search_file`, bounded handoff), **ADR-071** (the shell is `exec` — a
+test re-run after an edit had been refused in *every* harness run;
+`--human-first park|spawn`, C-53; missing-path search error; handoff
+punctuation). **ADR-071 is not yet run.**
 
-- `five-fresh-7b-clean` → ADR-067 (read-before-edit, anchor-stack
-  refusal, cut-completion retry, any-fence parser), ADR-068 (per-call
-  `calls.jsonl`, `calls_saturated`, pure-arm transcript), ADR-069
-  (brief sized to the window — 35 % of `max_model_len` — filled by
-  priority).
-- `five-fresh-7b-adr069` → ADR-070 (`search_file` for both arms; the
-  clip notice says "NOT the whole file"; the planner handoff bounded to
-  ≤5 files / <15 lines). **Not yet run.**
+**The verification read (ADR-070 run):** seven of ten arms fail in the
+model cleanly — it searches, gets ground truth, and writes from memory,
+or searches and never reads. The two harness items left were the exec
+name (size unknown until a run without it) and sympy's owner parked
+human-first in every partition.
 
-**What to do next (Max's go needed for any launch):**
-
-1. Re-run the same five on ADR-070. The read: did `search_file` get
-   used (`calls.jsonl` / transcript)? Did anchors stop missing? Did the
-   sphinx planner's handoff land? If the model ignores the search and
-   still guesses, the 7B's failures are finally cleanly its own — then
-   the **Qwen3.8-27B** rung (pinned, undeployed; vLLM/transformers bump
-   needed — see below) is the question.
-2. The brief's deeper shape (what the sections should *contain*, not
-   just their size) is still Max's.
-
-Known, not built: `bench report` roll-up of `calls_saturated` /
-`prompt_tokens_max` (future_additions).
+**Next (Max's go for any launch):** one more 7B run on ADR-071 with
+`--human-first spawn` — the first run whose harness we have no known
+reason to doubt, and cheap. Then, if it reads the same, the
+**Qwen3.8-27B** rung (pinned, undeployed; vLLM/transformers bump first).
+Also worth knowing: the pure arm is not reproducible at temperature 0
+under vLLM batching (n=1 per instance is noisy).
 
 ## How to run the set (unchanged except the two new flags)
 
@@ -125,7 +120,7 @@ uv run hobbes bench run /home/mmarrujo/hobbes/verified.jsonl --secrets /home/mma
   --session-bin /home/mmarrujo/hobbes/go/bin/hobbes-session \
   --out ~/.hobbes/bench/five-fresh-7b-clean \
   --stages plan,implement,verify --max-units 10 --max-turns 40 --max-tokens 1536 \
-  --parallel auto --instance-workers 5 --evaluate
+  --parallel auto --instance-workers 5 --evaluate --human-first spawn
 ```
 
 ## Inspecting a run (what to read, in order)

@@ -78,7 +78,9 @@ def _split_inline(value: str) -> tuple[str, list[tuple[str, str]]]:
 
 
 def _clean(item: str) -> str:
-    return item.strip().strip("`'\"*-•[]() ").strip()
+    # Trailing sentence punctuation is the planner's prose, not the path
+    # (ADR-071: `sympy/tests/test_zeta_functions.py.` went unresolved).
+    return item.strip().strip("`'\"*-•[]() ").rstrip(".:;,").strip()
 
 
 def _listify(value) -> list[str]:
