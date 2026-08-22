@@ -72,6 +72,21 @@ the width is visible, never hidden in a percentage.
   (A100-80GB) is the first thing that may not — the run records
   GPU-seconds per arm so the H3 cost row is real, not estimated.
 
+**Amendment (Max, 2026-08-22) — the next rung is not the 32B.** The
+second rung of the ladder is changed from Qwen2.5-Coder-32B to
+**Qwen3.8 27B** (exact HF id and vLLM flags pinned in
+`scripts/modal_vllm.py` `RUNGS` when the rung is taken — not before).
+Reason stated before any run on it: the model is reported to score
+high on instruction following and agentic coding but **low on deep
+SWE tasks**, and the focus set is the deep end of Verified — so a
+harness gain on it is easier to attribute (the model already follows
+tools and instructions; what it lacks is the depth derived context
+claims to supply) than on a 32B whose raw SWE depth is closer to
+the bar. The bar's rung form (H1′) is unchanged: harnessed 7B ≈ pure
+27B, harnessed 27B ≈ pure next. The rung is taken only after a 7B
+run's failures are cleanly the model's (the resolve-harness-first
+rule); the in-flight 5-fresh re-run is that check.
+
 ## The hypotheses
 
 Each is stated with the metric that decides it and what failure looks

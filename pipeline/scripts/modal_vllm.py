@@ -34,9 +34,10 @@ RUNGS: dict[str, dict] = {
     "Qwen/Qwen2.5-Coder-32B-Instruct": {
         "gpu": "A100-80GB", "max_model_len": 32768, "tool_parser": "hermes",
     },
-    # The next rung above 32B is not pinned yet: Qwen3-Coder-30B-A3B
-    # (MoE, 3B active) is the family's candidate and needs a vLLM with
-    # its parser; record the choice in ADR-057 when it is taken.
+    # The next rung after 7B is Qwen3.8 27B (Max, 2026-08-22 — see
+    # benchmark-hypotheses.md "Amendment"): add its HF id, GPU, and
+    # tool parser here when taken, and record it in ADR-057. The 32B
+    # stays pinned but is no longer the next step.
 }
 
 MODEL = os.environ.get("MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct")

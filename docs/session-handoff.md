@@ -23,7 +23,8 @@ model → re-run.
 **Standing rule from Max (2026-08-22):** resolve the harness's
 contribution to a failure *before* attributing anything to the model.
 "If in N instances we see harness weakness, that's harness tweaking, not
-model re-evaluation yet." Model-rung re-evaluation (7B→32B) is on the
+model re-evaluation yet." Model-rung re-evaluation (7B → **Qwen3.8 27B**, Max 2026-08-22 —
+not the 32B; see the hypotheses doc's dated amendment) is on the
 table but only once a run's failures are cleanly the model's.
 
 ## What the last two runs showed (both 0-solved, both informative)
@@ -76,7 +77,12 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 again. The two ADR-066 fixes should turn ~2 of the 5 planner "misses"
 into hits and stop the edit stacking — so the next 0-vs-N is closer to
 being about the model. Only if the failures are then cleanly the
-model's does the 32B rung become the question.
+model's does the next rung become the question — **Qwen3.8 27B**
+(Max, 2026-08-22): high instruction-following/agentic-coding scores,
+low deep-SWE scores, so a harness gain on the deep set is easier to
+attribute. Pin its HF id + vLLM flags in `scripts/modal_vllm.py`
+`RUNGS` (and ADR-057) when taken; the 32B entry stays as a pinned
+but no-longer-next rung.
 
 Two harness items are known but **not yet built** (decide before or
 after the re-run, Max's call):
