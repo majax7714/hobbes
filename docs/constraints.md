@@ -1084,13 +1084,21 @@ information appears in both, and the entries cross-reference.
   `planner_unresolved`; the resolved seeds are in the spec as always.
 - **Source:** ADR-059 (2026-08-22).
 
-### C-48 — The verifier reads a read-only tree and cannot write a repro
-- **Cannot tell you:** that a staged run's verifier reproduced the bug
-  the way a developer would. The `verifier` session's worktree is
+### C-48 — The verifier's writes never reach the tree; a repro it writes is lost with the session
+- **Amended 2026-08-22 (ADR-060):** the read-only roles' worktree is
+  now an *overlay* mount, not `ro` — the verifier *can* write a
+  scratch repro or let pytest cache inside its container view, and
+  none of it reaches the host tree or the harvest. The concession
+  narrows to: what the verifier wrote to reproduce is **not kept** (its
+  handoff is the only thing that survives), and the `verifier-env`
+  classification stays as the defensive path for a mount that still
+  refuses a write.
+- **Cannot tell you (as registered):** that a staged run's verifier reproduced the bug
+  the way a developer would. The `verifier` session's worktree was
   mounted read-only (it owns no code, ADR-054/059), and its only shell
-  is the policy-checked `exec` — so it can *run* the repo's tests but
-  cannot write a fresh reproduction script or a fixture, and a test
-  that needs to write under the tree fails on the mount, not on the
+  is the policy-checked `exec` — so it could *run* the repo's tests but
+  not write a fresh reproduction script or a fixture, and a test
+  that needed to write under the tree failed on the mount, not on the
   code. Such a failure is reclassified `verifier-env`, not `fail`.
 - **Because:** a role that judges the merged result must not be able to
   change it (a verifier that writes is an implementer), and the ro

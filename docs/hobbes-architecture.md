@@ -769,8 +769,14 @@ owner's structure (2026-08-21):
   **read-only roles** in all three layers — the worktree mount (Go),
   the tool list, and the owned loop's discipline, which for them
   counts a `reflect` handoff as acting and nudges toward it, never
-  toward an edit; they run python with bytecode writes off so the
-  repo's tests can run on the ro mount. The
+  toward an edit. Their worktree is a podman **overlay** mount
+  (`:O`, ADR-060): the container sees a writable view whose writes
+  land in a throwaway layer and the host worktree is never touched —
+  the guarantee is that nothing the role does reaches the tree, and a
+  plain `ro` mount had broken the role's own job (the benchmark
+  binding's artifact copy, C-43, and pytest's caches failed before the
+  model ran — the phase 4 probe's first finding). They still run
+  python with bytecode writes off. The
   agent layer is derived from the unit's policy manifest
   (`<agent-dir>/policy.yaml`): the P10 guarantees first as denies, the
   unit's guarding tests as allows, every write denied for a

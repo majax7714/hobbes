@@ -179,12 +179,22 @@ func (p *Plan) MCPConfig() string {
 	return string(out)
 }
 
-// ReadOnlyRoles are the roles whose worktree is mounted read-only.
-// Architecture §6: "a reviewer session gets read-only mounts + the
-// graph-diff tools". §5.2 puts the OS sandbox first among the
+// ReadOnlyRoles are the roles whose worktree cannot be changed by the
+// session. Architecture §6: "a reviewer session gets read-only mounts +
+// the graph-diff tools". §5.2 puts the OS sandbox first among the
 // enforcement tiers — the one that actually guarantees anything — so a
 // reviewer's inability to write is a mount flag, not a policy rule an
 // agent might talk its way around.
+//
+// The flag is podman's overlay mount (":O", ADR-060), not ":ro": the
+// container sees a writable view whose every write lands in a
+// throwaway upper layer and the host worktree is never touched. A plain
+// ro mount broke the role's actual job — the benchmark environment's
+// binding copies build artifacts into /work (C-43) and pytest writes
+// caches — so the planner and verifier died before the model ran. What
+// the guarantee promises is that nothing the role does reaches the
+// tree, and the overlay keeps exactly that; the role still has no
+// Edit/Write/exec and no commit, and the harvest reads host commits only.
 //
 // verifier is D2's verify phase (ADR-054): it judges a merged result and
 // owns no code, so it reads like a reviewer. planner (harness
@@ -193,12 +203,24 @@ func (p *Plan) MCPConfig() string {
 // Mirrored by READ_ONLY_ROLES in the owned loop.
 var ReadOnlyRoles = map[string]bool{"reviewer": true, "verifier": true, "planner": true}
 
-// WorktreeMode is "ro" or "rw" for this session's role.
+// WorktreeMode is "O" (overlay: writable view, host untouched) for a
+// read-only role and "rw" otherwise.
 func (p *Plan) WorktreeMode() string {
 	if ReadOnlyRoles[p.cfg.Role] {
-		return "ro"
+		return "O"
 	}
 	return "rw"
+}
+
+// worktreeMount is the -v spec for the worktree. The overlay option
+// cannot be combined with the SELinux relabel (podman rejects "O,z");
+// podman labels the overlay itself.
+func (p *Plan) worktreeMount() string {
+	mode := p.WorktreeMode()
+	if mode == "O" {
+		return p.cfg.HostWorktree + ":" + WorkDir + ":O"
+	}
+	return p.cfg.HostWorktree + ":" + WorkDir + ":" + mode + ",z"
 }
 
 // mounts returns the -v specs, in a stable order. The `z` suffix requests
@@ -209,7 +231,7 @@ func (p *Plan) mounts() []string {
 		// The session dir stays rw for every role: the flight recorder
 		// and escalation queue must be writable even when the source is
 		// not, or a read-only session could not be audited.
-		p.cfg.HostWorktree + ":" + WorkDir + ":" + p.WorktreeMode() + ",z",
+		p.worktreeMount(),
 		p.cfg.HostSessions + ":" + SessionsRoot + ":rw,z",
 		p.cfg.HostProxyBin + ":" + ProxyPath + ":ro,z",
 	}

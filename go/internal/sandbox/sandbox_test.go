@@ -196,12 +196,17 @@ func TestReviewerWorktreeIsReadOnly(t *testing.T) {
 	// first among the enforcement tiers, so this is a mount flag rather
 	// than a policy rule an agent could argue with.
 	plan := planFor(t, "reviewer")
-	if plan.WorktreeMode() != "ro" {
-		t.Fatalf("worktree mode = %q, want ro", plan.WorktreeMode())
+	if plan.WorktreeMode() != "O" {
+		t.Fatalf("worktree mode = %q, want O (overlay, ADR-060)", plan.WorktreeMode())
 	}
 	args := strings.Join(plan.PodmanArgs(), " ")
-	if !strings.Contains(args, WorkDir+":ro,z") {
-		t.Errorf("reviewer worktree is not mounted ro:\n%s", args)
+	// An overlay: the container may write, the host worktree never
+	// changes. Podman rejects "O,z", so the spec carries no relabel.
+	if !strings.Contains(args, ":"+WorkDir+":O ") {
+		t.Errorf("reviewer worktree is not an overlay mount:\n%s", args)
+	}
+	if strings.Contains(args, WorkDir+":rw") || strings.Contains(args, WorkDir+":O,z") {
+		t.Errorf("reviewer worktree mount is wrong:\n%s", args)
 	}
 	// The flight recorder and escalation queue still have to be
 	// writable, or a read-only session could not be audited.
@@ -335,8 +340,8 @@ func TestNoAgentDirMeansNoMountAndNoFlag(t *testing.T) {
 
 func TestVerifierIsReadOnlyLikeAReviewer(t *testing.T) {
 	p := planFor(t, "verifier")
-	if p.WorktreeMode() != "ro" {
-		t.Errorf("verifier worktree mode = %s, want ro", p.WorktreeMode())
+	if p.WorktreeMode() != "O" {
+		t.Errorf("verifier worktree mode = %s, want O", p.WorktreeMode())
 	}
 	tools := strings.Join(p.allowedTools(), ",")
 	if strings.Contains(tools, "Edit") || strings.Contains(tools, "mcp__hobbes__exec") {
@@ -349,8 +354,8 @@ func TestVerifierIsReadOnlyLikeAReviewer(t *testing.T) {
 // writes so its tests can run on the ro mount.
 func TestPlannerIsReadOnlyAndReadOnlyRolesSkipBytecode(t *testing.T) {
 	p := planFor(t, "planner")
-	if p.WorktreeMode() != "ro" {
-		t.Errorf("planner worktree mode = %s, want ro", p.WorktreeMode())
+	if p.WorktreeMode() != "O" {
+		t.Errorf("planner worktree mode = %s, want O", p.WorktreeMode())
 	}
 	tools := strings.Join(p.allowedTools(), ",")
 	if strings.Contains(tools, "Edit") || strings.Contains(tools, "mcp__hobbes__exec") || !strings.Contains(tools, "mcp__hobbes__reflect") {
