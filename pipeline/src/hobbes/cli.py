@@ -820,7 +820,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
           + f"; network {args.network}")
     print(f"  unit cap: {args.max_units if args.max_units else 'none'}"
           + (" — the lowest-impact units are deferred (never a seed-bearing one); seed units merged to fit are flagged `capped` (C-44)" if args.max_units else "")
-          + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else 'none'}")
+          + f"; brief limit: {f'{args.brief_limit:,} chars (C-45)' if args.brief_limit else ('none' if args.brief_limit == 0 else 'sized to the window at run start (ADR-069)')}")
     print(f"  harness arm: {'staged — ' + args.stages + ' (ADR-059)' if args.stages else 'per-unit (ADR-054)'}")
     if args.instance_workers > 1:
         print(f"  instance workers: {args.instance_workers} — instances overlap on the shared endpoint "
@@ -835,7 +835,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         session_args=args.session_arg or [], budget=args.budget,
         clean=args.clean, timeout=args.timeout, runtime=runtime,
         environment_kind=args.environment, network=args.network, max_units=args.max_units,
-        brief_limit=args.brief_limit or None,
+        brief_limit=args.brief_limit, brief_window_share=args.brief_window_share,
         stages=tuple(s.strip() for s in args.stages.split(",") if s.strip()) if args.stages else None,
         parallel_setting=args.parallel,
         instance_workers=args.instance_workers,
@@ -1323,10 +1323,14 @@ def build_parser() -> argparse.ArgumentParser:
                              "environment the tools read (values never printed)")
     brun_parser.add_argument("--timeout", type=float, default=3600.0, help="per-arm wall clock in seconds (default 3600)")
     brun_parser.add_argument("--budget", type=int, help="per-unit context budget for the harness arm's plan")
-    brun_parser.add_argument("--brief-limit", type=int, default=60_000,
+    brun_parser.add_argument("--brief-limit", type=int, default=None,
                              help="hold each unit's brief to this many characters, cutting unprotected "
-                             "standing-context sections with a stated cut (default 60000 ≈ 15k tokens for a "
-                             "32k window; 0 = no limit; C-45)")
+                             "standing-context sections with a stated cut (C-45). Default: sized to the "
+                             "endpoint's window — --brief-window-share × max_model_len (ADR-069); 60000 "
+                             "when the window is unknown; 0 = no limit")
+    brun_parser.add_argument("--brief-window-share", type=float, default=None,
+                             help="share of the model's window a brief may take when --brief-limit is not "
+                             "given (default 0.35, ADR-069)")
     brun_parser.add_argument("--max-units", type=int, default=20,
                              help="cap on units per harness plan — the number of sessions an instance may "
                              "spawn; 0 = no cap (default 20, ADR-058; capped units flagged, C-44)")

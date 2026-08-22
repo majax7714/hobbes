@@ -54,6 +54,11 @@ def write_manifest(run_dir: Path, selection: Selection, models: list[str], which
     return run_dir / "run.json"
 
 
+#: The brief limit when the endpoint cannot say how wide the window is
+#: (ADR-058's 60,000 ≈ 15k tokens of a 32k window, C-45).
+DEFAULT_BRIEF_LIMIT = 60_000
+
+
 def run(
     run_dir: Path,
     selection: Selection,
@@ -70,6 +75,7 @@ def run(
     network: str = "pasta",
     max_units: int | None = None,
     brief_limit: int | None = None,
+    brief_window_share: float | None = None,
     stages: tuple[str, ...] | None = None,
     parallel_setting: str | int | None = 1,
     instance_workers: int = 1,
@@ -99,9 +105,29 @@ def run(
         workers, parallel_reason = resolve_workers(parallel_setting, runtime.base_url,
                                                    os.environ.get(runtime.api_key_env or "") or None)
     log(f"  parallel implementers: {parallel_reason} (ADR-063)")
+    # The brief is sized to the model's window (ADR-069): `None` asks the
+    # endpoint for max_model_len and takes a share of it; an explicit
+    # limit is the owner's call; 0 is no limit. No window known → the
+    # old absolute default, said so.
+    window, brief_reason = None, "explicit"
+    if brief_limit is None:
+        from hobbes.run.agents import BRIEF_WINDOW_SHARE, brief_limit_for_window
+        from hobbes.run.parallel import endpoint_window
+        share = brief_window_share if brief_window_share is not None else BRIEF_WINDOW_SHARE
+        window, window_reason = endpoint_window(runtime.base_url, os.environ.get(runtime.api_key_env or "") or None)
+        if window:
+            brief_limit = brief_limit_for_window(window, share)
+            brief_reason = f"{share:.0%} of a {window:,}-token window ({window_reason})"
+        else:
+            brief_limit = DEFAULT_BRIEF_LIMIT
+            brief_reason = f"absolute default — {window_reason}"
+    elif brief_limit == 0:
+        brief_limit, brief_reason = None, "none"
+    log(f"  brief limit: {f'{brief_limit:,} chars' if brief_limit else 'none'} — {brief_reason} (C-45, ADR-069)")
     write_manifest(run_dir, selection, models, list(which), {
         "session_bin": session_bin, "session_args": session_args, "budget": budget,
-        "max_units": max_units, "brief_limit": brief_limit, "environment": environment_kind, "network": network,
+        "max_units": max_units, "brief_limit": brief_limit, "brief_window": window, "brief_reason": brief_reason,
+        "environment": environment_kind, "network": network,
         "stages": list(stages) if stages else None,
         "parallel": {"setting": str(parallel_setting), "workers": workers, "reason": parallel_reason},
         "timeout": timeout, "clean": clean,

@@ -756,3 +756,55 @@ class TestHandoffParsing:
         from hobbes.run.handoff import parse_handoff
         h = parse_handoff("\n".join(["files:", "- src/wcs.py (the slicer)", "- src/utils.py — helpers"]))
         assert h["files"] == ["src/wcs.py", "src/utils.py"]
+
+
+class TestWindowRelativeBrief:
+    """ADR-069: the brief is sized to the model's window and filled by
+    priority, no single section starving the rest."""
+
+    def test_limit_for_window_is_a_share_in_chars(self):
+        from hobbes.run.agents import brief_limit_for_window, CHARS_PER_TOKEN, BRIEF_WINDOW_SHARE
+        assert brief_limit_for_window(32768) == int(32768 * BRIEF_WINDOW_SHARE * CHARS_PER_TOKEN)
+        assert brief_limit_for_window(131072, 0.25) == int(131072 * 0.25 * CHARS_PER_TOKEN)
+        assert brief_limit_for_window(32768) < 60_000 < brief_limit_for_window(131072)
+
+    def test_priority_fill_and_the_per_section_cap(self):
+        from hobbes.run.agents import limit_context, CUT_SECTION_MAX_SHARE
+        tests = "\n".join(f"- tests/test_{i}.py::test_{i}" for i in range(1500))   # ~45k
+        neigh = "\n".join(f"- `pkg.mod{i}`: a, b, c" for i in range(1500))          # ~35k
+        doc = ("# Standing context — unit U1\n\n## Interior (full resolution)\n- src/a.py\n\n"
+               f"## Guarding tests (run these)\n{tests}\n\n"
+               f"## Neighborhood (one hop out)\n{neigh}\n\n"
+               "## What Hobbes cannot see here\n- x\n")
+        out, dropped = limit_context(doc, 20_000)
+        assert dropped > 0 and len(out) <= 20_000
+        kept_tests = out.count("tests/test_")
+        kept_neigh = out.count("`pkg.mod")
+        # guarding tests are filled first, but capped — the neighborhood still gets its share
+        assert kept_tests > kept_neigh > 50
+        assert out.count("… cut:") == 2
+        sec_tests = out.split("## Neighborhood")[0].split("## Guarding tests")[1]
+        assert len(sec_tests) <= CUT_SECTION_MAX_SHARE * 20_000 + 400
+
+    def test_endpoint_window_reads_max_model_len(self):
+        import json as _json
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import threading
+        from hobbes.run.parallel import endpoint_window
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = _json.dumps({"data": [{"id": "m", "owned_by": "vllm", "max_model_len": 32768}]}).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers()
+                self.wfile.write(body)
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            window, reason = endpoint_window(f"http://127.0.0.1:{srv.server_port}/v1")
+        finally:
+            srv.shutdown()
+        assert window == 32768 and "max_model_len=32768" in reason
+        assert endpoint_window("") == (None, "no endpoint: the runtime is not an OpenAI-compatible server")

@@ -854,7 +854,10 @@ inbox carries the planner's named files that lie in *its* interior, the
 approach, and a plain "the rest is owned elsewhere" — or "nothing the
 planner named is yours" — never the global list, which phase 4 showed
 leads every unit to the same unowned file; and the brief limit (C-45)
-never cuts a unit's interior. The
+never cuts a unit's interior — and is sized to the model's window
+(ADR-069: a share of `max_model_len` read from the endpoint, the
+cuttable sections filled by priority, none above 60 % of the room),
+so the harness context scales with the rung. The
 planner's seeds are a model opinion (**C-47**) and the verifier reads a
 read-only tree (**C-48**). Agent count is still the partition's output
 under the planner's seeds.

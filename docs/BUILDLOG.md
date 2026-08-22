@@ -3997,3 +3997,17 @@ tokens, `max_tokens` actually sent, `finish_reason`, fit/elide events,
 wall), `prompt_tokens_max` / `calls` / `calls_saturated` in the
 envelope, the pure arm passes `--transcript`. C-46 surfacing amended.
 848 pytest. Not re-run.
+
+## 2026-08-22 (fifty-fourth) — the brief sized to the window, filled by priority (ADR-069)
+
+Max, torn between "go to the 27B with a huge window and stop caring"
+and "scale the harness context to the model's window": recommended
+the second as the harness's own fix, then the cheap 7B run, then the
+27B. Built: `endpoint_window()` (`max_model_len` from `/models`),
+`brief_limit_for_window` (35 % × window × 3.3 chars/token, both
+declared guesses), `--brief-limit` default auto with the resolution
+printed and in `run.json`, and `limit_context` filling the cuttable
+sections by priority (inbox → guarding tests → neighborhood → module
+docs) with a 60 % per-section cap instead of equal shares; the limit
+is a guarantee. C-45 and architecture §6 amended. 851 pytest. Launching
+the cheap 7B 5-run on ADR-067/068/069 at Max's go.

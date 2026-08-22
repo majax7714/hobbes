@@ -214,12 +214,44 @@ def render_context(spec: dict, unit: str) -> str:
 PROTECTED_SECTIONS = ("## Interior", "## What Hobbes cannot see", "## Derived policy",
                       "## Contracts at your boundary", "## Invariants in scope")
 
+#: The order the cuttable sections are filled in when the brief must be
+#: cut (ADR-069): the orchestrator's specific first, then what to run,
+#: then who is around, then the pinned claims. A declared guess.
+CUT_PRIORITY = ("## Short-term context", "## Guarding tests", "## Neighborhood", "## Module docs")
+#: No single cuttable section takes more than this share of what the
+#: protected sections leave, so a 300-test guard list cannot starve the
+#: neighborhood entirely (ADR-069). A declared guess.
+CUT_SECTION_MAX_SHARE = 0.6
+#: Measured on the 5-fresh re-run: a 55,553-char brief tokenized to
+#: 16,750 tokens on Qwen2.5-Coder (3.32). Used to turn a window in
+#: tokens into a brief limit in characters (ADR-069).
+CHARS_PER_TOKEN = 3.3
+#: The share of the model's window a brief may take by default
+#: (ADR-069). The rest is the model's working memory: reads, results,
+#: its own turns. A declared guess; `--brief-limit` overrides it.
+BRIEF_WINDOW_SHARE = 0.35
+
+
+def brief_limit_for_window(window_tokens: int, share: float = BRIEF_WINDOW_SHARE) -> int:
+    """The brief limit in characters for a model whose window is
+    *window_tokens*: ``share × window × CHARS_PER_TOKEN`` (ADR-069)."""
+    return int(window_tokens * share * CHARS_PER_TOKEN)
+
+
+def _cut_rank(section: str) -> int:
+    for i, prefix in enumerate(CUT_PRIORITY):
+        if section.startswith(prefix):
+            return i
+    return len(CUT_PRIORITY)
+
 
 def limit_context(context: str, limit: int) -> tuple[str, int]:
     """Cut *context* (a ``render_context`` document) to at most *limit*
-    characters by trimming its unprotected sections to an equal share
-    of what the protected ones leave, each with a stated cut line
-    (C-45). Returns the text and the number of characters dropped."""
+    characters. Protected sections are never cut; the others are
+    filled in :data:`CUT_PRIORITY` order from what the protected ones
+    leave, no one of them taking more than :data:`CUT_SECTION_MAX_SHARE`
+    of it, each cut stated (C-45, ADR-069). Returns the text and the
+    number of characters dropped."""
     if len(context) <= limit:
         return context, 0
     parts = context.split("\n## ")
@@ -234,13 +266,30 @@ def limit_context(context: str, limit: int) -> tuple[str, int]:
     # not met — the returned text is then as small as honesty allows.
     fixed = len(head) + sum(len(s) + 1 for s in protected)
     reserve = len(notice(99999)) + 1
-    share = max(0, (limit - fixed) // max(1, len(cuttable)) - reserve)
+    # Every cuttable section may end in a notice; reserve for all of
+    # them first so the limit is met even when a section gets nothing.
+    # (+8 per section and +8 overall: join separators and the notice's
+    # variable digit count — the limit is a guarantee, not an estimate.)
+    budget = max(0, limit - fixed - (reserve + 8) * len(cuttable) - 8)
+    cap = int(budget * CUT_SECTION_MAX_SHARE)
+    allocation: dict[int, int] = {}
+    remaining = budget
+    for section in sorted(cuttable, key=lambda s: (_cut_rank(s), cuttable.index(s))):
+        need = len(section) + 1
+        take = min(need, remaining, cap if need > cap else need)
+        allocation[id(section)] = take
+        remaining -= take
     dropped = 0
     out = []
     for section in sections:
-        if section in protected or len(section) <= share + reserve:
+        if section in protected:
             out.append(section)
             continue
+        take = allocation.get(id(section), 0)
+        if len(section) + 1 <= take:
+            out.append(section)
+            continue
+        share = take
         title, _, body = section.partition("\n")
         kept_lines, used = [], len(title) + 1
         for line in body.splitlines():

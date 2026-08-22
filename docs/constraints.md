@@ -1026,10 +1026,13 @@ information appears in both, and the entries cross-reference.
 
 ### C-45 — A brief is held to the model's window; what was cut is named, not read
 - **Cannot tell you:** that a session saw its whole standing context.
-  `hobbes bench run --brief-limit` (default 60,000 characters, ≈15k
-  tokens for the ladder's 32k window) and `hobbes run --brief-limit`
-  cut a unit's brief to fit: the unprotected sections (interior
-  listing, guarding tests, module docs, neighborhood) are trimmed to
+  `hobbes bench run --brief-limit` (default **sized to the endpoint's
+  window** — 35 % of `max_model_len` × 3.3 chars/token, ADR-069;
+  60,000 chars only when the window is unknown, said so) and `hobbes
+  run --brief-limit` cut a unit's brief to fit: the unprotected
+  sections (guarding tests, module docs, neighborhood, inbox) are
+  filled in priority order, no one of them above 60 % of the room
+  (ADR-069; before that they were trimmed to
   an equal share, each ending in a stated `… cut: N more line(s)`;
   the protected ones — the unit's own **interior** (since ADR-062:
   phase 4 cut U1's 21 KB of paths while the global planner handoff

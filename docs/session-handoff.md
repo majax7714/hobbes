@@ -88,7 +88,11 @@ in order:
    transcript. 848 pytest. **Not yet run against the set.** Read the
    hypotheses doc's addendum before trusting any window claim: the
    re-run was *not* saturated; the two runs before it were.
-2. **Max's decision — the brief's shape.** 82 % of an implementer brief
+2. **The brief's shape — first cut built (ADR-069):** sized to the
+   endpoint's window (35 % of `max_model_len`), cuttable sections
+   filled by priority with a 60 % cap. The share and order are declared
+   guesses; Max still owns the deeper question (what the sections
+   *should* contain). Original note: 82 % of an implementer brief
    is neighborhood/guarding tests/contracts; the window is the binding
    constraint once reads are forced (C-46, measured). Options: cap those
    sections per unit, list guarding tests by id instead of body, or a

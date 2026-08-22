@@ -85,6 +85,26 @@ def endpoint_batches(base_url: str, api_key: str | None = None, timeout: float =
     return False, f"endpoint reports owned_by={', '.join(owners) or 'unknown'} — not a known batching engine"
 
 
+def endpoint_window(base_url: str, api_key: str | None = None, timeout: float = 120.0) -> tuple[int | None, str]:
+    """The model's context window in tokens, from ``GET /models`` →
+    ``max_model_len`` (vLLM reports it; a server that does not answers
+    ``None`` with the reason, never a guess). ADR-069: the brief is
+    sized to this."""
+    if not base_url:
+        return None, "no endpoint: the runtime is not an OpenAI-compatible server"
+    url = base_url.rstrip("/") + "/models"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            doc = json.load(resp)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return None, f"endpoint did not answer /models ({type(exc).__name__}: {str(exc)[:80]})"
+    for m in doc.get("data", []):
+        if isinstance(m, dict) and isinstance(m.get("max_model_len"), int) and m["max_model_len"] > 0:
+            return m["max_model_len"], f"endpoint reports max_model_len={m['max_model_len']} for {m.get('id', '?')}"
+    return None, "endpoint reports no max_model_len — the window is not known"
+
+
 def resolve_workers(setting: str | int | None, base_url: str, api_key: str | None = None) -> tuple[int, str]:
     """``--parallel`` → ``(workers, reason)``. ``auto`` asks the endpoint;
     an integer is the owner's call and is not second-guessed (1 or 0 =
