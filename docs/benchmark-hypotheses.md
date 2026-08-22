@@ -74,8 +74,9 @@ the width is visible, never hidden in a percentage.
 
 **Amendment (Max, 2026-08-22) — the next rung is not the 32B.** The
 second rung of the ladder is changed from Qwen2.5-Coder-32B to
-**Qwen3.8 27B** (exact HF id and vLLM flags pinned in
-`scripts/modal_vllm.py` `RUNGS` when the rung is taken — not before).
+**Qwen3.8 27B** (`Qwen/Qwen3.8-27B`, pinned in `scripts/modal_vllm.py`
+`RUNGS` on A100-80GB; not deployed — the image's vLLM pin predates its
+architecture and is bumped when the rung is taken).
 Reason stated before any run on it: the model is reported to score
 high on instruction following and agentic coding but **low on deep
 SWE tasks**, and the focus set is the deep end of Verified — so a

@@ -109,3 +109,9 @@ deliberately.
 - 7B: `https://majax7714--hobbes-llm-qwen-qwen2-5-coder-7b-instruct-serve.modal.run/v1` — token in `secrets.txt` as `llm_key` and in the Modal
   secret `hobbes-llm-key`. `uv run pipeline/scripts/modal_vllm.py url`
   prints it; `MODEL=… deploy` (re)deploys a rung.
+
+**Amendment (2026-08-22):** the second rung is `Qwen/Qwen3.8-27B`, not
+`Qwen2.5-Coder-32B-Instruct` — Max's call; the reasoning is the dated
+amendment in `benchmark-hypotheses.md`. Pinned in `RUNGS` on A100-80GB,
+not deployed: the image's vLLM/transformers pins predate its architecture
+and are bumped when the rung is taken.

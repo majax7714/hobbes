@@ -80,9 +80,12 @@ being about the model. Only if the failures are then cleanly the
 model's does the next rung become the question — **Qwen3.8 27B**
 (Max, 2026-08-22): high instruction-following/agentic-coding scores,
 low deep-SWE scores, so a harness gain on the deep set is easier to
-attribute. Pin its HF id + vLLM flags in `scripts/modal_vllm.py`
-`RUNGS` (and ADR-057) when taken; the 32B entry stays as a pinned
-but no-longer-next rung.
+attribute. Pinned as `Qwen/Qwen3.8-27B` in `scripts/modal_vllm.py`
+`RUNGS` (A100-80GB), **not deployed**: its architecture
+(`Qwen3_5ForConditionalGeneration`) postdates the image's `vllm==0.10.1.1`
+/ `transformers<5` pin, so taking the rung = bump those, re-verify the
+7B deploys, then `MODEL=Qwen/Qwen3.8-27B … deploy`. The 32B entry
+stays pinned but is no longer next.
 
 Two harness items are known but **not yet built** (decide before or
 after the re-run, Max's call):

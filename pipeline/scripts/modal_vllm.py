@@ -34,10 +34,16 @@ RUNGS: dict[str, dict] = {
     "Qwen/Qwen2.5-Coder-32B-Instruct": {
         "gpu": "A100-80GB", "max_model_len": 32768, "tool_parser": "hermes",
     },
-    # The next rung after 7B is Qwen3.8 27B (Max, 2026-08-22 — see
-    # benchmark-hypotheses.md "Amendment"): add its HF id, GPU, and
-    # tool parser here when taken, and record it in ADR-057. The 32B
-    # stays pinned but is no longer the next step.
+    # The next rung after 7B (Max, 2026-08-22 — benchmark-hypotheses.md
+    # "Amendment"; the 32B stays pinned but is no longer next). 27.8B
+    # params, arch Qwen3_5ForConditionalGeneration: bf16 needs the
+    # 80 GB card, and the image's pinned vLLM/transformers (chosen for
+    # the 7B) predate that architecture — taking this rung means
+    # bumping VLLM and the transformers bound and re-verifying the 7B
+    # still deploys. Not deployed yet.
+    "Qwen/Qwen3.8-27B": {
+        "gpu": "A100-80GB", "max_model_len": 32768, "tool_parser": "hermes",
+    },
 }
 
 MODEL = os.environ.get("MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct")
