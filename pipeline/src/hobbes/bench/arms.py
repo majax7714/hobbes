@@ -78,7 +78,8 @@ class Runtime:
         """Flags for ``hobbes-session`` so the harness arm runs the same loop."""
         if self.kind != "openai":
             return []
-        return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url]
+        return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url,
+                "--max-turns", str(self.max_turns)]
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
 HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error", "env-error")

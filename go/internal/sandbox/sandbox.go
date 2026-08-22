@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,6 +54,11 @@ type Config struct {
 	// (ADR-058) carries the target repo's own, possibly old, python as
 	// the first on PATH, and the loop needs a modern one.
 	RuntimePython string
+	// MaxTurns is the owned loop's turn budget; 0 leaves the loop's
+	// default. The benchmark passes the same budget to both arms — the
+	// first full-stage probe ran harness sessions at the loop's 60 while
+	// the pure arm got the run's 40, a fairness gap the meter cannot see.
+	MaxTurns int
 	// Path overrides the in-container PATH; "" keeps the image-neutral
 	// default. Env adds KEY=VALUE pairs on top of HOME and PATH — an
 	// environment binding the host authored (ADR-058: PYTHONPATH=/work
@@ -329,6 +335,9 @@ func (p *Plan) RuntimeCommand() []string {
 		"--mcp-config", p.mcpConfigContainerPath(),
 		"--role", p.cfg.Role,
 		"--workdir", WorkDir,
+	}
+	if p.cfg.MaxTurns > 0 {
+		cmd = append(cmd, "--max-turns", strconv.Itoa(p.cfg.MaxTurns))
 	}
 	return cmd
 }

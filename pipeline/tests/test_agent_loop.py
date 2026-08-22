@@ -343,7 +343,10 @@ class TestBenchRuntime:
         with pytest.raises(ValueError, match="one of"):
             arms.Runtime(kind="ollama")
         rt = arms.Runtime(kind="openai", base_url="http://x/v1")
-        assert rt.session_args() == ["--runtime", str(arms.LOOP_PATH), "--llm-base-url", "http://x/v1"]
+        # the turn budget reaches the harness sessions too (the first
+        # full-stage probe ran them at the loop's default 60 vs pure's 40)
+        assert rt.session_args() == ["--runtime", str(arms.LOOP_PATH), "--llm-base-url", "http://x/v1",
+                                     "--max-turns", "60"]
         assert arms.Runtime().session_args() == []
 
     def test_pure_arm_on_the_owned_loop(self, tmp_path, monkeypatch):
@@ -488,6 +491,22 @@ class TestStrictPipeline:
         msgs = model.requests[2]["body"]["messages"]
         tool_msgs = [m for m in msgs if m["role"] == "tool"]
         assert any("Stop repeating it" in m["content"] for m in tool_msgs)
+
+    def test_refused_repeats_after_an_edit_still_stop(self, tree):
+        # the full-stage probe's U6: one commit, then 57 of 60 turns on
+        # refused repeats — "acted" held, so the dry-turn stall never fired
+        model = ScriptedModel([
+            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            *([[("read_file", {"path": "src/a.py"})]] * 12),
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--max-nudges", "0", "--stall-after", "4", "--max-turns", "30")
+        finally:
+            model.close()
+        assert env["edited"] is True and env["is_error"]
+        assert "refused repeated calls" in env["result"] and env["repeats_refused"] == 4
+        assert len(model.requests) <= 7  # 1 edit + 1 first read + 4 refused, then stopped
 
     def test_a_nonediting_loop_stops_with_a_reason(self, tree):
         # tests_guarding-style: a read-only call repeated forever, never editing

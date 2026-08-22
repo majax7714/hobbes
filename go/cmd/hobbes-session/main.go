@@ -67,6 +67,7 @@ flags:
                    command in the same container (an environment binding,
                    ADR-058); not the agent's, not policed
   --runtime-python P  interpreter for --runtime (default: the image's python3)
+  --max-turns N    turn budget for --runtime (default: the loop's own)
   --network NET    podman --network (default none)
   --box FILE       box policy (default ~/.hobbes/box.policy if present)
   --proxy-bin FILE static hobbes-proxy binary to mount (default: next to me)
@@ -109,6 +110,7 @@ type options struct {
 	escalation                     time.Duration
 	image, network, box            string
 	path, pre, runtimePython       string
+	maxTurns                       int
 	env                            multiFlag
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
@@ -259,6 +261,7 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		LLMBaseURL:    opt.llmBaseURL,
 		LLMKey:        os.Getenv("HOBBES_LLM_API_KEY"),
 		RuntimePython: opt.runtimePython,
+		MaxTurns:      opt.maxTurns,
 		Path:          opt.path,
 		Env:           []string(opt.env),
 		Pre:           opt.pre,
@@ -466,6 +469,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.StringVar(&opt.path, "path", "", "")
 	fs.StringVar(&opt.pre, "pre", "", "")
 	fs.StringVar(&opt.runtimePython, "runtime-python", "", "")
+	fs.IntVar(&opt.maxTurns, "max-turns", 0, "")
 	fs.Var(&opt.env, "env", "")
 	fs.StringVar(&opt.network, "network", "", "")
 	fs.StringVar(&opt.box, "box", "", "")

@@ -536,6 +536,19 @@ class TestStagedRun:
         # a fail then one rework then a second verify — two verify stages
         assert len([s for s in rec["stages"] if s["stage"] == "verify"]) == 2
 
+    def test_a_second_run_of_the_same_proposal_clears_stale_session_dirs(self, plan_repo, staged_session, tmp_path):  # noqa: F811
+        # session names are deterministic; the full-stage probe's U3 died
+        # on "worktree already exists" from the planner-only probe
+        from hobbes.run.stages import run_staged
+        first = run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                           sessions_root=tmp_path / "s", max_units=5)
+        unit = next(u for u in first["units"] if u["spawned"])
+        (tmp_path / "s" / unit["session"] / "worktree").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "s" / unit["session"] / "worktree" / "stale").write_text("x")
+        second = run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                            sessions_root=tmp_path / "s", max_units=5)
+        assert all(u["exit"] == 0 for u in second["units"] if u["spawned"])
+
     def test_dry_run_spawns_nothing(self, plan_repo, tmp_path):  # noqa: F811
         from hobbes.run.stages import run_staged
         rec = run_staged(plan_repo, self._proposal(), session_bin=None,
@@ -590,6 +603,18 @@ class TestHandoffParsing:
         assert hits == ["pkg.sliced", "pkg.other"]
         # `run` alone is ambiguous and `Nope.run` names nothing — neither is guessed
         assert misses == ["Nope.run", "run"]
+
+    def test_named_tests_resolve_to_repo_paths(self):
+        # the probe's verifier ran `pytest test_intermediate_transformations.py`
+        # at the root: the planner named the file bare
+        from hobbes.run.stages import resolve_tests
+        files = {"a/tests/test_x.py::test_one": "a/tests/test_x.py",
+                 "b/tests/test_y.py::test_two": "b/tests/test_y.py",
+                 "c/tests/test_y.py::test_three": "c/tests/test_y.py"}
+        ok, bad = resolve_tests(["test_x.py", "tests/test_x.py::test_one", "b/tests/test_y.py",
+                                 "test_y.py", "nope.py"], files)
+        assert ok == ["a/tests/test_x.py", "a/tests/test_x.py::test_one", "b/tests/test_y.py"]
+        assert bad == ["test_y.py", "nope.py"]  # ambiguous and absent: stated, never guessed
 
     def test_verdict_inference_is_marked_not_asserted(self):
         from hobbes.run.handoff import parse_handoff

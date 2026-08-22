@@ -398,7 +398,7 @@ def run(args: argparse.Namespace) -> dict:
     reflected = False
     nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
-    repeats, dry_turns = 0, 0
+    repeats, dry_turns, refused_run = 0, 0, 0
     try:
         while turns < args.max_turns:
             turns += 1
@@ -414,6 +414,7 @@ def run(args: argparse.Namespace) -> dict:
             messages.append({"role": "assistant", "content": message.get("content") or "",
                              **({"tool_calls": calls} if calls else {})})
             productive = False
+            refused_turn = False
             for call in calls:
                 fn = call.get("function") or {}
                 name = fn.get("name", "")
@@ -429,6 +430,7 @@ def run(args: argparse.Namespace) -> dict:
                         # A repeated read-only call: refuse, do not re-run it.
                         text, is_err = REPEAT_REFUSAL, True
                         repeats += 1
+                        refused_turn = True
                     else:
                         seen_calls.add(sig)
                         if mcp and name in mcp_names:
@@ -456,6 +458,14 @@ def run(args: argparse.Namespace) -> dict:
             # For a read-only role the deliverable is a handoff reflection,
             # so "acted" means reflected, not edited.
             acted = reflected if read_only else edited
+            # A run of turns that only re-issue refused calls is a stall
+            # whether or not the session edited earlier: the first
+            # full-stage probe's U6 had committed, then spent 57 of 60
+            # turns on refused repeats (1.5M tokens) because "acted" held.
+            refused_run = refused_run + 1 if (refused_turn and not productive) else 0
+            if refused_run >= args.stall_after:
+                error = f"no progress: {refused_run} turns of refused repeated calls ({repeats} refused in all)"
+                break
             if productive:
                 dry_turns = 0
             else:

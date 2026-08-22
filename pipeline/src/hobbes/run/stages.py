@@ -129,6 +129,13 @@ def spawn(session_bin: str | None, repo: Path, role: str, agent_dir: Path, sessi
     (agent_dir / "spawn.txt").write_text(" ".join(cmd) + "\n")
     if dry_run and not session_bin:
         return None
+    # Session names are deterministic (task id + role/unit), so a previous
+    # run of the same proposal leaves a session dir behind and the clone
+    # refuses a non-empty worktree (the full-stage probe's U3). The old
+    # dir's record was captured by its own run; clear it.
+    stale = Path(sessions_root) / session
+    if stale.is_dir() and not dry_run:
+        shutil.rmtree(stale, ignore_errors=True)
     started = time.monotonic()
     proc = subprocess.run(cmd, capture_output=True, text=True)
     proc.wall_seconds = round(time.monotonic() - started, 3)  # type: ignore[attr-defined]
@@ -305,7 +312,7 @@ def run_staged(
     reworked = 0
     if "verify" in stages and not dry_run and integ["merged"]:
         verify = run_verifier(repo, task, _head_sha(repo, target, base), planner_tests, spec, pdir,
-                              session_bin, sessions_root, extra_args, brief_limit, dry_run)
+                              session_bin, sessions_root, extra_args, brief_limit, dry_run, test_files=test_files)
         stage_log.append(verify["stage"])
         while (verify.get("verdict") == "fail" and "rework" in stages and reworked < max_rework):
             reworked += 1
@@ -313,7 +320,8 @@ def run_staged(
                         orchestrator, records, sessions, integ, session_bin, sessions_root,
                         extra_args, brief_limit, stage_log)
             verify = run_verifier(repo, task, _head_sha(repo, target, base), planner_tests, spec, pdir,
-                                  session_bin, sessions_root, extra_args, brief_limit, dry_run, attempt=reworked + 1)
+                                  session_bin, sessions_root, extra_args, brief_limit, dry_run, attempt=reworked + 1,
+                                  test_files=test_files)
             stage_log.append(verify["stage"])
 
     contract_failures = len(integ.get("failed", []))
@@ -432,8 +440,40 @@ def run_review(repo, spec, pdir, session_bin, sessions_root, extra_args, brief_l
         "reason": parsed.get("reason", "")}}
 
 
+def resolve_tests(named: list[str], test_files: dict[str, str]) -> tuple[list[str], list[str]]:
+    """Map a planner's named tests to what the repo actually has: a test
+    id, a file path, or a bare filename / path suffix matching exactly
+    one test file. Returns (resolved, unresolved). The probe's verifier
+    ran ``pytest test_intermediate_transformations.py`` at the root and
+    found nothing — the planner had named the file bare."""
+    files = sorted(set(test_files.values()))
+    ids = set(test_files)
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    for name in named:
+        n = name.strip().strip("`'\"")
+        if not n:
+            continue
+        base = n.split("::", 1)[0]
+        if n in ids or base in files:
+            hit = n
+        else:
+            suffix = [f for f in files if f == base or f.endswith("/" + base)]
+            if len(suffix) != 1:
+                stem = [f for f in files if f.rsplit("/", 1)[-1] == base.rsplit("/", 1)[-1]]
+                suffix = stem if len(stem) == 1 else suffix
+            if len(suffix) == 1:
+                hit = suffix[0] + (n[len(base):] if "::" in n else "")
+            else:
+                unresolved.append(n)
+                continue
+        if hit not in resolved:
+            resolved.append(hit)
+    return resolved, unresolved
+
+
 def run_verifier(repo, task, head, planner_tests, spec, pdir, session_bin, sessions_root,
-                 extra_args, brief_limit, dry_run, attempt: int = 1) -> dict:
+                 extra_args, brief_limit, dry_run, attempt: int = 1, test_files: dict[str, str] | None = None) -> dict:
     """A verifier session over the integrated head: run the guarding
     tests and hand off pass/fail. Read-only worktree — the brief tells it
     to keep pytest from writing (``-p no:cacheprovider``); a write-denied
@@ -445,12 +485,15 @@ def run_verifier(repo, task, head, planner_tests, spec, pdir, session_bin, sessi
         {"version": 1, "scope": "agent", "default": "escalate", "rules": [
             {"pattern": "git commit*", "decision": "deny", "reason": "a verifier writes nothing"}]}))
     guards = sorted({t for c in spec.get("contexts", []) for t in _guard_files(c, spec)})
-    tests = planner_tests or guards
+    tests, tests_unresolved = resolve_tests(planner_tests, test_files or {}) if test_files is not None else (list(planner_tests), [])
+    tests = tests or guards
     brief = "\n".join([
         "You are a single-use verifier. You change nothing; you run the tests and report.",
         "", f"## Proposal\n{spec.get('proposal', '')}", "",
         "## Run these tests (through the exec tool)",
         "\n".join(f"- {t}" for t in tests) or "- none named; run the repo's test suite for the changed area",
+        *( ["", "Named but not found in the repo (do not guess a path; say so if nothing else runs): "
+            + ", ".join(tests_unresolved)] if tests_unresolved else []),
         "", "## Important",
         "- The worktree is read-only. Run pytest with `-p no:cacheprovider` and do not write files.",
         "- If a test cannot run because the tree is read-only, say so in `reason` — that is not a fail.",
@@ -477,7 +520,7 @@ def run_verifier(repo, task, head, planner_tests, spec, pdir, session_bin, sessi
                       "session": session, "attempt": attempt,
                       "exit": proc.returncode if proc else None, "wall_seconds": _wall(proc), "verdict": verdict,
                       "verdict_source": parsed.get("verdict_source"), "reason": reason,
-                      "verifier_env": environment_flag, "tests": tests}}
+                      "verifier_env": environment_flag, "tests": tests, "tests_unresolved": tests_unresolved}}
 
 
 def _run_rework(repo, task, target, base, verify, spec, contexts, test_files, dirs,

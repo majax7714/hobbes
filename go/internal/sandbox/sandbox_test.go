@@ -488,3 +488,24 @@ func TestNoPreCommandMeansNoWrapper(t *testing.T) {
 		t.Error("without --pre the session command runs bare")
 	}
 }
+
+func TestRuntimeMaxTurnsReachesTheLoop(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Runtime = "/sessions/S-x/agent.py"
+	cfg.LLMBaseURL = "https://llm.example/v1"
+	cfg.Model = "m"
+	cfg.MaxTurns = 40
+	p, err := NewPlan(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := strings.Join(p.RuntimeCommand(), " ")
+	if !strings.Contains(cmd, "--max-turns 40") {
+		t.Errorf("max turns not passed to the loop: %s", cmd)
+	}
+	cfg.MaxTurns = 0
+	p, _ = NewPlan(cfg)
+	if strings.Contains(strings.Join(p.RuntimeCommand(), " "), "--max-turns") {
+		t.Errorf("zero max turns must leave the loop's default")
+	}
+}
