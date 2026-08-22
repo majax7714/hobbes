@@ -493,6 +493,28 @@ not a parser fix. Per the standing rule, the four gaps are harness and
 are fixed before the model is re-read; the brief question is put to
 Max with the numbers above.
 
+**Addendum, the same night — the window per call, validated.** Max read
+the Modal vLLM log and saw calls saturating far more often than the
+envelope counts said. Reconstructed every harness call of the re-run
+(221 calls: each assistant turn's message prefix tokenized on the
+endpoint) and checked it against vLLM's own `prompt_tokens` sums in the
+envelopes: the difference is a constant **1,546 tokens/call** on every
+implementer and 1,361 on read-only roles — the tool schema — so the
+reconstruction is exact. **In this run (02:38–03:10 EDT) the harness
+was not saturated:** median prompt 14k, mean 14k, 41 % of calls ≥ 16k,
+19 % ≥ 20k, **8 calls ≥ 24k, 2 ≥ 28k** (sympy U2's last two — the only
+session that fit or elided), 1 call with less than the 1,536-token cap
+of room. The pure arm has no transcript (fixed, ADR-068); from its
+envelopes the largest estimated last call is ~27k (sympy, 20 turns).
+What *was* saturated is the two earlier runs (`five-fresh-7b`, ended
+01:16 EDT, and `probe-full-7b`, 21:59 the day before): 198 and 190
+overflow events, average prompts 16–19k, sessions sitting at the
+window for consecutive turns — each turn a 400 absorbed into a 200.
+That is what a Modal log spanning the day shows, and it is the
+honest description of those runs: most of their implement wall was
+spent at the limit. The instrument that makes this a read instead of
+a reconstruction is ADR-068's `calls.jsonl` + `calls_saturated`.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

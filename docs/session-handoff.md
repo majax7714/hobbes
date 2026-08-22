@@ -82,7 +82,12 @@ in order:
    unread path; a reworded edit at an applied anchor is refused; a
    completion cut at `max_tokens` is retried once at 2× (`cut_retried`
    in the envelope); the fence parser takes any tag, an unclosed fence,
-   and non-strict JSON. 847 pytest. **Not yet run against the set.**
+   and non-strict JSON. **ADR-068 (same night):** every call logged to
+   `calls.jsonl` beside the transcript, `prompt_tokens_max` /
+   `calls_saturated` in the envelope, the pure arm now writes a
+   transcript. 848 pytest. **Not yet run against the set.** Read the
+   hypotheses doc's addendum before trusting any window claim: the
+   re-run was *not* saturated; the two runs before it were.
 2. **Max's decision — the brief's shape.** 82 % of an implementer brief
    is neighborhood/guarding tests/contracts; the window is the binding
    constraint once reads are forced (C-46, measured). Options: cap those

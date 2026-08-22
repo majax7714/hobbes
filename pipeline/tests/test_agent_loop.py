@@ -440,6 +440,8 @@ class TestBenchRuntime:
             model.close()
         assert result.outcome == "patch" and result.patch_files == ["src/core.py"], result.error
         assert result.usage.total_tokens == 330 and result.usage.turns == 3   # read, edit, final
+        # ADR-068: the pure arm writes its transcript and per-call log too
+        assert (ws / ".hobbes" / "transcript.jsonl").exists() and (ws / ".hobbes" / "calls.jsonl").exists()
         assert result.detail["runtime"] == "openai"
         assert inst.problem_statement in model.requests[0]["body"]["messages"][1]["content"]
 
@@ -690,3 +692,27 @@ class TestReadBeforeEditAndCutCompletions:
         unterminated = '```json\n{"name": "read_file", "arguments": {"path": "a.py"}}'
         assert [c["function"]["name"] for c in loop.text_tool_calls(unterminated)] == ["read_file"]
         assert loop.text_tool_calls("```sh\npytest\n```") == []
+
+
+class TestPerCallLog:
+    """ADR-068: every call logged as it went, so a saturated window that
+    never errors is visible — not only the 400s the fit absorbed."""
+
+    OVERFLOW = TestContextWindow.OVERFLOW
+
+    def test_calls_jsonl_beside_the_transcript_and_the_envelope_summary(self, tree, tmp_path):
+        model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],
+            ("http", 400, self.OVERFLOW % (30000, 30000)),   # fitted, then the 200 that masks it
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--transcript", str(tmp_path / "t" / "transcript.jsonl"))
+        finally:
+            model.close()
+        calls = [json.loads(l) for l in (tmp_path / "t" / "calls.jsonl").read_text().splitlines()]
+        assert [c["turn"] for c in calls][:2] == [1, 2]    # later turns are the no-edit nudges
+        assert calls[0]["fitted"] == 0 and calls[0]["max_tokens_sent"] == 4096 and calls[0]["prompt_tokens"] == 100
+        assert calls[1]["fitted"] == 1 and calls[1]["max_tokens_sent"] == 32768 - 30000 - 16 and calls[1]["window"] == 32768
+        assert all("finish_reason" in c and "wall_ms" in c and "completion_tokens" in c for c in calls)
+        assert env["calls"] == len(calls) and env["calls_saturated"] == 1 and env["prompt_tokens_max"] == 100

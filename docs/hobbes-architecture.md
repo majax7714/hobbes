@@ -838,8 +838,10 @@ overwrite the first re-probe caught, and (ADR-067) refuses to
 `edit_file` a path it has not read at all — an anchor is copied from
 the file, not recalled — refuses a reworded edit at an anchor already
 applied, and retries once a completion the endpoint cut at
-`max_tokens`; every session writes its full message list to
-`<session>/transcript.jsonl`. `hobbes plan` then derives
+`max_tokens`; every session — both arms — writes its full message list
+to `<session>/transcript.jsonl` and every call as it went (prompt size,
+`max_tokens` sent, `finish_reason`, overflow events) to `calls.jsonl`
+beside it (ADR-068). `hobbes plan` then derives
 deterministically; `implementer` sessions run in contract order, each
 cloned at the **current** integration head so a consumer sees its
 owner's commit, integrated immediately after harvest; a `verifier`

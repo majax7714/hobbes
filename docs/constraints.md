@@ -1074,7 +1074,11 @@ information appears in both, and the entries cross-reference.
   recall of its session; a long multi-file unit is working from elided
   early context by its last turns.
 - **You find out:** **surfaced** — the envelope carries
-  `context_fitted` and `context_elided` counts per session; an elided
+  `context_fitted` and `context_elided` counts per session, and (ADR-068)
+  `prompt_tokens_max`, `calls`, `calls_saturated`; every call's prompt
+  size, `max_tokens` actually sent, `finish_reason`, and overflow events
+  are in `calls.jsonl` beside the transcript — a 200 that a fit made
+  possible is visible there, not only in a provider's log; an elided
   result is the literal placeholder in the transcript; a clipped result
   ends in its cut line. Larger windows (a rung with more context, or a
   paged-context loop) lift it — parked in `future_additions.md`.

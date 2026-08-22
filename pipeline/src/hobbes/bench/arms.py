@@ -150,7 +150,10 @@ def run_pure_arm(
     if runtime.kind == "openai" and environment is not None:
         loop = ["--base-url", runtime.base_url, "--model", model, "--api-key-env", runtime.api_key_env,
                 "--prompt", pure_prompt(instance), "--workdir", "/work", "--max-turns", str(runtime.max_turns),
-                "--max-tokens", str(runtime.max_tokens)]
+                "--max-tokens", str(runtime.max_tokens),
+                # ADR-068: the pure arm had no transcript, so its window
+                # use could only be guessed from the envelope's sums.
+                "--transcript", "/work/.hobbes/transcript.jsonl"]
         inner = [environment.runtime_python, "/hobbes/loop.py", *loop]
         if environment.pre:
             inner = ["/bin/sh", "-c", environment.pre + ' && exec "$@"', "hobbes-pre", *inner]
@@ -164,7 +167,8 @@ def run_pure_arm(
         cmd = [sys.executable, str(LOOP_PATH), "--base-url", runtime.base_url, "--model", model,
                "--api-key-env", runtime.api_key_env, "--prompt", pure_prompt(instance),
                "--workdir", str(workspace), "--max-turns", str(runtime.max_turns),
-               "--max-tokens", str(runtime.max_tokens)]
+               "--max-tokens", str(runtime.max_tokens),
+               "--transcript", str(Path(workspace) / ".hobbes" / "transcript.jsonl")]
     else:
         cmd = [bin_, "-p", pure_prompt(instance), "--output-format", "json",
                "--permission-mode", permission_mode, "--allowedTools", allowed_tools]

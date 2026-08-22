@@ -356,6 +356,10 @@ class Endpoint:
         #: How often the window had to be fitted or trimmed — the
         #: envelope reports both, so a run can see the window bind.
         self.fitted, self.elided = 0, 0
+        #: The last call as it actually went — max_tokens finally sent,
+        #: overflow events on the way, wall time — so the loop can log
+        #: every call, not just the ones that errored (ADR-068).
+        self.last: dict = {}
 
     def chat(self, messages: list[dict], tools: list[dict], max_tokens: int | None = None) -> dict:
         """One completion, fitted to the model's window: a length
@@ -365,18 +369,29 @@ class Endpoint:
         request fits or nothing is left to elide. *max_tokens* overrides
         the session's cap for this one call (the cut-completion retry)."""
         max_tokens = max_tokens or self.max_tokens
+        self.last = {"max_tokens_sent": max_tokens, "fitted": 0, "elided": 0, "window": None}
+        started = time.monotonic()
         while True:
             try:
-                return self._post(messages, tools, max_tokens)
+                reply = self._post(messages, tools, max_tokens)
+                u = reply.get("usage") or {}
+                self.last.update(max_tokens_sent=max_tokens, prompt_tokens=u.get("prompt_tokens"),
+                                 completion_tokens=u.get("completion_tokens"),
+                                 finish_reason=(reply.get("choices") or [{}])[0].get("finish_reason"),
+                                 wall_ms=int((time.monotonic() - started) * 1000))
+                return reply
             except ContextOverflow as exc:
+                self.last["window"] = exc.window
                 room = exc.window - exc.inputs - 16
                 if room >= MIN_COMPLETION and room < max_tokens:
                     max_tokens = room
                     self.fitted += 1
+                    self.last["fitted"] += 1
                     continue
                 if not elide_oldest_tool_result(messages):
                     raise
                 self.elided += 1
+                self.last["elided"] += 1
                 max_tokens = self.max_tokens
 
     def _post(self, messages: list[dict], tools: list[dict], max_tokens: int) -> dict:
@@ -405,6 +420,11 @@ class Endpoint:
                 last = RuntimeError(f"{type(exc).__name__}: {exc}")
             time.sleep(2 ** attempt)
         raise last  # type: ignore[misc]
+
+
+def calls_path(transcript: str) -> str:
+    """Where the per-call log goes: ``calls.jsonl`` beside the transcript."""
+    return os.path.join(os.path.dirname(os.path.abspath(transcript)), "calls.jsonl")
 
 
 def elide_oldest_tool_result(messages: list[dict]) -> bool:
@@ -457,6 +477,8 @@ def run(args: argparse.Namespace) -> dict:
     applied_anchors: set[tuple[str, str]] = set()
     read_paths: set[str] = set()
     cut_retried = 0
+    calls_log: list[dict] = []
+    prompt_max = 0
     repeats, dry_turns, refused_run = 0, 0, 0
     edited_since_exec = True  # the first run of any command is always fresh
     try:
@@ -466,6 +488,8 @@ def run(args: argparse.Namespace) -> dict:
             u = reply.get("usage") or {}
             usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
             usage["output_tokens"] += int(u.get("completion_tokens") or 0)
+            calls_log.append({"turn": turns, **endpoint.last})
+            prompt_max = max(prompt_max, int(u.get("prompt_tokens") or 0))
             choice = (reply.get("choices") or [{}])[0]
             message = choice.get("message") or {}
             if choice.get("finish_reason") == "length" and not message.get("tool_calls"):
@@ -479,6 +503,8 @@ def run(args: argparse.Namespace) -> dict:
                 u = reply.get("usage") or {}
                 usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
                 usage["output_tokens"] += int(u.get("completion_tokens") or 0)
+                calls_log.append({"turn": turns, "cut_retry": True, **endpoint.last})
+                prompt_max = max(prompt_max, int(u.get("prompt_tokens") or 0))
                 choice = (reply.get("choices") or [{}])[0]
                 message = choice.get("message") or {}
             calls = message.get("tool_calls") or []
@@ -608,9 +634,18 @@ def run(args: argparse.Namespace) -> dict:
             # tool-call line (ADR-064). Written once at the end; the
             # finally runs on the crash path too.
             try:
+                os.makedirs(os.path.dirname(os.path.abspath(args.transcript)), exist_ok=True)
                 with open(args.transcript, "w", encoding="utf-8") as fh:
                     for m in messages:
                         fh.write(json.dumps(m, ensure_ascii=False) + "\n")
+                # Every call as it went — prompt size, completion size,
+                # max_tokens actually sent, finish_reason, overflow
+                # events, wall — beside the transcript (ADR-068). A
+                # saturated window that never errors is visible here,
+                # not only the 400s the fit absorbed.
+                with open(calls_path(args.transcript), "w", encoding="utf-8") as fh:
+                    for c in calls_log:
+                        fh.write(json.dumps(c) + "\n")
             except OSError as exc:
                 print(f"transcript: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     duration = int((time.monotonic() - started) * 1000)
@@ -619,7 +654,13 @@ def run(args: argparse.Namespace) -> dict:
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
         "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
         "context_fitted": endpoint.fitted, "context_elided": endpoint.elided,
-        "cut_retried": cut_retried, "nudges": nudges, "edited": edited, "reflected": reflected, "repeats_refused": repeats,
+        "cut_retried": cut_retried, "nudges": nudges,
+        # The window as it was actually used: the largest prompt any call
+        # carried, and the calls that needed a fit or an elision to go
+        # through at all (ADR-068).
+        "prompt_tokens_max": prompt_max,
+        "calls_saturated": sum(1 for c in calls_log if c.get("fitted") or c.get("elided")),
+        "calls": len(calls_log), "edited": edited, "reflected": reflected, "repeats_refused": repeats,
         "role": args.role,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,

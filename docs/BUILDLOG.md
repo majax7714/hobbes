@@ -3978,3 +3978,22 @@ tag, an unclosed fence, and `strict=False` JSON. Four tests re-premised
 with a read step; four new. 847 pytest / Go untouched. Not re-run:
 the brief's shape (82 % outside the unit, C-46 measured) is Max's
 decision first, and a launch needs his go.
+
+## 2026-08-22 (fifty-third) — the window per call: validated, then instrumented (ADR-068)
+
+Max, reading the Modal vLLM log for the first time, saw calls
+saturating the window far more than the envelopes counted — minute-long
+calls, a context-length 400, then "a 200, fine". Inspected it properly:
+reconstructed all 221 harness calls of the re-run by tokenizing each
+message prefix on the endpoint and checked the sums against vLLM's own
+`prompt_tokens` — exact to a constant 1,546 tokens/call (the tool
+schema). Result: the re-run itself (02:38–03:10 EDT) was not
+saturated (median 14k, 2 calls ≥ 28k, one session fit/elided); the two
+earlier runs were (198 and 190 overflow events, prompts 16–19k mean,
+sessions sitting at the window turn after turn) — that is what a
+day-spanning log shows. The pure arm turned out to write no transcript.
+Built ADR-068: `calls.jsonl` beside every transcript (prompt/completion
+tokens, `max_tokens` actually sent, `finish_reason`, fit/elide events,
+wall), `prompt_tokens_max` / `calls` / `calls_saturated` in the
+envelope, the pure arm passes `--transcript`. C-46 surfacing amended.
+848 pytest. Not re-run.

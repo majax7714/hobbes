@@ -538,3 +538,10 @@ surfaced per file rather than silent.)*
   selection (an unselected unit would not have spawned) and to the
   harness re-evaluation trigger above. Tune from verdicts, not before.
 
+
+## A window row in `hobbes bench report` (ADR-068, 2026-08-22)
+
+`calls.jsonl` and the envelope's `prompt_tokens_max` / `calls_saturated`
+exist per session; the report does not yet roll them up. Add a per-arm
+row: calls, calls saturated, share of implement wall spent at the
+window, largest prompt. Small; opens when Max names it.
