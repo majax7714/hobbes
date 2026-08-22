@@ -20,7 +20,7 @@ import pytest
 from hobbes import cli
 from hobbes.bench import accounting, arms, instances, results, verdict, workspace
 from hobbes.bench import run as bench_run
-from tests.test_run import FAKE_SESSION
+from tests.test_run import FAKE_SESSION, STAGED_SESSION
 
 
 def git(repo, *args):
@@ -134,6 +134,11 @@ def fake_claude(tmp_path, monkeypatch):
 @pytest.fixture
 def fake_session(tmp_path):
     return _script(tmp_path / "hobbes-session", FAKE_SESSION)
+
+
+@pytest.fixture
+def staged_session(tmp_path):
+    return _script(tmp_path / "hobbes-session-staged", STAGED_SESSION)
 
 
 @pytest.fixture
@@ -296,6 +301,34 @@ class TestHarnessArm:
         assert result.outcome == "no-seed" and result.patch == ""
         assert "--seed" in result.error
 
+    def test_staged_arm_meters_every_stage_and_scores_the_planner_post_hoc(self, upstream, instance,
+                                                                            staged_session, tmp_path):
+        # phase 3 of the harness restructure: the adapter over the stage loop
+        ws = workspace.checkout(instance, tmp_path / "ws")
+        result = arms.run_harness_arm(instance, ws, "m", session_bin=staged_session,
+                                      sessions_root=tmp_path / "s", stages=("plan", "implement", "verify"))
+        assert result.outcome == "patch", result.error
+        assert result.detail["seed_source"] == "planner"
+        stages = result.detail["stages"]
+        assert [s["stage"] for s in stages][:1] == ["plan"] and stages[-1]["stage"] == "verify"
+        assert any(s["stage"] == "implement" for s in stages)
+        # every stage carries a wall time measured from outside; the sum is the arm's
+        assert all(s["wall_seconds"] is not None for s in stages)
+        assert result.usage.wall_seconds == pytest.approx(sum(s["wall_seconds"] for s in stages), abs=0.01)
+        assert set(result.detail["run"]["stage_wall"]) == {"plan", "implement", "verify"}
+        # the planner's session log exists and was read (no envelope in the stand-in: tokens unobserved)
+        planner_log = ws / ".hobbes" / "plans" / result.detail["plan"]["task"] / "agents" / "planner" / "session.log"
+        assert planner_log.is_file() and "session planner done" in planner_log.read_text()
+        assert "tokens" in result.usage.unobserved
+        # the planner's named paths are structural, not prose
+        assert result.detail["planner"]["paths"] == ["src/app/core.py"]
+        assert "hit" not in result.detail["planner"]  # the arm never scores itself
+        # the record scores it against the gold patch, after the fact
+        record = results.make_record(instance, result)
+        planner = record.detail["planner"]
+        assert planner["hit"] is True and planner["hit_files"] == ["src/app/core.py"]
+        assert planner["gold"] == 2 and planner["hits"] == 1 and planner["recall"] == 0.5
+
     def test_not_a_repo_is_an_ingest_error(self, tmp_path, instance):
         result = arms.run_harness_arm(instance, tmp_path / "empty", "m")
         assert result.outcome == "ingest-error"
@@ -359,6 +392,37 @@ class TestReport:
         assert h3["solved"] == 3 and h3["tokens"]["observed"] == 2 and h3["tokens"]["unobserved"] == 1
         text = results.format_report(doc)
         assert "gap closed" in text and "1 unobserved" in text and "C-39" in text
+
+    def test_planner_hit_is_a_suffix_match_and_states_counts(self):
+        hit = results.planner_hit(["app/core.py", "nothing.py"], ["src/app/core.py", "src/app/api.py"])
+        assert hit["hit"] and hit["hit_files"] == ["src/app/core.py"] and hit["recall"] == 0.5
+        assert hit["named"] == 2
+        assert results.planner_hit([], ["a.py"])["hit"] is False
+        assert results.planner_hit(["a.py"], [])["recall"] is None
+
+    def test_report_splits_the_staged_harness_by_seed_source(self):
+        def staged(iid, source, verdict_, hit, gold=2):
+            r = _rec(iid, "harness", "small", verdict_)
+            r.detail = {"seed_source": source,
+                        "planner": {"gold": gold, "hit": hit, "hits": 1 if hit else 0,
+                                    "recall": 0.5 if hit else 0.0}}
+            return r
+        recs = [
+            staged("a", "planner", "resolved", True), staged("b", "planner", "unresolved", True),
+            staged("c", "lexical-fallback", "unresolved", False),
+            _rec("d", "pure", "small", "resolved"),
+        ]
+        doc = results.report(recs)
+        split = doc["planner"]["harness/small"]
+        assert split["planner_hit_rate"] == round(2 / 3, 4) and split["planner_checked"] == 3
+        assert split["by_seed_source"]["planner"]["rate"] == 0.5
+        assert split["by_seed_source"]["planner"]["planner_hit_rate"] == 1.0
+        assert split["by_seed_source"]["lexical-fallback"]["planner_hit_rate"] == 0.0
+        assert "pure/small" not in doc["planner"]
+        text = results.format_report(doc)
+        assert "seed_source" in text and "lexical-fallback" in text and "C-49" in text
+        # a run with no staged records prints no planner block
+        assert "planner (staged" not in results.format_report(results.report([_rec("d", "pure", "m", "resolved")]))
 
     def test_records_round_trip(self, tmp_path):
         results.append(tmp_path, _rec("a", "pure", "m", None))

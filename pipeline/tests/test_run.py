@@ -497,6 +497,15 @@ class TestStagedRun:
         # every implementer's inbox carried the planner note
         assert any(u["spawned"] for u in rec["units"])
         assert rec["integration"]["merged"]
+        # the integration branch really advanced past base (phase 3 found
+        # it pinned at base: branch -f ran in the repo, not the worktree)
+        diff = subprocess.run(["git", "-C", str(plan_repo), "diff", "--stat", rec["base"], rec["integration"]["branch"]],
+                              capture_output=True, text=True).stdout
+        assert "file changed" in diff
+        # every stage has a wall time; implementers appear as stages too
+        assert all(s["wall_seconds"] is not None for s in rec["stages"])
+        assert [s["stage"] for s in rec["stages"]][0] == "plan" and "implement" in [s["stage"] for s in rec["stages"]]
+        assert "wall_time" not in rec["loss"]["unobserved"] and rec["loss"]["terms"]["wall_seconds"] > 0
         # the verifier ran and passed
         verify = rec["verify"]
         assert verify["verdict"] == "pass" and verify["verdict_source"] == "keyed"

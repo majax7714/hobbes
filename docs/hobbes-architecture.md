@@ -876,6 +876,21 @@ interprets nothing.
   over judged records and the unjudged count is printed beside them.
 - **Depth is a declared proxy**: the gold patch's file count, bucketed
   1 / 2–3 / 4+ for H2's slope.
+- **The staged arm is metered per stage (ADR-059, harness restructure
+  phase 3).** With `--stages`, the harness record's `detail.stages`
+  carries every session the run spawned — planner, each implementer,
+  the verifier, any rework — with its exit, handoff verdict, **wall
+  time measured from outside** (so observed even without an envelope)
+  and its own session log's tokens; the arm's usage is the sum, a
+  read-only stage costing turns like any other (H3). `seed_source` and
+  `stage_wall` ride `detail.run`. After the arm has finished,
+  `results.make_record` scores the planner **post hoc** against the
+  instance's gold patch — `planner_files ∩ gold_files`, a hit flag and
+  a recall with its counts — from a patch no session ever saw. `hobbes
+  bench report` splits the staged harness by `seed_source` and prints
+  the planner hit-rate beside the solve rate: the first number that
+  says whether the generative unlock worked, independent of the
+  verdict. It is a proxy against one solution (**C-49**).
 
 - **The runtime is owned for the small-model ladder (ADR-056).**
   `pipeline/src/hobbes/agent/loop.py` is a stdlib-only tool loop over

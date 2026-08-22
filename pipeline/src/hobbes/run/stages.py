@@ -36,6 +36,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from hobbes import artifacts
@@ -113,7 +114,10 @@ def spawn(session_bin: str | None, repo: Path, role: str, agent_dir: Path, sessi
           dry_run: bool) -> subprocess.CompletedProcess | None:
     """Start one single-use session; returns the completed process (or
     None on a dry run with no binary). One session at a time — the caller
-    blocks on it before starting the next (agent-mapping §3.4)."""
+    blocks on it before starting the next (agent-mapping §3.4). The
+    process carries ``wall_seconds`` (measured from outside, so it is
+    observed even when the session emits no envelope) and its output is
+    the agent's ``session.log`` — every stage's meter, whatever the role."""
     cmd = [session_bin or "hobbes-session", "start", "--repo", str(repo), "--role", role,
            "--agent-dir", str(agent_dir), "--session", session,
            "--sessions", str(sessions_root), "--task-file", str(brief_path)]
@@ -125,7 +129,18 @@ def spawn(session_bin: str | None, repo: Path, role: str, agent_dir: Path, sessi
     (agent_dir / "spawn.txt").write_text(" ".join(cmd) + "\n")
     if dry_run and not session_bin:
         return None
-    return subprocess.run(cmd, capture_output=True, text=True)
+    started = time.monotonic()
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc.wall_seconds = round(time.monotonic() - started, 3)  # type: ignore[attr-defined]
+    (agent_dir / "session.log").write_text(proc.stdout + proc.stderr)
+    # A rework reuses the unit's agent dir; the per-session copy keeps
+    # the first pass's meter readable after the second overwrites session.log.
+    (agent_dir / f"{session}.log").write_text(proc.stdout + proc.stderr)
+    return proc
+
+
+def _wall(proc) -> float | None:
+    return getattr(proc, "wall_seconds", None) if proc else None
 
 
 def _head_sha(repo: Path, target: str, base: str) -> str:
@@ -165,7 +180,7 @@ def run_planner(repo: Path, proposal: str, graph: dict, pdir: Path, session_bin,
     reflected = mail.reflections(sessions_root / session)
     chosen, _ = mail.handoff(reflected)
     parsed = parse_handoff(chosen.get("text", "") if chosen else "")
-    return {"session": session, "exit": proc.returncode if proc else None,
+    return {"session": session, "exit": proc.returncode if proc else None, "wall_seconds": _wall(proc),
             "handoff": parsed, "reflections": [m.get("text", "") for m in reflected]}
 
 
@@ -207,9 +222,11 @@ def run_staged(
         handoff = result["handoff"]
         hits, planner_misses = resolve_terms(graph, handoff.get("files", []) + handoff.get("symbols", []))
         planner_tests = handoff.get("tests", [])
-        stage_log.append({"stage": "plan", "role": "planner", **{k: result[k] for k in ("session", "exit")},
-                          "handoff": handoff.get("raw", ""), "resolved": hits, "unresolved": planner_misses,
-                          "tests": planner_tests})
+        stage_log.append({"stage": "plan", "role": "planner", "agent": "planner",
+                          **{k: result.get(k) for k in ("session", "exit", "wall_seconds")},
+                          "handoff": handoff.get("raw", ""),
+                          "files": list(handoff.get("files", [])), "symbols": list(handoff.get("symbols", [])),
+                          "resolved": hits, "unresolved": planner_misses, "tests": planner_tests})
         if hits:
             planner_seeds = hits
             seed_source = "planner"
@@ -271,12 +288,12 @@ def run_staged(
                          sessions_root, extra_args, ref=head_ref, dry_run=dry_run)
             record.spawned = not dry_run
             record.exit = proc.returncode if proc else None
-            if proc:
-                (dirs[unit] / "session.log").write_text(proc.stdout + proc.stderr)
+            record.wall_seconds = _wall(proc)
             _harvest_unit(repo, base, session, context, test_files, sessions_root, record, orchestrator, unit)
             # Integrate this one immediately, onto the running target.
             _integrate_one(repo, target, unit, session, integ)
             records.append(record)
+            stage_log.append(_unit_stage("implement", unit, record))
 
     review = {"skipped": "dry run" if dry_run else "not run"}
     if not dry_run and integ["merged"]:
@@ -293,7 +310,7 @@ def run_staged(
             reworked += 1
             _run_rework(repo, task, target, base, verify, spec, contexts, test_files, dirs,
                         orchestrator, records, sessions, integ, session_bin, sessions_root,
-                        extra_args, brief_limit)
+                        extra_args, brief_limit, stage_log)
             verify = run_verifier(repo, task, _head_sha(repo, target, base), planner_tests, spec, pdir,
                                   session_bin, sessions_root, extra_args, brief_limit, dry_run, attempt=reworked + 1)
             stage_log.append(verify["stage"])
@@ -314,6 +331,14 @@ def run_staged(
     }
     (pdir / "partition-record.json").write_text(json.dumps(record_doc, indent=2, sort_keys=True) + "\n")
     return record_doc
+
+
+def _unit_stage(stage: str, unit: str, record: UnitRecord) -> dict:
+    """An implementer's entry in the stage log: the same session the
+    unit record names, so the bench adapter can find its meter."""
+    return {"stage": stage, "role": "implementer", "agent": unit, "unit": unit,
+            "session": record.session, "exit": record.exit, "wall_seconds": record.wall_seconds,
+            "commits": record.commits, "files_changed": list(record.files_changed)}
 
 
 def artifacts_spec(repo: Path, task: str) -> dict:
@@ -360,7 +385,8 @@ def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict
         code, out = _git(tmp, "-c", "user.name=hobbes", "-c", "user.email=hobbes@local",
                          "merge", "--no-ff", "-q", "-m", f"integrate {unit} ({branch})", branch)
         if code == 0:
-            _git(repo, "branch", "-f", target, "HEAD")
+            # HEAD is the *worktree's* — the repo's HEAD is the user's checkout.
+            _git(tmp, "branch", "-f", target, "HEAD")
             integ["merged"].append(unit)
         else:
             _git(tmp, "merge", "--abort")
@@ -399,8 +425,8 @@ def run_review(repo, spec, pdir, session_bin, sessions_root, extra_args, brief_l
     chosen, _ = mail.handoff(mail.reflections(sessions_root / session))
     parsed = parse_handoff(chosen.get("text", "") if chosen else "")
     return {"verdict": parsed.get("verdict", ""), "stage": {
-        "stage": "review", "role": "reviewer", "session": session,
-        "exit": proc.returncode if proc else None,
+        "stage": "review", "role": "reviewer", "agent": "reviewer", "session": session,
+        "exit": proc.returncode if proc else None, "wall_seconds": _wall(proc),
         "verdict": parsed.get("verdict", ""), "verdict_source": parsed.get("verdict_source"),
         "reason": parsed.get("reason", "")}}
 
@@ -435,7 +461,6 @@ def run_verifier(repo, task, head, planner_tests, spec, pdir, session_bin, sessi
     proc = spawn(session_bin, repo, "verifier", directory, session, directory / "brief.md",
                  sessions_root, extra_args, ref=head, dry_run=dry_run)
     log = (proc.stdout + proc.stderr) if proc else ""
-    (directory / "session.log").write_text(log)
     chosen, _ = mail.handoff(mail.reflections(sessions_root / session))
     parsed = parse_handoff(chosen.get("text", "") if chosen else "")
     verdict = parsed.get("verdict", "")
@@ -447,15 +472,16 @@ def run_verifier(repo, task, head, planner_tests, spec, pdir, session_bin, sessi
         environment_flag = False
     return {"verdict": verdict, "units": parsed.get("units", []), "reason": reason,
             "verdict_source": parsed.get("verdict_source"),
-            "stage": {"stage": "verify", "role": "verifier", "session": session, "attempt": attempt,
-                      "exit": proc.returncode if proc else None, "verdict": verdict,
+            "stage": {"stage": "verify", "role": "verifier", "agent": f"verifier-{attempt}",
+                      "session": session, "attempt": attempt,
+                      "exit": proc.returncode if proc else None, "wall_seconds": _wall(proc), "verdict": verdict,
                       "verdict_source": parsed.get("verdict_source"), "reason": reason,
                       "verifier_env": environment_flag, "tests": tests}}
 
 
 def _run_rework(repo, task, target, base, verify, spec, contexts, test_files, dirs,
                 orchestrator, records, sessions, integ, session_bin, sessions_root,
-                extra_args, brief_limit) -> None:
+                extra_args, brief_limit, stage_log: list[dict]) -> None:
     """One implementer redoes the unit(s) the verifier named, its inbox
     the verifier's handoff. Chained on the current target like the first
     pass."""
@@ -472,11 +498,11 @@ def _run_rework(repo, task, target, base, verify, spec, contexts, test_files, di
                      sessions_root, extra_args, ref=_head_sha(repo, target, base), dry_run=False)
         record.spawned = True
         record.exit = proc.returncode if proc else None
-        if proc:
-            (dirs[unit] / "session.log").write_text(proc.stdout + proc.stderr)
+        record.wall_seconds = _wall(proc)
         _harvest_unit(repo, base, session, contexts[unit], test_files, sessions_root, record, orchestrator, unit)
         _integrate_one(repo, target, unit, session, integ)
         records.append(record)
+        stage_log.append(_unit_stage("rework", unit, record))
 
 
 def _guard_files(context: dict, spec: dict) -> list[str]:

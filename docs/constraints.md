@@ -1106,6 +1106,35 @@ information appears in both, and the entries cross-reference.
   line carries what could not run.
 - **Source:** ADR-059 (2026-08-22).
 
+### C-49 — The planner hit-rate is measured against one solution
+- **Cannot tell you:** that a planner which *missed* the gold files
+  named the wrong place. The benchmark report's planner hit (`hobbes
+  bench report`, harness restructure phase 3) is
+  `planner_files ∩ gold_files` over the instance's gold patch — and a
+  gold patch is one accepted solution, not the set of correct ones. A
+  planner that names a different file where an equally valid fix lives
+  scores a miss; a planner that names the gold file and the wrong ten
+  beside it scores a hit. The recall counts the gold files named, never
+  the noise around them.
+- **Because:** the benchmark supplies exactly one reference patch, and
+  the hit is computed post hoc from it so that no session is ever shown
+  the answer; the alternative — judging a planner's files by whether
+  the patch later solved — would fold the implementer's competence into
+  the planner's number, which is the thing phase 4's probe must keep
+  apart.
+- **Bites at:** reading a hit-rate as planner accuracy; tuning the
+  planner brief to the gold files of the probe instances (the two
+  astropy instances are the probe and then part of the 45-set — a
+  brief edited against their gold patches is contaminated by hand);
+  comparing hit-rates across instances whose gold patches differ in
+  size without reading the `gold` count printed beside them.
+- **You find out:** **surfaced** — every report that prints the planner
+  block carries the note naming this entry; the record's
+  `detail.planner` states `gold`, `hits`, `named` and the file lists,
+  so a miss can be read against what was actually named.
+- **Source:** harness restructure phase 3 (2026-08-22), ADR-059
+  amended.
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language
@@ -1348,7 +1377,7 @@ entry and the two cross-reference (C-11 → C-24 is the worked chain).
 
 ## Debt summary
 
-Three of **thirty-eight** entries are **unsurfaced** (C-4, C-19 — narrowed
+Three of **thirty-nine** entries are **unsurfaced** (C-4, C-19 — narrowed
 to two tools — and C-20). C-31 left that list on 2026-08-21 (ADR-053:
 the verification base stamped into the artifact and stated wherever a
 language list is read), as did C-32's `partial`. The three derivation entries (C-35..C-37,

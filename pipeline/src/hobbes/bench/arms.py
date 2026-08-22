@@ -307,9 +307,12 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
                     budget, seeds, runtime) -> ArmResult:
     """The staged harness arm (ADR-059): run_staged does ingest's
     successor stages. The candidate patch is the integration branch's
-    diff, exactly as the per-unit path; the record's stages, seed_source
-    and verify verdict ride the detail — the error stream ADR-052 asked
-    for, one layer richer."""
+    diff, exactly as the per-unit path. The record carries every stage
+    (role, session, exit, handoff verdict, **wall time and tokens** from
+    that stage's own session log), ``seed_source``, and the planner's
+    named files — the error stream ADR-052 asked for, one layer richer.
+    The usage is the sum over every stage's session, the planner and
+    the verifier included: a read-only stage costs turns too (H3)."""
     from hobbes import artifacts
     from hobbes.derive.impact import SeedError
     from hobbes.run import RunError
@@ -330,30 +333,73 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
         return ArmResult("harness", model, "no-seed", detail=detail, error=str(exc))
     except (RunError, artifacts.ArtifactError, Exception) as exc:  # noqa: BLE001
         return ArmResult("harness", model, "run-error", detail=detail, error=f"{type(exc).__name__}: {exc}")
-    usage = accounting.Usage()
     from hobbes.run.agents import agent_dir
     from hobbes.run.spec import plan_dir
     pdir = plan_dir(workspace, record["task"])
-    logs = list(pdir.glob("agents/*/session.log"))
-    for log in logs:
-        usage = usage.add(accounting.from_text(log.read_text()))
-    if usage.wall_seconds is None and usage.envelopes == 0:
-        usage.wall_seconds = round(time.monotonic() - started, 3)
+    usage = accounting.Usage()
+    stage_rows = []
+    stage_wall: dict[str, float] = {}
+    for st in record.get("stages", []):
+        row = {k: st.get(k) for k in ("stage", "role", "unit", "session", "verdict", "verdict_source",
+                                      "exit", "resolved", "unresolved", "verifier_env", "wall_seconds")}
+        stage_usage = _stage_usage(agent_dir(pdir, st.get("agent") or ""), st.get("session") or "")
+        row["tokens"] = stage_usage.total_tokens
+        usage = usage.add(stage_usage)
+        if st.get("wall_seconds") is not None:
+            stage_wall[st["stage"]] = round(stage_wall.get(st["stage"], 0.0) + st["wall_seconds"], 3)
+        stage_rows.append(row)
+    if usage.wall_seconds is None:
+        # Stage wall times are measured from outside the sessions, so the
+        # arm's wall time is observed even when no envelope was emitted.
+        walls = [st.get("wall_seconds") for st in record.get("stages", []) if st.get("wall_seconds") is not None]
+        usage.wall_seconds = round(sum(walls), 3) if walls else round(time.monotonic() - started, 3)
     detail["seed_source"] = record.get("seed_source")
-    detail["stages"] = [{k: st.get(k) for k in ("stage", "role", "verdict", "verdict_source",
-                                                 "exit", "resolved", "unresolved", "verifier_env")}
-                        for st in record.get("stages", [])]
+    detail["stages"] = stage_rows
+    plan_stage = next((st for st in record.get("stages", []) if st.get("stage") == "plan"), {})
+    graph = artifacts.load_graph(workspace)
+    detail["planner"] = {
+        "files": list(plan_stage.get("files", [])), "symbols": list(plan_stage.get("symbols", [])),
+        "resolved": list(plan_stage.get("resolved", [])), "unresolved": list(plan_stage.get("unresolved", [])),
+        # The paths the planner's handoff reaches: named files plus the
+        # files of the modules its names resolved to. What results.py
+        # checks against the gold patch — after the arm, never inside it.
+        "paths": planner_paths(graph, plan_stage),
+    }
     detail["plan"] = {"task": record["task"], "seeds": record.get("seeds", {}),
                       "units": len(record.get("units", [])),
                       "deferred": len(record.get("units_deferred", [])),
                       "planner_unresolved": record.get("planner_unresolved", []),
                       "contracts": record.get("contracts", 0)}
-    detail["run"] = {"integration": record.get("integration", {}),
+    detail["run"] = {"seed_source": record.get("seed_source"),
+                     "stage_wall": stage_wall,
+                     "units": [{k: u.get(k) for k in ("unit", "spawned", "exit", "commits", "wall_seconds",
+                                                       "reflections", "reason", "brief_cut")}
+                               for u in record.get("units", [])],
+                     "integration": record.get("integration", {}),
                      "verify": {k: record.get("verify", {}).get(k) for k in ("verdict", "verdict_source", "reason")},
                      "rework": record.get("rework", 0), "loss": record.get("loss", {})}
     branch = record.get("integration", {}).get("branch")
     patch = candidate_patch(workspace, instance.base_commit, ref=branch) if branch and _ref_exists(workspace, branch) else ""
     return ArmResult("harness", model, _classify_patch(patch), patch=patch, usage=usage, detail=detail)
+
+
+def _stage_usage(directory: Path, session: str) -> accounting.Usage:
+    """One stage's meter from its own session log (the per-session copy
+    first — a rework overwrites the unit's ``session.log``)."""
+    for name in (f"{session}.log" if session else "", "session.log"):
+        if name and (directory / name).is_file():
+            return accounting.from_text((directory / name).read_text())
+    return accounting.Usage()
+
+
+def planner_paths(graph: dict, plan_stage: dict) -> list[str]:
+    """The file paths a planner's handoff names, directly or through the
+    modules its names resolved to. Sorted, unique; a name that resolved
+    to nothing and is not path-shaped contributes nothing."""
+    by_id = {n["id"]: n.get("path") for n in graph.get("nodes", [])}
+    paths = {by_id[m] for m in plan_stage.get("resolved", []) if by_id.get(m)}
+    paths.update(f.strip().lstrip("./") for f in plan_stage.get("files", []) if "/" in f or "." in f)
+    return sorted(p for p in paths if p)
 
 
 def solo_session_args(extra: list[str] | None) -> list[str]:

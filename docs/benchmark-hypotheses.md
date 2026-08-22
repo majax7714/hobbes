@@ -157,6 +157,15 @@ cannot bend them:
 - **H3 is per solved instance over observed terms.** A session that
   emitted no usage envelope is recorded unobserved and the row says how
   many; a zero is never shown for a number nobody saw.
+- **The planner hit is scored after the arm, never inside it** (harness
+  restructure phase 3, 2026-08-22). A staged record (`--stages`,
+  ADR-059) carries `seed_source` and whether the planner's named files
+  reach a gold-patch file, computed by `results.py` from the gold patch
+  no session saw; `report` splits the staged harness by `seed_source`
+  with the hit-rate beside the solve rate. It answers "did the planner
+  find the place?" before any verdict exists — and it is a proxy, since
+  the gold patch is one solution (C-49). Phase 4's probe reads this
+  column first.
 - **Depth is the rated band where the dataset has one** (Verified's
   `difficulty`: `<15 min fix` 194, `15 min - 1 hour` 261, `1-4 hours`
   42, `>4 hours` 3), else the gold-patch file-count proxy, and every

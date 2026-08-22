@@ -13,6 +13,14 @@ results section of ``docs/benchmark-hypotheses.md``.
 Records with no verdict yet are excluded from every rate and counted
 as such — a rate over unjudged patches would be a rate of "produced
 something", which is not what any hypothesis asks.
+
+**The planner hit (ADR-059, harness restructure phase 3).** A staged
+harness record also carries, computed *here* from the instance's gold
+patch after the arm has finished and never shown to any session,
+whether the planner's named files reach a gold file. It is the first
+number that says whether the generative layer above the lexical seeds
+worked, independent of the solve — and it is a proxy: the gold patch
+is one solution, not the only one (C-49).
 """
 
 from __future__ import annotations
@@ -53,13 +61,31 @@ class Record:
         return asdict(self)
 
 
+def planner_hit(planner_paths: list[str], gold_files: list[str]) -> dict:
+    """``planner_paths ∩ gold_files`` — exact path, or a gold path ending
+    in the named one (a planner may name ``app/core.py`` for
+    ``src/app/core.py``). Counts are stated beside the rate so a single
+    gold file cannot read as a strong result."""
+    named = [p.strip("/") for p in planner_paths if p.strip("/")]
+    hits = sorted({g for g in gold_files for n in named if g == n or g.endswith("/" + n)})
+    return {"gold_files": sorted(gold_files), "hit_files": hits,
+            "hit": bool(hits), "gold": len(gold_files), "hits": len(hits),
+            "recall": round(len(hits) / len(gold_files), 4) if gold_files else None,
+            "named": len(named)}
+
+
 def make_record(instance: Instance, result: ArmResult) -> Record:
+    detail = dict(result.detail)
+    if result.arm == "harness" and "planner" in detail:
+        # Post-hoc, from the gold patch the arm never saw (C-49).
+        detail["planner"] = {**detail["planner"],
+                             **planner_hit(detail["planner"].get("paths", []), instance.gold_files)}
     return Record(
         instance_id=instance.instance_id, repo=instance.repo, created_at=instance.created_at,
         depth=instance.depth, depth_bucket=instance.depth_bucket,
         arm=result.arm, model=result.model, outcome=result.outcome,
         patch_bytes=len(result.patch.encode()), patch_files=result.patch_files,
-        usage=result.usage.to_dict(), error=result.error, detail=result.detail,
+        usage=result.usage.to_dict(), error=result.error, detail=detail,
     )
 
 
@@ -150,6 +176,12 @@ def report(records: list[Record]) -> dict:
 
     h3 = {f"{arm}/{model}": _per_solved(rs) for (arm, model), rs in sorted(groups.items())}
 
+    planner = {}
+    for (arm, model), rs in sorted(groups.items()):
+        if arm != "harness" or not any(r.detail.get("seed_source") for r in rs):
+            continue
+        planner[f"{arm}/{model}"] = _planner_split(rs)
+
     outcomes: dict[str, dict[str, int]] = {}
     for (arm, model), rs in groups.items():
         counts = outcomes.setdefault(f"{arm}/{model}", {})
@@ -158,7 +190,7 @@ def report(records: list[Record]) -> dict:
     unjudged = sum(1 for r in records if r.solved is None)
     return {
         "records": len(records), "unjudged": unjudged, "models": models,
-        "H1": h1, "H2": h2, "H3": h3, "outcomes": outcomes,
+        "H1": h1, "H2": h2, "H3": h3, "planner": planner, "outcomes": outcomes,
         "notes": [
             "rates are over judged records only; unjudged records are counted, not rated",
             "depth is the rated difficulty band where the dataset has one, else the gold-patch file count — a proxy (H2)",
@@ -166,9 +198,38 @@ def report(records: list[Record]) -> dict:
             "H3 means are per solved instance over records whose term was observed; "
             "unobserved counts are stated, never imputed",
             "contamination is bounded by the selection's cutoff, not proven (C-39)",
+            "planner hit = the planner's named files reach a gold-patch file, computed after the arm "
+            "from the gold patch no session saw; the gold patch is one solution, not the only one (C-49)",
             "the verdict is the pinned swebench evaluator's — its limits are ours (P9)",
         ],
     }
+
+
+def _planner_split(records: list[Record]) -> dict:
+    """The staged harness arm by ``seed_source``, with the planner hit
+    beside the solve rate: did the unlock work, independent of the
+    verdict? Records with no planner stage (no stage loop, or an arm
+    that failed before it) are counted under ``none``."""
+    by_source: dict[str, list[Record]] = {}
+    for r in records:
+        by_source.setdefault(r.detail.get("seed_source") or "none", []).append(r)
+    out: dict = {"by_seed_source": {}}
+    for source, rs in sorted(by_source.items()):
+        with_gold = [r for r in rs if r.detail.get("planner", {}).get("gold")]
+        hit = sum(1 for r in with_gold if r.detail["planner"].get("hit"))
+        recalls = [r.detail["planner"]["recall"] for r in with_gold if r.detail["planner"].get("recall") is not None]
+        out["by_seed_source"][source] = {
+            **_rate(rs),
+            "planner_hit": hit, "planner_checked": len(with_gold),
+            "planner_hit_rate": round(hit / len(with_gold), 4) if with_gold else None,
+            "planner_recall_mean": round(sum(recalls) / len(recalls), 4) if recalls else None,
+        }
+    checked = [r for r in records if r.detail.get("planner", {}).get("gold")]
+    hits = sum(1 for r in checked if r.detail["planner"].get("hit"))
+    out["planner_hit"] = hits
+    out["planner_checked"] = len(checked)
+    out["planner_hit_rate"] = round(hits / len(checked), 4) if checked else None
+    return out
 
 
 def _pct(rate: float | None) -> str:
@@ -208,6 +269,20 @@ def format_report(doc: dict) -> str:
             miss = f" ({t['unobserved']} unobserved)" if t["unobserved"] else ""
             parts.append(f"{term} {value}{miss}")
         lines.append(f"  {key}: solved {row['solved']}; " + "; ".join(parts))
+    if doc.get("planner"):
+        lines.append("")
+        lines.append("planner (staged harness, ADR-059) — by seed_source; hit = named files reach a gold file")
+        lines.append("  arm/model | seed_source | solved/judged (n) | planner hit (checked) | mean gold recall")
+        for key, row in doc["planner"].items():
+            for source, cell in row["by_seed_source"].items():
+                hit = "—" if cell["planner_hit_rate"] is None else \
+                    f"{_pct(cell['planner_hit_rate'])} ({cell['planner_hit']}/{cell['planner_checked']})"
+                recall = "—" if cell["planner_recall_mean"] is None else f"{100 * cell['planner_recall_mean']:.0f}%"
+                lines.append(f"  {key} | {source} | {_pct(cell['rate'])} ({cell['solved']}/{cell['judged']}) "
+                             f"(n={cell['n']}) | {hit} | {recall}")
+            total = "—" if row["planner_hit_rate"] is None else \
+                f"{_pct(row['planner_hit_rate'])} ({row['planner_hit']}/{row['planner_checked']})"
+            lines.append(f"  {key} | all | planner hit {total}")
     lines.append("")
     lines.append("outcomes (the error stream)")
     for key, counts in doc["outcomes"].items():

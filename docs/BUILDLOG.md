@@ -3653,3 +3653,37 @@ constraints; agent-mapping. pytest +7 (staged loop with a role-aware
 stand-in; handoff parser): **815 pytest / Go green**. No live run —
 phase 4 (planner-only on the two astropy instances, checked against
 gold) is next. Paused here at the owner's request.
+
+## 2026-08-22 (fortieth) — phase 3: the harness adapter
+
+The bench side of the staged run (ADR-059 amended). `run/stages.py`'s
+`spawn` now times every session from outside and writes its output as
+the agent's `session.log` plus a per-session copy (a rework reuses the
+unit's dir); implementers join the stage log as entries, so `stages`
+is the whole spawn sequence — plan, implement×n, verify, rework — each
+with exit, verdict, `wall_seconds`, and the `UnitRecord`'s wall term
+is observed for the first time (the loss's `wall_time` leaves
+`unobserved`). `bench/arms.py` sums every stage's own log into the
+arm's usage (planner and verifier turns count — H3), carries
+`seed_source`, `stage_wall` and the planner's named files/paths;
+`results.make_record` scores **`planner_files ∩ gold_files` post hoc**
+from the gold patch no session saw (`hit`, `hits/gold`, `recall`,
+`named`); `report` gains a planner block split by `seed_source` with
+the hit-rate beside the solve rate, and `bench run` logs the hit and
+stage walls per instance. **C-49** registered surfaced (the hit is a
+proxy against one solution; the report's note names it).
+
+Found while building it: **phase 2's integration branch never
+advanced** — `_integrate_one` ran `git branch -f target HEAD` in the
+repo (HEAD = the checkout at base) instead of the detached worktree,
+so `merged` was recorded while `hobbes/<task>` stayed at base, chained
+implementers cloned base, and the verifier verified base. Fixed; the
+staged-run test now asserts the branch diffs from base. pytest +3:
+**818 pytest / Go green.** Exit check: a dry `hobbes run
+--from-proposal` on the dogfood repo records cleanly with no wall
+times (no process), and `hobbes bench report` over a synthetic
+three-record run prints the split. Phase 1's `ensure_role_policies`
+had scaffolded `planner.policy` / `reviewer.policy` into the dogfood
+`.hobbes/policies/roles/` untracked; versioned now beside the other
+three. Next: **phase 4** — the planner-only probe on the two astropy
+instances, reading the hit column first.

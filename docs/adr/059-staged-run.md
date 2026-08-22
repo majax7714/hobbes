@@ -1,7 +1,7 @@
 # ADR-059 — The staged run: single-use derived-context agents, one at a time, job = short memory
 
 **Date:** 2026-08-22
-**Status:** accepted — built (phase 2 of the harness restructure,
+**Status:** accepted — built (phases 2–3 of the harness restructure,
 `docs/harness-restructure-plan.md`), exercised by the stand-in session;
 no live benchmark run yet.
 **Amends:** `docs/hobbes-architecture.md` (§6.1 gains the staged
@@ -119,6 +119,22 @@ asserted.
   lexical fallback, rework on a verifier fail, dry run; and
   `TestHandoffParsing` ×3), plus the handoff parser's own cases. Go
   unchanged from phase 1. 815 pytest / Go green.
+- **Phase 3 (2026-08-22, the harness adapter) amends this ADR.** Every
+  stage — implementers included — is now an entry in the stage log
+  with a wall time measured around the spawn and its own session log
+  (a per-session copy, since a rework reuses the unit's agent dir);
+  the bench record sums every stage's meter and carries `seed_source`,
+  per-stage wall times and the planner's named files; `results.py`
+  scores `planner_files ∩ gold_files` post hoc from the gold patch no
+  session saw, and `hobbes bench report` splits the staged harness by
+  `seed_source` with the planner hit-rate beside the solve rate
+  (**C-49**: a proxy against one solution). Building the adapter found
+  a phase-2 bug: `_integrate_one` ran `git branch -f target HEAD` in
+  the repo (whose HEAD is the user's checkout) instead of the detached
+  worktree, so the integration branch never advanced — `merged` was
+  recorded, chained implementers started at base, and the verifier
+  verified base. Fixed and pinned by a diff assertion in the staged-run
+  test. 818 pytest / Go green.
 - No live run. The first staged run is the restructure plan's phase 4:
   planner-only on the two astropy instances first, checking the
   planner's files against gold, before the 45-set.

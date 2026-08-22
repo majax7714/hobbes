@@ -163,7 +163,7 @@ ADR-059; architecture §6.1; `agent-mapping.md` header; C-47 (planner
 seeds are a model opinion), C-48 (the verifier cannot write a repro);
 C-38/C-45 restated for the inbox-as-handoff.
 
-### Phase 3 — the harness adapter
+### Phase 3 — the harness adapter  ✅ done
 
 `bench/arms.py` calls the stage loop; usage sums every stage's
 `session.log`; `detail.run` gains `seed_source`, stage wall times, and
@@ -171,6 +171,10 @@ a post-hoc `planner_files ∩ gold_files` computed in `results.py` from
 the gold patch (never shown to a session). `hobbes bench report` adds a
 split by `seed_source` and a planner hit-rate column — the first number
 that says whether the unlock worked, independent of the solve.
+Built as written (C-49 registers the hit as a one-solution proxy);
+building it found and fixed phase 2's integration branch never
+advancing (`_integrate_one` ran `branch -f` in the repo, not the
+worktree).
 
 ### Phase 4 — the probe, then the run
 

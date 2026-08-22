@@ -264,6 +264,25 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
+**2026-08-22 (harness restructure, phases 0–3 built — read
+`docs/harness-restructure-plan.md`):** Max restated the execution
+shape (single-use *derived-context* agents, one alive at a time, job =
+short memory) and accepted the five-phase plan. Phase 0 fixed seeding
+(seed hygiene, select-then-cap, path-first briefs, handoff
+reflections); phase 1 made `planner`/`reviewer`/`verifier` read-only
+roles with role-aware loop discipline; phase 2 built the **staged run**
+(ADR-059: `hobbes run --from-proposal`, `hobbes bench run --stages`;
+planner → `hobbes plan` on its seeds → chained implementers → verifier
+→ opt-in review/rework; C-47, C-48); phase 3 built the **harness
+adapter** — every stage metered (wall time from outside, own session
+log), `seed_source` on the record, the planner scored **post hoc
+against the gold patch** (`planner ∩ gold`, C-49 — a one-solution
+proxy), `hobbes bench report` split by `seed_source` with the planner
+hit-rate. Phase 3 also found and fixed phase 2's integration branch
+never advancing (`branch -f` in the repo, not the worktree). **Next is
+phase 4: the planner-only probe** (`--stages plan`) on astropy-13398 /
+13579, reading the hit column before the 45-set. 818 pytest / Go green.
+
 **2026-08-21 (run stopped for restructure — read
 `docs/harness-restructure-handoff.md`):** The first live 7B benchmark
 pass was shaken out over this session — **six** harness fixes (ADR-058:

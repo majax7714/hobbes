@@ -136,6 +136,13 @@ def run(
                     + (f"usage unobserved: {', '.join(record.usage['unobserved'])}"
                        if record.usage["unobserved"] else f"{record.usage['total_tokens']} tokens")
                     + (f"; {record.error[:120]}" if record.error else ""))
+                planner = record.detail.get("planner")
+                if planner and "hit" in planner:
+                    log(f"  → seed_source {record.detail.get('seed_source')}; planner "
+                        + (f"hit {planner['hits']}/{planner['gold']} gold files" if planner["hit"]
+                           else f"missed the {planner['gold']} gold files")
+                        + "; stage wall " + ", ".join(f"{k} {v:.0f}s" for k, v in
+                                                      record.detail.get("run", {}).get("stage_wall", {}).items()))
                 (run_dir / "patches").mkdir(exist_ok=True)
                 (run_dir / "patches" / f"{instance.instance_id}.{arm}.{(model or 'default').replace('/', '_')}.diff"
                  ).write_text(result.patch)
