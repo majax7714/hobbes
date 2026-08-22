@@ -1217,6 +1217,26 @@ information appears in both, and the entries cross-reference.
   `implement_units_sum`; `--parallel 1` restores the chained order.
 - **Source:** ADR-063 (2026-08-22).
 
+### C-52 — A unit the planner did not name is not tried
+- **Cannot tell you:** that every unit the change truly reaches was
+  attempted. On the planner path (ADR-064) a unit with no
+  planner-named file in its interior is not spawned at all — the
+  planner's naming is the selector, and the planner is a one-shot 7B
+  opinion (C-47), so a file it failed to name is a unit that never
+  runs.
+- **Because:** the re-probe showed unnamed units spend a whole session
+  planning edits to another unit's file; one session is alive at a time
+  at ~28 tok/s, so a do-nothing session is the dominant waste.
+- **Bites at:** a change whose real site the planner missed — no unit
+  edits it, and the miss reads as "the model could not fix it" rather
+  than "we never pointed a unit at it".
+- **You find out:** **surfaced** — the record carries
+  `units_not_selected` with each unit's reason and the orchestrator
+  inbox gets a `not-selected` note; the lexical fallback (no planner)
+  keeps every unit, and `hobbes run --from-proposal` without staging is
+  the un-selected path.
+- **Source:** ADR-064 (2026-08-22).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

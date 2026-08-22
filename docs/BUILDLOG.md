@@ -3865,3 +3865,22 @@ interiors. Implement wall 1,523 s / 670 s (was 2,148 / ~1,250).
 Recorded dated in `benchmark-hypotheses.md` Results. Two
 observability/discipline gaps named, not built: no transcript in the
 session dir; no read-before-overwrite rule on `write_file`.
+
+## 2026-08-22 (forty-seventh) — transcript, unit selection, read-before-overwrite (ADR-064)
+
+Three fixes Max directed from the re-probe trace. **Transcript:** the
+owned loop takes `--transcript` and writes the whole message list as
+JSONL in the finally (crash-safe); `hobbes-session` passes
+`<session>/transcript.jsonl`. A trace no longer stops at the tool-call
+line. **Selection:** on the planner path a unit the planner named
+nothing in is not spawned — recorded in `units_not_selected`, counted
+done so consumers still ready; the lexical fallback keeps every unit.
+First cut of the parked task-tailored selection; C-52 surfaced.
+**Read-before-overwrite:** `write_file` onto an existing, unread file
+is refused (points at read_file+edit_file); a new file or a
+write-after-read is fine; both arms. This is what silently turned
+13579's 308-line module into a 36-line stub. Four existing loop tests
+that overwrote the fixture without reading now write a new path — the
+guard changed their premise, not their intent. 840 pytest / Go green;
+hobbes-session rebuilt. Next: re-run the single instance through both
+arms and review.

@@ -550,6 +550,34 @@ class TestStagedRun:
         verify = rec["verify"]
         assert verify["verdict"] == "pass" and verify["verdict_source"] == "keyed"
 
+    def test_unit_selection_keeps_named_units_and_drops_the_rest(self):
+        # ADR-064: the decision, isolated from the partition. A unit with
+        # a planner-named file in its interior is kept; one with none is
+        # dropped; a path-suffix match (an unresolvable named file) keeps
+        # its owner.
+        from hobbes.run.stages import unit_has_planner_work
+        plan = {"stage": "plan", "files": ["pkg/a.py", "pkg/new.py"], "symbols": [],
+                "terms": {"pkg/a.py": "pkg.a", "pkg/new.py": None}}
+        owner = {"unit": "U1", "modules": [{"id": "pkg.a", "path": "pkg/a.py"}]}
+        newfile = {"unit": "U2", "modules": [{"id": "pkg.new", "path": "src/pkg/new.py"}]}
+        bystander = {"unit": "U3", "modules": [{"id": "pkg.z", "path": "pkg/z.py"}]}
+        assert unit_has_planner_work(plan, owner) is True
+        assert unit_has_planner_work(plan, newfile) is True     # suffix match on the unresolved name
+        assert unit_has_planner_work(plan, bystander) is False
+
+    def test_a_planner_seeded_run_records_selection_and_spawns_the_owner(self, plan_repo, staged_session, tmp_path):  # noqa: F811
+        # On this single-unit fixture the owner has the named file, so it
+        # is kept and nothing is skipped — the wiring is present and the
+        # selection list exists.
+        from hobbes.run.stages import run_staged
+        rec = run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                         sessions_root=tmp_path / "s", max_units=5)
+        assert rec["seed_source"] == "planner"
+        assert isinstance(rec["units_not_selected"], list)
+        assert [u["unit"] for u in rec["units"] if u["spawned"]]  # the owner ran
+        assert rec["units_not_selected"] == []                   # it held the named file
+        assert rec["integration"]["merged"]
+
     def test_the_planner_handoff_is_projected_per_unit(self, plan_repo, staged_session, tmp_path):  # noqa: F811
         # ADR-062: the unit whose interior holds the planner's file is told
         # it is ITS slice; every other unit is told plainly that nothing

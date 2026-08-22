@@ -341,6 +341,10 @@ func (p *Plan) RuntimeCommand() []string {
 		"--mcp-config", p.mcpConfigContainerPath(),
 		"--role", p.cfg.Role,
 		"--workdir", WorkDir,
+		// The full message list lands in the session dir (ADR-064), so
+		// a trace does not stop at the [turn N] tool-call line. The
+		// session home persists after the clone is cleaned.
+		"--transcript", p.sessionHome() + "/transcript.jsonl",
 	}
 	if p.cfg.MaxTurns > 0 {
 		cmd = append(cmd, "--max-turns", strconv.Itoa(p.cfg.MaxTurns))

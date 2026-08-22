@@ -409,7 +409,7 @@ func TestRuntimeCommandReplacesClaudeAndRedactsTheKey(t *testing.T) {
 	}
 	cmd := strings.Join(p.command(), " ")
 	for _, want := range []string{"python3 /sessions/S-x/agent.py", "--base-url https://llm.example/v1",
-		"--model qwen2.5-coder-7b", "--prompt-file", "/brief.md", "--mcp-config", "--role implementer", "--workdir /work"} {
+		"--model qwen2.5-coder-7b", "--prompt-file", "/brief.md", "--mcp-config", "--role implementer", "--workdir /work", "--transcript", "/transcript.jsonl"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("runtime command missing %q in %q", want, cmd)
 		}

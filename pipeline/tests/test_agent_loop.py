@@ -147,6 +147,41 @@ class TestNativeLoop:
         assert "occurs 2 times" in tool_msgs[2]["content"]
         assert (tree / "src" / "dup.py").read_text() == "x = 1\nx = 1\n"
 
+    def test_write_file_must_read_an_existing_file_first(self, tree):
+        # ADR-064: overwriting an existing file the session never read is
+        # refused; a new file is fine; a write after a read is fine.
+        (tree / "src" / "a.py").write_text("def f():\n    return 1\n")
+        model = ScriptedModel([
+            [("write_file", {"path": "src/a.py", "content": "stub"})],          # refused: unread existing
+            [("write_file", {"path": "src/new.py", "content": "brand new"})],   # ok: new file
+            [("read_file", {"path": "src/a.py"})],
+            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],  # ok: read first
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        assert msgs[0]["content"].startswith("ERROR:") and "has not read it" in msgs[0]["content"]
+        assert not msgs[1]["content"].startswith("ERROR:")          # new file allowed
+        assert (tree / "src" / "new.py").read_text() == "brand new"
+        assert (tree / "src" / "a.py").read_text() == "def f():\n    return 2\n"  # the read-then-write landed
+        assert env["edited"] is True
+
+    def test_transcript_is_written_when_asked(self, tree, tmp_path):
+        out = tmp_path / "t.jsonl"
+        model = ScriptedModel([[("read_file", {"path": "src/a.py"})], "done"])
+        try:
+            run_loop(model, tree, "--transcript", str(out))
+        finally:
+            model.close()
+        lines = [json.loads(l) for l in out.read_text().splitlines()]
+        roles = [m["role"] for m in lines]
+        assert roles[0] == "system" and roles[1] == "user"
+        assert any(m["role"] == "assistant" and m.get("tool_calls") for m in lines)
+        assert any(m["role"] == "tool" for m in lines)
+
     def test_read_only_role_gets_no_write_tools(self, tree):
         model = ScriptedModel([[("write_file", {"path": "x", "content": "y"})], "done"])
         try:
@@ -436,7 +471,7 @@ class TestProsePlanNudge:
     def test_prose_before_editing_is_nudged_then_edits(self, tree):
         model = ScriptedModel([
             "Here is how I would fix it: change f to return 2.",   # prose, no tools
-            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            [("write_file", {"path": "src/b.py", "content": "def f():\n    return 2\n"})],
             "Done: f now returns 2.",
         ])
         try:
@@ -447,7 +482,7 @@ class TestProsePlanNudge:
         # the nudge is a user message the model saw before it acted
         second = model.requests[1]["body"]["messages"]
         assert any(m["role"] == "user" and "not changed any files" in m["content"] for m in second)
-        assert (tree / "src" / "a.py").read_text() == "def f():\n    return 2\n"
+        assert (tree / "src" / "b.py").read_text() == "def f():\n    return 2\n"
 
     def test_nudge_is_bounded_and_a_non_editing_model_terminates(self, tree):
         model = ScriptedModel(["plan one", "plan two", "plan three", "plan four"])
@@ -461,7 +496,7 @@ class TestProsePlanNudge:
 
     def test_a_model_that_edits_immediately_is_not_nudged(self, tree):
         model = ScriptedModel([
-            [("write_file", {"path": "src/a.py", "content": "x\n"})],
+            [("write_file", {"path": "src/b.py", "content": "x\n"})],
             "done",
         ])
         try:
@@ -479,7 +514,7 @@ class TestStrictPipeline:
         model = ScriptedModel([
             [("read_file", {"path": "src/a.py"})],
             [("read_file", {"path": "src/a.py"})],   # exact repeat
-            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            [("write_file", {"path": "src/b.py", "content": "def f():\n    return 2\n"})],
             "done",
         ])
         try:
@@ -496,7 +531,7 @@ class TestStrictPipeline:
         # the full-stage probe's U6: one commit, then 57 of 60 turns on
         # refused repeats — "acted" held, so the dry-turn stall never fired
         model = ScriptedModel([
-            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            [("write_file", {"path": "src/b.py", "content": "def f():\n    return 2\n"})],
             *([[("read_file", {"path": "src/a.py"})]] * 12),
             "done",
         ])
@@ -514,7 +549,7 @@ class TestStrictPipeline:
         model = ScriptedModel([
             [("bash", {"command": "echo hi"})],
             [("bash", {"command": "echo hi"})],   # nothing changed: refused
-            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            [("write_file", {"path": "src/b.py", "content": "def f():\n    return 2\n"})],
             [("bash", {"command": "echo hi"})],   # after an edit: runs
             "done",
         ])
@@ -544,7 +579,7 @@ class TestStrictPipeline:
         model = ScriptedModel([
             [("read_file", {"path": "src/a.py"})],
             [("list_files", {"path": "src"})],
-            [("write_file", {"path": "src/a.py", "content": "x\n"})],
+            [("write_file", {"path": "src/b.py", "content": "x\n"})],
             "done",
         ])
         try:

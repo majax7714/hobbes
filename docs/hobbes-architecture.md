@@ -830,7 +830,12 @@ repo under a graph-derived map and hands off the files/symbols/tests
 the change touches; those resolve *tolerantly* to seeds, so this is the
 generative layer C-36 always placed *above* the lexical seeds, never
 inside them (a rambling planner falls back to the lexical seeds, and
-`seed_source` records which). `hobbes plan` then derives
+`seed_source` records which). On the planner path only the units the
+planner **named** are brought in (ADR-064, C-52) — an unnamed unit
+would only plan editing another's file — and each implementer's loop
+refuses to `write_file` over a file it has not read, the destructive
+overwrite the first re-probe caught; every session writes its full
+message list to `<session>/transcript.jsonl`. `hobbes plan` then derives
 deterministically; `implementer` sessions run in contract order, each
 cloned at the **current** integration head so a consumer sees its
 owner's commit, integrated immediately after harvest; a `verifier`

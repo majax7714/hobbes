@@ -192,11 +192,16 @@ BASH_TOOL = {"type": "function", "function": {
         "required": ["command"]}}}
 
 
-def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_write: bool) -> tuple[str, bool]:
-    """Execute a native tool; returns (text, is_error)."""
+def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_write: bool,
+                read_paths: set[str] | None = None) -> tuple[str, bool]:
+    """Execute a native tool; returns (text, is_error). *read_paths*
+    accumulates the paths the session has read, so an overwrite of an
+    existing file it never looked at can be refused (ADR-064)."""
     try:
         if name == "read_file":
             full = _confine(workdir, args["path"])
+            if read_paths is not None:
+                read_paths.add(os.path.normpath(args["path"]))
             lines = open(full, encoding="utf-8", errors="replace").read().splitlines()
             start = max(int(args.get("start_line") or 1), 1)
             end = min(int(args.get("end_line") or len(lines)), len(lines))
@@ -217,6 +222,17 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
                 return f"{name} is not available to this role", True
             full = _confine(workdir, args["path"])
             if name == "write_file":
+                # Read before you overwrite (ADR-064): a whole-file write
+                # onto an existing file the session never read is how the
+                # 7B silently replaced a 308-line module with a stub. A
+                # new file is fine; so is a write after a read of the same
+                # path — edit_file, which must see the file, is the tool
+                # for a change to existing content.
+                if read_paths is not None and os.path.exists(full) \
+                        and os.path.normpath(args["path"]) not in read_paths:
+                    return (f"{args['path']} already exists and this session has not read it. "
+                            "read_file it first, then use edit_file to change part of it, or "
+                            "write_file only to replace a file you have read in full."), True
                 os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
                 with open(full, "w", encoding="utf-8") as fh:
                     fh.write(args["content"])
@@ -403,6 +419,7 @@ def run(args: argparse.Namespace) -> dict:
     reflected = False
     nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
+    read_paths: set[str] = set()
     repeats, dry_turns, refused_run = 0, 0, 0
     edited_since_exec = True  # the first run of any command is always fresh
     try:
@@ -455,7 +472,7 @@ def run(args: argparse.Namespace) -> dict:
                             text, is_err = mcp.call(name, targs)
                         else:
                             text, is_err = native_call(name, targs, workdir, allow_bash=mcp is None,
-                                                       allow_write=not read_only)
+                                                       allow_write=not read_only, read_paths=read_paths)
                         if not is_err and mutating:
                             edited = True
                             productive = True
@@ -510,6 +527,16 @@ def run(args: argparse.Namespace) -> dict:
     finally:
         if mcp:
             mcp.close()
+        if getattr(args, "transcript", None):
+            # The whole message list, so a trace does not stop at the
+            # tool-call line (ADR-064). Written once at the end; the
+            # finally runs on the crash path too.
+            try:
+                with open(args.transcript, "w", encoding="utf-8") as fh:
+                    for m in messages:
+                        fh.write(json.dumps(m, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print(f"transcript: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     duration = int((time.monotonic() - started) * 1000)
     return {
         "type": "result", "subtype": "success" if not error else "error",
@@ -546,6 +573,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
                    help="dry (no-edit) turns before a mid-stream nudge (default 3)")
     p.add_argument("--stall-after", type=int, default=6,
                    help="dry (no-edit) turns before stopping a stalled session with a reason (default 6)")
+    p.add_argument("--transcript", help="write the full message list here as JSONL on exit (ADR-064)")
     p.add_argument("--timeout", type=float, default=600.0)
     return p.parse_args(argv)
 

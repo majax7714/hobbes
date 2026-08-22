@@ -331,6 +331,26 @@ def run_staged(
                 pending.remove(unit)
                 done.add(unit)
 
+        # Task-tailored selection (ADR-064): on the planner path a unit
+        # the planner named nothing in is not brought in at all — the
+        # re-probe showed such units burn a session to plan editing
+        # someone else's file. A skipped unit counts as done so its
+        # consumers still become ready. On the lexical fallback there is
+        # no per-unit naming, so every unit stays (the seeds are the
+        # whole signal). C-52.
+        plan_stage = next((st for st in stage_log if st.get("stage") == "plan"), None)
+        if seed_source == "planner" and plan_stage:
+            for unit in list(pending):
+                if not unit_has_planner_work(plan_stage, contexts[unit]):
+                    record = UnitRecord(unit=unit, role="implementer",
+                                        session=f"{task}-{unit.lower()}", spawned=False)
+                    record.reason = ("not spawned — the planner named no file in this unit's "
+                                     "interior (task-tailored selection, ADR-064)")
+                    mail.post(orchestrator, unit, record.reason, kind="not-selected")
+                    records.append(record)
+                    pending.remove(unit)
+                    done.add(unit)
+
         # Waves over the contract DAG (ADR-063): every unit whose owners
         # are integrated may run at once, up to *workers*; each finishes
         # on this thread (harvest + scoped integration are serial), which
@@ -385,6 +405,7 @@ def run_staged(
         "task": task, "proposal": proposal, "base": base,
         "graph_sha": spec.get("graph_sha", ""), "order": order, "selected": order,
         "seed_source": seed_source, "seeds": spec.get("seeds", {}),
+        "units_not_selected": [r.unit for r in records if r.reason and "task-tailored selection" in r.reason],
         "planner_unresolved": planner_misses,
         "units_deferred": [u.get("name") for u in spec.get("units_deferred", [])],
         "stages": stage_log,
@@ -448,6 +469,15 @@ def planner_slice(plan: dict, context: dict) -> tuple[list[str], list[str]]:
     for term in dict.fromkeys(t.strip() for t in named):
         (mine if _in_interior(term, terms.get(term), ids, paths) else others).append(term)
     return mine, others
+
+
+def unit_has_planner_work(plan_stage: dict, context: dict) -> bool:
+    """True when the planner named at least one file/symbol in this
+    unit's interior (ADR-064). A unit for which this is false is not
+    brought into a planner-seeded run — it would only plan editing
+    another unit's file."""
+    mine, _ = planner_slice(plan_stage, context)
+    return bool(mine)
 
 
 def _planner_note(seed_source: str, stage_log: list[dict], context: dict | None = None) -> str:
