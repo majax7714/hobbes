@@ -300,6 +300,47 @@ wall on these two — which is H1's actual question and needs the 45-set,
 not two instances, to answer. The evaluator now works, so the set can
 run.
 
+### 2026-08-22 — the ADR-062 re-probe (harness arm only), astropy-13398 & 13579
+
+Harness arm re-run after the planner handoff became per-unit
+(ADR-062), sequential (pre-ADR-063 code), same flags, local eval.
+**n=2, not an H1–H3 result** (P11). The pure-arm verdicts above stand.
+
+| instance | planner hit | implement wall | patch | verdict |
+|---|---|---|---|---|
+| astropy-13398 | 1/4 gold (again) | 1,523 s (was 2,148) | 6 files, +201/−2,998 | unresolved |
+| astropy-13579 | 1/1 gold (again) | 670 s (was ~1,250) | 1 file, +28/−300 | unresolved |
+
+**0/2.** What the trace verified (every unit's brief, tool-call log and
+branch read by hand — BUILDLOG forty-sixth):
+
+- The projection works as a mechanism: each unit's inbox carried only
+  its slice or a plain "nothing named is yours"; the Interior section
+  was never cut.
+- **The owner unit now acts on its own file** — 13579's U10 (interior
+  `sliced_wcs.py`, idle last run) edited it in 47 s / 2 turns. It
+  issued `pytest` and `write_file` in **one completion**, never called
+  `read_file`, and replaced the 308-line module with a bare 36-line
+  function. Its summary claimed it "modified the method".
+- That is the pattern, not a one-off: on 13398 the merged units
+  U2/U7/U9 called `write_file` on files they **had not read**
+  (`transformations.py` −1,646 lines, `funcs.py`, `baseradec.py`);
+  the gold file's owner U10 read `itrs.py` ten times and made seven
+  `edit_file` attempts, none of which landed.
+- Units told "nothing named is yours" did **not** hand off a no-change:
+  on 13579 three of them returned prose plans to edit the owner's file
+  (zero tool calls, 14–62 s each); on 13398 four of them `write_file`'d
+  their *own* interiors — files the change did not need.
+
+**Reading (no claim beyond this):** ADR-062 removed the harness's
+mis-aim; what it exposed is that this 7B, given the right target,
+overwrites unread files. Whether that is the model or the loop's tool
+surface (`write_file` = "create or overwrite", no read-before-write
+rule, a nudge that says act) is **not separable from two instances** —
+a loop-side guard applied to both arms is the next harness decision,
+and the non-owner note's `approach` line is a candidate for removal.
+The loop keeps no transcript; a trace stops at the tool call.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

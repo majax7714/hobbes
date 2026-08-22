@@ -44,7 +44,10 @@ flipped measured→enforced. Results recorded in
 **BUILT 2026-08-22 — ADR-062** (`_planner_note` takes the unit's
 context; `planner_slice`; `## Interior` protected from the C-45 cut).
 What remains of this section is the reasoning; the next step is the
-two-instance re-probe named at its end. Original text follows.
+two-instance re-probe named at its end — **done 2026-08-22: 0/2, owner
+unit now edits its own file but by overwriting it unread; see
+`benchmark-hypotheses.md` Results and ADR-063 (parallel implementers,
+add `--parallel auto` to the command below)**. Original text follows.
 
 **Confirmed by inspecting the phase-4 patches.** On
 astropy-13579 four implementers with unrelated interiors all created

@@ -3854,3 +3854,14 @@ the banner + manifest), `hobbes run --from-proposal --parallel N`. C-51
 registered surfaced. 836 pytest. The ADR-062 re-probe was running on
 the old code meanwhile: 13398 implement 1523 s (was 2148), patch 6
 files, planner hit 1/4.
+
+**Same session, the ADR-062 re-probe read (harness arm, n=2, 0/2):**
+the owner unit now edits its own file — by `write_file` on a module
+it never read (13579 U10: pytest + write in one completion, −300
+lines; 13398 U2/U7/U9 likewise, −1,646 on `transformations.py`).
+Non-owner units told "nothing is yours" still plan to edit the
+owner's file (prose, no tools) or write their own untouched
+interiors. Implement wall 1,523 s / 670 s (was 2,148 / ~1,250).
+Recorded dated in `benchmark-hypotheses.md` Results. Two
+observability/discipline gaps named, not built: no transcript in the
+session dir; no read-before-overwrite rule on `write_file`.
