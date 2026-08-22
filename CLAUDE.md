@@ -295,7 +295,14 @@ refusal, read-only pip) after the implement stage ran 21–36 min, and
 **unblocking the evaluator**: swebench 5.0.2's `--modal` is broken
 upstream (C-50), so eval runs **locally over the rootless-podman Docker
 socket** (`docker_host_env`), closing ADR-055's evaluator-socket item.
-**Next: the 45-instance complex set.** 824 pytest / 49 bench / Go green.
+**A fresh session resumes from `docs/phase4-to-45set-handoff.md`** —
+it holds this session's build, the corrected 45-set command (local
+podman-socket eval, not `--eval-modal`), and the one decided-but-unbuilt
+fix: **role-specific implementer context** (the planner handoff is
+posted globally to every unit and the per-unit interior is truncated —
+implementers are led astray, not wrong; ADR-061 enforces write scope at
+the cut but the role-context derivation is the recommended next step
+before spending 45-set compute). 827 pytest / Go green.
 
 **2026-08-21 (run stopped for restructure — read
 `docs/harness-restructure-handoff.md`):** The first live 7B benchmark
