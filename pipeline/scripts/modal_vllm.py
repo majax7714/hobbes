@@ -36,13 +36,22 @@ RUNGS: dict[str, dict] = {
     },
     # The next rung after 7B (Max, 2026-08-22 — benchmark-hypotheses.md
     # "Amendment"; the 32B stays pinned but is no longer next). 27.8B
-    # params, arch Qwen3_5ForConditionalGeneration: bf16 needs the
-    # 80 GB card, and the image's pinned vLLM/transformers (chosen for
-    # the 7B) predate that architecture — taking this rung means
-    # bumping VLLM and the transformers bound and re-verifying the 7B
-    # still deploys. Not deployed yet.
+    # dense, arch Qwen3_5ForConditionalGeneration (ADR-074): a hybrid —
+    # 48 of 64 layers linear attention, 16 full attention with 4 KV
+    # heads — so the KV cost is ~65 KB/token and the 80 GB card holds
+    # ~250k tokens of KV beside the bf16 weights (~56 GB). The window
+    # is pinned at 128k: half the native 262k, chosen so the brief the
+    # harness sizes to it (ADR-069, 35 %) stays ~45k tokens, and so
+    # five instances' sessions share the pool without thrashing. A
+    # *thinking* model: the chat template opens every assistant turn
+    # with <think>, and without the reasoning parser the whole block
+    # lands in message.content and eats max_tokens before the answer
+    # starts (vLLM's recipe). Text-only serving: the vision tower is
+    # not loaded. Needs vLLM ≥ 0.17 (the architecture) and
+    # transformers ≥ 5.8 (the config's writer).
     "Qwen/Qwen3.8-27B": {
-        "gpu": "A100-80GB", "max_model_len": 32768, "tool_parser": "hermes",
+        "gpu": "A100-80GB", "max_model_len": 131072, "tool_parser": "qwen3_coder",
+        "reasoning_parser": "qwen3", "extra": ["--language-model-only"],
     },
 }
 
@@ -53,14 +62,27 @@ RUNG = RUNGS[MODEL]
 SLUG = re.sub(r"[^a-z0-9]+", "-", MODEL.lower()).strip("-")
 APP = f"hobbes-llm-{SLUG}"
 PORT = 8000
-VLLM = "0.10.1.1"
+#: One image for every rung. Bumped 0.10.1.1 → 0.27.1 for the 27B's
+#: architecture (ADR-074); the 7B re-verified on it the same day.
+VLLM = "0.27.1"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    # transformers 5 removed tokenizer attributes this vLLM still reads;
-    # pin the major (found on the first cold start, ADR-057).
-    .pip_install(f"vllm=={VLLM}", "transformers>=4.55,<5", "huggingface_hub[hf_transfer]>=0.34")
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "VLLM_USE_V1": "1"})
+    # ADR-057 pinned transformers <5 because vLLM 0.10 read tokenizer
+    # attributes 5 removed; vLLM 0.27 is built on 5, and the 27B's
+    # config.json is written by 5.8 (ADR-074).
+    .pip_install(f"vllm=={VLLM}", "transformers>=5.8", "huggingface_hub>=0.34")
+    # MODEL is read from the environment at import, and this file is
+    # imported again *inside* the container, where the host's MODEL is
+    # not set: without baking it into the image every app served the
+    # default rung under its own name (the 27B app came up as the 7B
+    # on an A100 — found on the first cold start, ADR-074).
+    # vLLM 0.27 JIT-builds flashinfer's sampling kernels at engine start,
+    # which needs nvcc — absent in this image, and the engine core died
+    # on it (the 27B's first cold start spent the whole startup timeout
+    # waiting on a dead engine). The torch sampler is the documented
+    # alternative and needs nothing built.
+    .env({"MODEL": MODEL, "VLLM_USE_FLASHINFER_SAMPLER": "0"})
 )
 weights = modal.Volume.from_name("hobbes-hf-cache", create_if_missing=True)
 app = modal.App(APP)
@@ -75,7 +97,7 @@ app = modal.App(APP)
     timeout=60 * 60,
 )
 @modal.concurrent(max_inputs=32)
-@modal.web_server(port=PORT, startup_timeout=20 * 60)
+@modal.web_server(port=PORT, startup_timeout=30 * 60)
 def serve():
     """vLLM's OpenAI-compatible server for this rung."""
     cmd = [
@@ -87,6 +109,11 @@ def serve():
         "--api-key", os.environ["HOBBES_LLM_API_KEY"],
         "--gpu-memory-utilization", "0.92",
     ]
+    if RUNG.get("reasoning_parser"):
+        # Thinking models: reasoning lands in message.reasoning_content,
+        # never in content (the loop keeps it on the transcript).
+        cmd += ["--reasoning-parser", RUNG["reasoning_parser"]]
+    cmd += RUNG.get("extra", [])
     subprocess.Popen(cmd)
 
 

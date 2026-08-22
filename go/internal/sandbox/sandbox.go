@@ -65,6 +65,11 @@ type Config struct {
 	// as an essay instead of calling write_file); the cap cuts the
 	// essay short so the nudge fires sooner. Same cap on both arms.
 	MaxTokens int
+	// LoopArgs are forwarded to the owned loop verbatim, after the
+	// flags above (ADR-074): the sampling a rung wants (temperature,
+	// top-p, reasoning effort, thinking mode) is the loop's business,
+	// and the session launcher carries it without knowing the names.
+	LoopArgs []string
 	// Path overrides the in-container PATH; "" keeps the image-neutral
 	// default. Env adds KEY=VALUE pairs on top of HOME and PATH — an
 	// environment binding the host authored (ADR-058: PYTHONPATH=/work
@@ -352,6 +357,7 @@ func (p *Plan) RuntimeCommand() []string {
 	if p.cfg.MaxTokens > 0 {
 		cmd = append(cmd, "--max-tokens", strconv.Itoa(p.cfg.MaxTokens))
 	}
+	cmd = append(cmd, p.cfg.LoopArgs...)
 	return cmd
 }
 

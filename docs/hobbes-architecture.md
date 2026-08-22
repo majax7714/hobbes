@@ -934,7 +934,12 @@ interprets nothing.
   in the pure arm, bash plus the same file tools. `hobbes-session
   --runtime` copies it into the session dir and runs it with the
   image's `python3`; it prints Claude Code's result envelope, so one
-  meter reads both. Claude Code remains the other runtime.
+  meter reads both. Claude Code remains the other runtime. The
+  request is greedy unless the rung says otherwise: a thinking model
+  (ADR-074) is run at its card's own sampling and reasoning effort,
+  declared once in `bench.Runtime` and carried to both arms
+  (`hobbes-session --loop-arg`), its reasoning kept on the transcript
+  and counted in the envelope.
 
 **No live run has happened.** The harness is exercised end to end by
 stand-ins (a fake `claude`, a scripted OpenAI-compatible server and a

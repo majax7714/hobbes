@@ -69,6 +69,8 @@ flags:
   --runtime-python P  interpreter for --runtime (default: the image's python3)
   --max-turns N    turn budget for --runtime (default: the loop's own)
   --max-tokens N   completion cap per turn for --runtime (default: the loop's own)
+  --loop-arg A     a flag forwarded verbatim to --runtime's loop (repeatable, e.g.
+                   --loop-arg=--temperature=1.0; ADR-074)
   --network NET    podman --network (default none)
   --box FILE       box policy (default ~/.hobbes/box.policy if present)
   --proxy-bin FILE static hobbes-proxy binary to mount (default: next to me)
@@ -112,6 +114,7 @@ type options struct {
 	image, network, box            string
 	path, pre, runtimePython       string
 	maxTurns, maxTokens            int
+	loopArgs                       multiFlag
 	env                            multiFlag
 	proxyBin, sessions             string
 	claudeCred, dryRun             bool
@@ -264,6 +267,7 @@ func setupWithStart(opt options) (*sandbox.Plan, string, string, func(), error) 
 		RuntimePython: opt.runtimePython,
 		MaxTurns:      opt.maxTurns,
 		MaxTokens:     opt.maxTokens,
+		LoopArgs:      []string(opt.loopArgs),
 		Path:          opt.path,
 		Env:           []string(opt.env),
 		Pre:           opt.pre,
@@ -474,6 +478,7 @@ func parseStart(args []string, stderr io.Writer) (options, int) {
 	fs.IntVar(&opt.maxTurns, "max-turns", 0, "")
 	fs.IntVar(&opt.maxTokens, "max-tokens", 0, "")
 	fs.Var(&opt.env, "env", "")
+	fs.Var(&opt.loopArgs, "loop-arg", "")
 	fs.StringVar(&opt.network, "network", "", "")
 	fs.StringVar(&opt.box, "box", "", "")
 	fs.StringVar(&opt.proxyBin, "proxy-bin", "", "")

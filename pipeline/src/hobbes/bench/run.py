@@ -136,8 +136,7 @@ def run(
         "stages": list(stages) if stages else None,
         "parallel": {"setting": str(parallel_setting), "workers": workers, "reason": parallel_reason},
         "timeout": timeout, "clean": clean,
-        "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns,
-                    "max_tokens": runtime.max_tokens},
+        "runtime": runtime.describe(),
     })
     done = {(r.instance_id, r.arm, r.model) for r in results.load(run_dir)}
     # Appends and log lines are shared across instance threads; a lock

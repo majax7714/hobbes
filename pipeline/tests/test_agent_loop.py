@@ -66,8 +66,19 @@ class ScriptedModel:
                     self.wfile.write(step[2].encode())
                     return
                 finish = "stop"
+                reasoning_n = 0
                 if isinstance(step, tuple) and step[0] == "cut":  # ("cut", text): cut at max_tokens
                     message, finish = {"role": "assistant", "content": step[1]}, "length"
+                elif isinstance(step, tuple) and step[0] == "think":  # ("think", reasoning, text|calls)
+                    body_step = step[2]
+                    if isinstance(body_step, str):
+                        message = {"role": "assistant", "content": body_step, "reasoning_content": step[1]}
+                    else:
+                        message = {"role": "assistant", "content": None, "reasoning_content": step[1],
+                                   "tool_calls": [{"id": f"call_{i}", "type": "function",
+                                                   "function": {"name": name, "arguments": json.dumps(args)}}
+                                                  for i, (name, args) in enumerate(body_step)]}
+                    reasoning_n = 7
                 elif isinstance(step, str):
                     message = {"role": "assistant", "content": step}
                 else:
@@ -75,8 +86,10 @@ class ScriptedModel:
                         {"id": f"call_{i}", "type": "function",
                          "function": {"name": name, "arguments": json.dumps(args)}}
                         for i, (name, args) in enumerate(step)]}
-                reply = {"choices": [{"message": message, "finish_reason": finish}],
-                         "usage": {"prompt_tokens": 100, "completion_tokens": 10}}
+                usage = {"prompt_tokens": 100, "completion_tokens": 10}
+                if reasoning_n:
+                    usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_n}
+                reply = {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
                 data = json.dumps(reply).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -119,7 +132,7 @@ class TestNativeLoop:
             model.close()
         assert env["is_error"] is False and env["result"] == "changed f to return 2"
         assert env["num_turns"] == 4 and env["tool_calls"] == 4
-        assert env["usage"] == {"input_tokens": 400, "output_tokens": 40}
+        assert env["usage"] == {"input_tokens": 400, "output_tokens": 40, "reasoning_tokens": 0}
         assert (tree / "src" / "a.py").read_text() == "def f():\n    return 2\n"
         # the bearer token went out; tool results went back in order
         assert model.requests[0]["auth"] == "Bearer k-1"
@@ -410,7 +423,7 @@ class TestBenchRuntime:
         # the turn budget reaches the harness sessions too (the first
         # full-stage probe ran them at the loop's default 60 vs pure's 40)
         assert rt.session_args() == ["--runtime", str(arms.LOOP_PATH), "--llm-base-url", "http://x/v1",
-                                     "--max-turns", "60", "--max-tokens", "1536"]
+                                     "--max-turns", "60", "--max-tokens", "1536", "--loop-arg=--temperature=0.0"]
         assert arms.Runtime().session_args() == []
 
     def test_pure_arm_on_the_owned_loop(self, tmp_path, monkeypatch):
@@ -435,10 +448,16 @@ class TestBenchRuntime:
             "fixed",
         ])
         try:
-            result = arms.run_pure_arm(inst, ws, "qwen", runtime=arms.Runtime(kind="openai", base_url=model.base_url))
+            # ADR-074: a thinking rung's sampling rides the pure arm's argv too
+            result = arms.run_pure_arm(inst, ws, "qwen", runtime=arms.Runtime(
+                kind="openai", base_url=model.base_url, temperature=1.0, top_p=0.95,
+                reasoning_effort="medium", thinking="on"))
         finally:
             model.close()
         assert result.outcome == "patch" and result.patch_files == ["src/core.py"], result.error
+        body = model.requests[0]["body"]
+        assert body["temperature"] == 1.0 and body["top_p"] == 0.95 and body["reasoning_effort"] == "medium"
+        assert body["chat_template_kwargs"] == {"enable_thinking": True}
         assert result.usage.total_tokens == 330 and result.usage.turns == 3   # read, edit, final
         # ADR-068: the pure arm writes its transcript and per-call log too
         assert (ws / ".hobbes" / "transcript.jsonl").exists() and (ws / ".hobbes" / "calls.jsonl").exists()
@@ -758,3 +777,62 @@ def test_the_proxy_exec_is_the_shell_under_every_name():
     # ADR-071: the proxy's MCP tool is plain "exec"; the loop accepted only a prefixed form.
     assert loop.is_exec_tool("exec") and loop.is_exec_tool("mcp__hobbes__exec") and loop.is_exec_tool("bash")
     assert not loop.is_exec_tool("read_file") and not loop.is_exec_tool("execute_plan")
+
+
+class TestThinkingRung:
+    """ADR-074: a thinking model's reasoning and sampling."""
+
+    def test_default_sampling_is_greedy_and_nothing_else(self, tree):
+        model = ScriptedModel(["done"])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        body = model.requests[0]["body"]
+        assert body["temperature"] == 0
+        assert "top_p" not in body and "reasoning_effort" not in body and "chat_template_kwargs" not in body
+        assert env["sampling"] == {"temperature": 0.0}
+        assert env["usage"]["reasoning_tokens"] == 0
+
+    def test_sampling_flags_reach_the_request_and_the_envelope(self, tree):
+        model = ScriptedModel(["done"])
+        try:
+            env = run_loop(model, tree, "--temperature", "1.0", "--top-p", "0.95",
+                           "--reasoning-effort", "medium", "--thinking", "off")
+        finally:
+            model.close()
+        body = model.requests[0]["body"]
+        assert body["temperature"] == 1.0 and body["top_p"] == 0.95 and body["reasoning_effort"] == "medium"
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        assert env["sampling"]["reasoning_effort"] == "medium"
+
+    def test_thinking_on_sends_the_switch_and_server_sends_none(self):
+        assert loop.sampling_fields(thinking="on")["chat_template_kwargs"] == {"enable_thinking": True}
+        assert "chat_template_kwargs" not in loop.sampling_fields(thinking="server")
+
+    def test_reasoning_is_kept_on_the_transcript_and_counted(self, tree, tmp_path):
+        out = tmp_path / "t" / "transcript.jsonl"
+        model = ScriptedModel([
+            ("think", "I should read the file first.", [("read_file", {"path": "src/a.py"})]),
+            ("think", "That is enough.", "done"),
+        ])
+        try:
+            env = run_loop(model, tree, "--transcript", str(out))
+        finally:
+            model.close()
+        # the second request carries the first turn's reasoning back (preserve_thinking)
+        sent = [m for m in model.requests[1]["body"]["messages"] if m["role"] == "assistant"]
+        assert sent[0]["reasoning_content"] == "I should read the file first."
+        assert sent[0]["tool_calls"][0]["function"]["name"] == "read_file"
+        lines = [json.loads(l) for l in out.read_text().splitlines()]
+        # the two scripted turns carry their reasoning; the nudged turns after them have none
+        assert [m.get("reasoning_content") for m in lines if m["role"] == "assistant"][:2] == [
+            "I should read the file first.", "That is enough."]
+        assert env["usage"]["reasoning_tokens"] == 14 and env["usage"]["output_tokens"] == 10 * env["num_turns"]
+        calls = [json.loads(l) for l in open(loop.calls_path(str(out)))]
+        assert [c["reasoning_tokens"] for c in calls][:3] == [7, 7, 0]
+
+    def test_reasoning_tokens_absent_or_malformed_count_zero(self):
+        assert loop.reasoning_tokens({}) == 0
+        assert loop.reasoning_tokens({"completion_tokens_details": {"reasoning_tokens": "x"}}) == 0
+        assert loop.reasoning_tokens({"completion_tokens_details": {"reasoning_tokens": 3}}) == 3

@@ -399,6 +399,38 @@ def is_exec_tool(name: str) -> bool:
     return name == "exec" or name.endswith("__exec") or name == "bash"
 
 
+def sampling_fields(temperature: float = 0.0, top_p: float | None = None,
+                    reasoning_effort: str | None = None, thinking: str = "server") -> dict:
+    """The request fields that shape a completion (ADR-074). Greedy
+    (``temperature`` 0) is the ladder's default and what every 7B run
+    used; a thinking model's card warns greedy decoding loops its
+    reasoning, so the bench passes the model's own sampling for that
+    rung. ``reasoning_effort`` goes through as the OpenAI field vLLM
+    maps onto the chat template; ``thinking`` is ``server`` (the
+    template's default), ``on`` or ``off`` via ``chat_template_kwargs``
+    — a field a non-thinking template ignores."""
+    fields: dict = {"temperature": temperature}
+    if top_p is not None:
+        fields["top_p"] = top_p
+    if reasoning_effort:
+        fields["reasoning_effort"] = reasoning_effort
+    if thinking != "server":
+        fields["chat_template_kwargs"] = {"enable_thinking": thinking == "on"}
+    return fields
+
+
+def reasoning_tokens(usage: dict) -> int:
+    """Reasoning tokens the endpoint reports inside ``completion_tokens``
+    (OpenAI's ``completion_tokens_details.reasoning_tokens``; vLLM's
+    reasoning parser fills it) — 0 when the field is absent, so the
+    count is observed, never inferred."""
+    details = usage.get("completion_tokens_details") or {}
+    try:
+        return int(details.get("reasoning_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 class ContextOverflow(RuntimeError):
     """The endpoint refused the request for length; carries the window
     and input sizes it reported."""
@@ -409,9 +441,16 @@ class ContextOverflow(RuntimeError):
 
 
 class Endpoint:
-    def __init__(self, base_url: str, model: str, api_key: str | None, timeout: float, max_tokens: int):
+    def __init__(self, base_url: str, model: str, api_key: str | None, timeout: float, max_tokens: int,
+                 sampling: dict | None = None):
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.model, self.api_key, self.timeout, self.max_tokens = model, api_key, timeout, max_tokens
+        #: Request fields beyond the message list (ADR-074): temperature
+        #: (0 unless told otherwise — the 7B ladder ran greedy), top_p,
+        #: and for a thinking model ``reasoning_effort`` and the
+        #: ``chat_template_kwargs`` that switch thinking off. Built by
+        #: :func:`sampling_fields`; the envelope repeats it.
+        self.sampling = sampling if sampling is not None else {"temperature": 0}
         #: How often the window had to be fitted or trimmed — the
         #: envelope reports both, so a run can see the window bind.
         self.fitted, self.elided = 0, 0
@@ -454,7 +493,7 @@ class Endpoint:
                 max_tokens = self.max_tokens
 
     def _post(self, messages: list[dict], tools: list[dict], max_tokens: int) -> dict:
-        body = {"model": self.model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
+        body = {"model": self.model, "messages": messages, "max_tokens": max_tokens, **self.sampling}
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"
@@ -524,10 +563,11 @@ def run(args: argparse.Namespace) -> dict:
         tools.append(BASH_TOOL)
     mcp_names = {t["function"]["name"] for t in (mcp.tools() if mcp else [])}
     endpoint = Endpoint(args.base_url, args.model, os.environ.get(args.api_key_env) or None,
-                        args.timeout, args.max_tokens)
+                        args.timeout, args.max_tokens,
+                        sampling_fields(args.temperature, args.top_p, args.reasoning_effort, args.thinking))
     messages = [{"role": "system", "content": SYSTEM_PROMPT.format(workdir=workdir)},
                 {"role": "user", "content": prompt}]
-    usage = {"input_tokens": 0, "output_tokens": 0}
+    usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0}
     turns, tool_calls_made, text_calls, final, error = 0, 0, 0, "", ""
     edited, nudges_left, nudges = False, args.max_nudges, 0
     reflected = False
@@ -548,7 +588,8 @@ def run(args: argparse.Namespace) -> dict:
             u = reply.get("usage") or {}
             usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
             usage["output_tokens"] += int(u.get("completion_tokens") or 0)
-            calls_log.append({"turn": turns, **endpoint.last})
+            usage["reasoning_tokens"] += reasoning_tokens(u)
+            calls_log.append({"turn": turns, "reasoning_tokens": reasoning_tokens(u), **endpoint.last})
             prompt_max = max(prompt_max, int(u.get("prompt_tokens") or 0))
             choice = (reply.get("choices") or [{}])[0]
             message = choice.get("message") or {}
@@ -563,7 +604,9 @@ def run(args: argparse.Namespace) -> dict:
                 u = reply.get("usage") or {}
                 usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
                 usage["output_tokens"] += int(u.get("completion_tokens") or 0)
-                calls_log.append({"turn": turns, "cut_retry": True, **endpoint.last})
+                usage["reasoning_tokens"] += reasoning_tokens(u)
+                calls_log.append({"turn": turns, "cut_retry": True, "reasoning_tokens": reasoning_tokens(u),
+                                  **endpoint.last})
                 prompt_max = max(prompt_max, int(u.get("prompt_tokens") or 0))
                 choice = (reply.get("choices") or [{}])[0]
                 message = choice.get("message") or {}
@@ -571,7 +614,16 @@ def run(args: argparse.Namespace) -> dict:
             if not calls:
                 calls = text_tool_calls(message.get("content") or "")
                 text_calls += len(calls)
+            # A thinking model's reasoning comes back beside the content
+            # (the server's reasoning parser splits it, ADR-074). It goes
+            # on the message as received: the chat template of such a
+            # model keeps earlier turns' reasoning in context
+            # (preserve_thinking), and the transcript then shows why the
+            # model did what it did, not only what. A template without
+            # the field ignores it.
+            reasoning = message.get("reasoning_content") or message.get("reasoning")
             messages.append({"role": "assistant", "content": message.get("content") or "",
+                             **({"reasoning_content": reasoning} if reasoning else {}),
                              **({"tool_calls": calls} if calls else {})})
             productive = False
             refused_turn = False
@@ -724,6 +776,9 @@ def run(args: argparse.Namespace) -> dict:
         "role": args.role,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,
+        # How the completions were asked for (ADR-074): the bench
+        # records it per run, so a rung's sampling is on the record.
+        "sampling": endpoint.sampling,
     }
 
 
@@ -751,6 +806,15 @@ def parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--stall-after", type=int, default=6,
                    help="dry (no-edit) turns before stopping a stalled session with a reason (default 6)")
     p.add_argument("--transcript", help="write the full message list here as JSONL on exit (ADR-064)")
+    p.add_argument("--temperature", type=float, default=0.0,
+                   help="sampling temperature (default 0 = greedy; a thinking model wants its own, ADR-074)")
+    p.add_argument("--top-p", type=float, default=None, help="nucleus sampling, sent only when given")
+    p.add_argument("--reasoning-effort", default=None,
+                   help="a thinking model's reasoning depth (low|medium|high|xhigh as the model defines them); "
+                        "sent only when given")
+    p.add_argument("--thinking", choices=("server", "on", "off"), default="server",
+                   help="a thinking model's mode: the server's default, on, or off (chat_template_kwargs "
+                        "enable_thinking); a model without the switch ignores it")
     p.add_argument("--timeout", type=float, default=600.0)
     return p.parse_args(argv)
 

@@ -72,6 +72,14 @@ class Runtime:
     #: never called a tool; the cap cuts the essay and brings the nudge
     #: forward. Big enough for a whole-file write of ~120 lines.
     max_tokens: int = 1536
+    #: How completions are sampled (ADR-074), both arms. The 7B ladder
+    #: ran greedy; a thinking rung (Qwen3.8) is run at its card's own
+    #: sampling with its reasoning on, because greedy decoding loops
+    #: its reasoning and thinking is what its agentic numbers rest on.
+    temperature: float = 0.0
+    top_p: float | None = None
+    reasoning_effort: str | None = None
+    thinking: str = "server"
 
     def __post_init__(self) -> None:
         if self.kind not in RUNTIMES:
@@ -79,12 +87,31 @@ class Runtime:
         if self.kind == "openai" and not self.base_url:
             raise ValueError("the openai runtime needs a base_url")
 
+    def loop_args(self) -> list[str]:
+        """The sampling flags the owned loop takes (ADR-074) — the same
+        list on both arms, so a rung's sampling is one declaration."""
+        args = [f"--temperature={self.temperature}"]
+        if self.top_p is not None:
+            args.append(f"--top-p={self.top_p}")
+        if self.reasoning_effort:
+            args.append(f"--reasoning-effort={self.reasoning_effort}")
+        if self.thinking != "server":
+            args.append(f"--thinking={self.thinking}")
+        return args
+
     def session_args(self) -> list[str]:
         """Flags for ``hobbes-session`` so the harness arm runs the same loop."""
         if self.kind != "openai":
             return []
         return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url,
-                "--max-turns", str(self.max_turns), "--max-tokens", str(self.max_tokens)]
+                "--max-turns", str(self.max_turns), "--max-tokens", str(self.max_tokens),
+                *(f"--loop-arg={a}" for a in self.loop_args())]
+
+    def describe(self) -> dict:
+        """The runtime as the run record states it."""
+        return {"kind": self.kind, "base_url": self.base_url, "max_turns": self.max_turns,
+                "max_tokens": self.max_tokens, "temperature": self.temperature, "top_p": self.top_p,
+                "reasoning_effort": self.reasoning_effort, "thinking": self.thinking}
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
 HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error", "env-error")
@@ -150,7 +177,7 @@ def run_pure_arm(
     if runtime.kind == "openai" and environment is not None:
         loop = ["--base-url", runtime.base_url, "--model", model, "--api-key-env", runtime.api_key_env,
                 "--prompt", pure_prompt(instance), "--workdir", "/work", "--max-turns", str(runtime.max_turns),
-                "--max-tokens", str(runtime.max_tokens),
+                "--max-tokens", str(runtime.max_tokens), *runtime.loop_args(),
                 # ADR-068: the pure arm had no transcript, so its window
                 # use could only be guessed from the envelope's sums.
                 "--transcript", "/work/.hobbes/transcript.jsonl"]
@@ -167,7 +194,7 @@ def run_pure_arm(
         cmd = [sys.executable, str(LOOP_PATH), "--base-url", runtime.base_url, "--model", model,
                "--api-key-env", runtime.api_key_env, "--prompt", pure_prompt(instance),
                "--workdir", str(workspace), "--max-turns", str(runtime.max_turns),
-               "--max-tokens", str(runtime.max_tokens),
+               "--max-tokens", str(runtime.max_tokens), *runtime.loop_args(),
                "--transcript", str(Path(workspace) / ".hobbes" / "transcript.jsonl")]
     else:
         cmd = [bin_, "-p", pure_prompt(instance), "--output-format", "json",

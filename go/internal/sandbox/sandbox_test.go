@@ -504,6 +504,12 @@ func TestRuntimeMaxTurnsReachesTheLoop(t *testing.T) {
 	if !strings.Contains(cmd, "--max-turns 40") || !strings.Contains(cmd, "--max-tokens 1536") {
 		t.Errorf("max turns/tokens not passed to the loop: %s", cmd)
 	}
+	cfg.LoopArgs = []string{"--temperature=1.0", "--thinking=on"}
+	p, _ = NewPlan(cfg)
+	if cmd := strings.Join(p.RuntimeCommand(), " "); !strings.HasSuffix(cmd, "--temperature=1.0 --thinking=on") {
+		t.Errorf("loop args must follow the launcher's own flags verbatim (ADR-074): %s", cmd)
+	}
+	cfg.LoopArgs = nil
 	cfg.MaxTurns = 0
 	p, _ = NewPlan(cfg)
 	if strings.Contains(strings.Join(p.RuntimeCommand(), " "), "--max-turns") {

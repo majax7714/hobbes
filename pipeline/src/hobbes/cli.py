@@ -804,7 +804,8 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     try:
         runtime = Runtime(kind=args.runtime, base_url=args.llm_base_url or "",
                           api_key_env=args.llm_key_env, max_turns=args.max_turns,
-                          max_tokens=args.max_tokens)
+                          max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p,
+                          reasoning_effort=args.reasoning_effort, thinking=args.thinking)
     except ValueError as exc:
         print(f"hobbes bench run: {exc}", file=sys.stderr)
         return 2
@@ -1311,6 +1312,16 @@ def build_parser() -> argparse.ArgumentParser:
     brun_parser.add_argument("--max-tokens", type=int, default=1536,
                              help="completion cap per turn for the owned loop, both arms (default 1536: cuts the "
                                   "7B's prose-essay turns short so the nudge fires sooner)")
+    brun_parser.add_argument("--temperature", type=float, default=0.0,
+                             help="sampling temperature for the owned loop, both arms (default 0 = greedy; "
+                                  "a thinking rung runs at its card's own — ADR-074)")
+    brun_parser.add_argument("--top-p", type=float, default=None, help="nucleus sampling, sent only when given")
+    brun_parser.add_argument("--reasoning-effort", default=None,
+                             help="a thinking model's reasoning depth (its own levels, e.g. low|medium|xhigh); "
+                                  "sent only when given")
+    brun_parser.add_argument("--thinking", choices=("server", "on", "off"), default="server",
+                             help="a thinking model's mode: the server's default, on, or off; a model without "
+                                  "the switch ignores it")
     brun_parser.add_argument("--name", default="run", help="run name under ~/.hobbes/bench/ (default: run)")
     brun_parser.add_argument("--out", help="run directory (default: ~/.hobbes/bench/<name>)")
     brun_parser.add_argument("--evaluate", action="store_true",

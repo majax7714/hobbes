@@ -88,6 +88,26 @@ the bar. The bar's rung form (H1′) is unchanged: harnessed 7B ≈ pure
 run's failures are cleanly the model's (the resolve-harness-first
 rule); the in-flight 5-fresh re-run is that check.
 
+**The 27B run's settings, declared before the run (2026-08-22,
+ADR-074).** Taken after four 7B runs read clean (Results, the last
+four entries). Served on A100-80GB by vLLM 0.27.1 with the `qwen3`
+reasoning parser and `qwen3_coder` tool parser, window 131,072 (half
+the native 262k — the KV pool beside the weights, and the ADR-069
+brief then sized to ~45k tokens). Thinking **on** (the model's
+default), `reasoning_effort=medium` — a declared guess between the
+model's default `xhigh` and the `low` its card warns degrades agentic
+tasks; chosen for wall-clock, and if the reasoning reads thin the
+follow-up is `xhigh` on the same five, not a different model. Sampling
+is the card's thinking-mode setting (temperature 1.0, top-p 0.95) —
+the 7B ran greedy; greedy loops this model's reasoning. `max_tokens`
+8192 per completion (reasoning and answer share it; the ADR-067 cut
+retry gives 16k), 40 turns, 10 units, parallel auto, five instances
+concurrently, `--human-first spawn`, the same five instances as the
+7B runs. Both arms identical in all of this. What the run can say:
+**harnessed 27B vs pure 27B** on a model that can execute is the
+informative pair; harnessed 7B ≈ pure 27B is already answered in the
+degenerate sense (0 ≈ 0 says nothing).
+
 ## The hypotheses
 
 Each is stated with the metric that decides it and what failure looks

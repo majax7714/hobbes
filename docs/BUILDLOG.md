@@ -4075,3 +4075,31 @@ tried to overwrite the module from memory. No anchor miss is a
 line-number artefact. Read: the 7B cannot execute on derived context;
 the rung is done. 859 pytest / Go green. The 27B is the next decision —
 Max's.
+
+## 2026-08-22 (fifty-ninth) — the thinking rung: Qwen3.8-27B served and the loop taught to think (ADR-074)
+
+Max's go: resume at the 27B, the 7B runs having been inspected down
+to the model's limit. The rung is a thinking hybrid
+(`Qwen3_5ForConditionalGeneration`, 48/64 linear-attention layers,
+262k native), not a bigger Coder: vLLM's recipe wants ≥ 0.17 and
+transformers ≥ 5.8, and the `qwen3` reasoning parser "is not optional
+in practice". Built: the Modal image bumped to vLLM 0.27.1 /
+transformers ≥ 5.8 (one image for every rung); per-rung
+`reasoning_parser` + `extra` flags (`qwen3_coder` tools,
+`--language-model-only`, window 131,072 — half the native, declared
+from the KV budget and the ADR-069 brief size); `loop.py`
+`--temperature/--top-p/--reasoning-effort/--thinking`, the reply's
+`reasoning_content` kept on the assistant message (preserve_thinking
+and the transcript) and `usage.reasoning_tokens` counted when
+reported; `bench.Runtime` carries the sampling once for both arms,
+the harness arm through a new generic `hobbes-session --loop-arg`.
+The run's settings pre-registered in benchmark-hypotheses.md
+(thinking on, effort medium, temp 1.0 / top-p 0.95, max_tokens 8192).
+866 pytest / Go green. First deploy attempt died on a Modal pip-mirror
+timeout (a 170 MB CUDA wheel), not a pin; redeployed. The cold start
+then found two real defects (ADR-074 consequences): `MODEL` was read
+from the host env and unset in the container (the 27B app served the
+7B), and vLLM 0.27's flashinfer sampler JIT needs nvcc (engine core
+dead, startup timeout). Both fixed; 7B re-verified on the new image;
+27B smoke: 131,072 window, 305k KV tokens, reasoning split, structured
+tool call. Launched `five-fresh-27b` at the pre-registered settings.

@@ -662,6 +662,24 @@ def fake_podman(tmp_path, monkeypatch):
     return path
 
 
+class TestRuntimeSampling:
+    """ADR-074: a rung's sampling is one declaration, carried to both arms."""
+
+    def test_default_is_greedy_and_on_the_record(self):
+        rt = arms.Runtime(kind="openai", base_url="http://llm/v1")
+        assert rt.loop_args() == ["--temperature=0.0"]
+        assert rt.describe()["temperature"] == 0.0 and rt.describe()["thinking"] == "server"
+        assert "--loop-arg=--temperature=0.0" in rt.session_args()
+
+    def test_thinking_rung_reaches_the_session_launcher(self):
+        rt = arms.Runtime(kind="openai", base_url="http://llm/v1", temperature=1.0, top_p=0.95,
+                          reasoning_effort="medium", thinking="on")
+        assert rt.loop_args() == ["--temperature=1.0", "--top-p=0.95", "--reasoning-effort=medium", "--thinking=on"]
+        sargs = rt.session_args()
+        assert "--loop-arg=--reasoning-effort=medium" in sargs and "--loop-arg=--thinking=on" in sargs
+        assert rt.describe()["reasoning_effort"] == "medium"
+
+
 class TestEnvironment:
     def test_image_name_follows_swebench_convention(self):
         from hobbes.bench import environment as env
