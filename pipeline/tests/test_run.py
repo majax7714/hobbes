@@ -848,3 +848,43 @@ class TestHumanFirstInABenchmark:
                              sessions_root=tmp_path / "spawn", max_units=5, human_first="spawn")
         live = [u for u in spawned["units"] if u["spawned"]]
         assert live and all("spawned anyway" in u["reason"] and "C-53" in u["reason"] for u in live)
+
+
+class TestPlannerMapIsRelevant:
+    """ADR-072: the planner's map ranks by the proposal, and carries the
+    whole repo's shape — not the first 60 modules of the alphabet."""
+
+    GRAPH = {
+        "languages": ["python"], "resolution_coverage": [],
+        "nodes": [
+            {"id": "sphinx.domains.c", "kind": "module", "path": "sphinx/domains/c.py"},
+            {"id": "sphinx.domains.cpp", "kind": "module", "path": "sphinx/domains/cpp.py"},
+            {"id": "sphinx.domains.python", "kind": "module", "path": "sphinx/domains/python.py"},
+            {"id": "sphinx.ext.autodoc", "kind": "package", "path": "sphinx/ext/autodoc/__init__.py"},
+            {"id": "sphinx.ext.autodoc.importer", "kind": "module", "path": "sphinx/ext/autodoc/importer.py"},
+            {"id": "sphinx.util.inspect", "kind": "module", "path": "sphinx/util/inspect.py"},
+            {"id": "zeta", "kind": "module", "path": "sympy/functions/special/zeta_functions.py"},
+        ],
+        "symbols": [
+            {"id": "sphinx.ext.autodoc.importer.get_object_members", "name": "get_object_members", "module": "sphinx.ext.autodoc.importer", "kind": "function"},
+            {"id": "zeta.polylog", "name": "polylog", "module": "zeta", "kind": "class"},
+        ],
+    }
+
+    def test_the_gold_package_is_first_by_name_and_symbol(self):
+        from hobbes.run.stages import repo_context, related_modules
+        ctx = repo_context(self.GRAPH, "autodoc inherited-members won't work for inherited attributes")
+        related = [n["id"] for n, _ in related_modules(self.GRAPH, "autodoc inherited-members won't work")]
+        assert set(related[:2]) == {"sphinx.ext.autodoc", "sphinx.ext.autodoc.importer"}
+        assert "sphinx.domains.c" not in related
+        assert "(matches: autodoc)" in ctx and "sphinx/ext/autodoc/ (2 modules)" in ctx and "sphinx/domains/ (3 modules)" in ctx
+        # a symbol name reaches its module: "polylog" names zeta_functions
+        byname = [n["id"] for n, hits in related_modules(self.GRAPH, "polylog expansion is wrong")]
+        assert byname == ["zeta"]
+        # old shape gone: the alphabetical first-N list
+        assert "## Modules (id — path)" not in ctx
+
+    def test_no_match_says_so_and_keeps_the_tree(self):
+        from hobbes.run.stages import repo_context
+        ctx = repo_context(self.GRAPH, "the thing is broken")
+        assert "none: no proposal term matches" in ctx and "## Package tree" in ctx

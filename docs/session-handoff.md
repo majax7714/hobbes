@@ -81,7 +81,12 @@ ADR-067 (read-before-edit, anchor stack, cut retry, fences), ADR-068
 (`search_file`, bounded handoff), **ADR-071** (the shell is `exec` — a
 test re-run after an edit had been refused in *every* harness run;
 `--human-first park|spawn`, C-53; missing-path search error; handoff
-punctuation). **ADR-071 is not yet run.**
+punctuation). **ADR-072** (the planner's map was alphabetical — the gold module reached
+the planner in 1 of 5 instances; every planner hit so far was the
+model's prior, not Hobbes; the map is now proposal-ranked with the
+package tree, all five gold files in it). **ADR-071/072 run launched
+2026-08-22 night as `five-fresh-7b-adr072` with `--human-first spawn`;
+read it first.**
 
 **The verification read (ADR-070 run):** seven of ten arms fail in the
 model cleanly — it searches, gets ground truth, and writes from memory,

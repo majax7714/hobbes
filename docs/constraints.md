@@ -1122,6 +1122,13 @@ information appears in both, and the entries cross-reference.
   kept verbatim in the `plan` stage and its unresolved names in
   `planner_unresolved`; the resolved seeds are in the spec as always.
 - **Source:** ADR-059 (2026-08-22).
+- **Amended (ADR-072, 2026-08-22):** until ADR-072 the planner's map was
+  the first 60 modules alphabetically — the gold module was in front of
+  the planner in 1 of 5 benchmark instances, and every planner's only
+  tool call was its handoff. The hits recorded before ADR-072 measure
+  the model's prior knowledge of the repository (C-39), not derived
+  context. The map is now ranked by the proposal and carries the whole
+  package tree.
 
 ### C-48 — The verifier's writes never reach the tree; a repro it writes is lost with the session
 - **Amended 2026-08-22 (ADR-060):** the read-only roles' worktree is

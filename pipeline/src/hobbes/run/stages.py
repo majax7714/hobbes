@@ -32,6 +32,7 @@ suite drives it with the stand-in session binary.
 
 from __future__ import annotations
 
+import re
 import json
 import os
 import shutil
@@ -56,10 +57,92 @@ DEFAULT_STAGES = ("plan", "implement", "verify")
 ALL_STAGES = ("plan", "review", "implement", "verify", "rework")
 
 
-def repo_context(graph: dict, limit: int = 60) -> str:
-    """The planner's standing context: a repo-level map, the capture
-    line, and the blind-spot denominator — enough to name where a change
-    lands, deliberately not the source (the planner reads for that)."""
+#: How many lexically related modules the planner's map lists (ADR-072).
+#: Measured on the 5-fresh graphs: at 80 every gold file of every
+#: instance is in the list (worst rank 71); at 60, sympy's was not.
+MAP_RELATED = 80
+#: A module's score is its best MAP_TOP_TERMS term weights in full plus
+#: MAP_REST_WEIGHT of the rest — so a giant module matching many weak
+#: terms cannot outrank the one module whose symbol the proposal names
+#: (sympy's `polylog`), while breadth still counts a little. Declared
+#: guesses (ADR-072), measured on the same five graphs.
+MAP_TOP_TERMS = 5
+MAP_REST_WEIGHT = 0.25
+#: How many package-tree lines the map carries before it says it cut.
+MAP_TREE_LINES = 400
+
+
+def _tokens(text: str) -> set[str]:
+    """Lowercased identifier-ish tokens: split on non-alphanumerics and
+    camelCase, stopwords and short words dropped (the C-36 term shape)."""
+    from hobbes.derive.impact import STOPWORDS
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text or "")
+    return {t for t in re.split(r"[^A-Za-z0-9]+", spaced.lower())
+            if len(t) >= 3 and t not in STOPWORDS and not t.isdigit()}
+
+
+def related_modules(graph: dict, proposal: str, limit: int = MAP_RELATED) -> list[tuple[dict, list[str]]]:
+    """Modules ranked by lexical overlap with *proposal*: tokens of the
+    module's id/path and of its symbol names against the proposal's
+    tokens, each term weighted by its rarity across modules (a term
+    that names one module — `polylog` — outweighs one that names
+    hundreds — `function`), a path hit counting double. Returns
+    ``[(node, matched_terms)]`` for modules with at least one match,
+    best first, the terms in weight order (ADR-072). A lexical match is
+    a hint, not a location — the C-36 limit applies and is said in the map."""
+    import math
+    terms = _tokens(proposal)
+    if not terms:
+        return []
+    by_module: dict[str, set[str]] = {}
+    for sym in graph.get("symbols", []) or []:
+        if sym.get("module") and sym.get("name"):
+            by_module.setdefault(sym["module"], set()).update(_tokens(sym["name"]))
+    modules = [n for n in graph.get("nodes", []) if n.get("kind") in ("module", "package") and n.get("path")]
+    own = {n["id"]: _tokens(n["id"]) | _tokens(n["path"]) for n in modules}
+    df: dict[str, int] = {}
+    for n in modules:
+        for t in (own[n["id"]] | by_module.get(n["id"], set())) & terms:
+            df[t] = df.get(t, 0) + 1
+    weight = {t: 1.0 / (1.0 + math.log(df[t])) for t in df}
+    ranked = []
+    for n in modules:
+        path_hits = own[n["id"]] & terms
+        sym_hits = by_module.get(n["id"], set()) & terms
+        hits = path_hits | sym_hits
+        if not hits:
+            continue
+        ws = sorted((weight[t] * (2.0 if t in path_hits else 1.0) for t in hits), reverse=True)
+        score = sum(ws[:MAP_TOP_TERMS]) + MAP_REST_WEIGHT * sum(ws[MAP_TOP_TERMS:])
+        ranked.append((score, n, sorted(hits, key=lambda t: -weight[t])))
+    ranked.sort(key=lambda r: (-r[0], r[1]["path"]))
+    return [(n, hits) for _, n, hits in ranked[:limit]]
+
+
+def package_tree(graph: dict, depth: int = 3, limit: int = MAP_TREE_LINES) -> list[str]:
+    """Every directory holding modules, to *depth*, with counts — the
+    whole repo's shape in a few hundred lines, whatever its size."""
+    counts: dict[str, int] = {}
+    for n in graph.get("nodes", []):
+        if n.get("kind") not in ("module", "package") or not n.get("path"):
+            continue
+        parts = n["path"].split("/")[:-1]
+        for d in range(1, min(len(parts), depth) + 1):
+            key = "/".join(parts[:d]) + "/"
+            counts[key] = counts.get(key, 0) + 1
+    lines = [f"- {d} ({c} module{'s' if c != 1 else ''})" for d, c in sorted(counts.items())]
+    if len(lines) > limit:
+        lines = lines[:limit] + [f"- … +{len(lines) - limit} more directories not shown"]
+    return lines
+
+
+def repo_context(graph: dict, proposal: str = "", limit: int = MAP_RELATED) -> str:
+    """The planner's standing context: the capture line, the modules
+    lexically related to the proposal (ADR-072 — the map used to be the
+    first *limit* modules alphabetically, which put the right package in
+    front of the planner in 1 of 5 benchmark instances), and the package
+    tree of the whole repo — enough to name where a change lands,
+    deliberately not the source (the planner reads for that)."""
     lines = ["# Repository map (for planning — read the files for detail)", ""]
     langs = ", ".join(graph.get("languages", [])) or "unknown"
     lines.append(f"Languages: {langs}. This is a graph-derived map, not the source.")
@@ -70,14 +153,21 @@ def repo_context(graph: dict, limit: int = 60) -> str:
         pct = round(100.0 * (sites - unresolved) / sites, 1)
         lines.append(f"Capture: {pct}% of {sites:,} detected call sites resolved — "
                      f"{unresolved:,} are unresolved (calls Hobbes cannot see, not absent).")
+    total = sum(1 for n in graph.get("nodes", []) if n.get("kind") in ("module", "package") and n.get("path"))
     lines.append("")
-    lines.append("## Modules (id — path)")
-    mods = sorted((n for n in graph.get("nodes", []) if n.get("kind") in ("module", "package") and n.get("path")),
-                  key=lambda n: n["path"])
-    for n in mods[:limit]:
-        lines.append(f"- `{n['id']}` — {n['path']}")
-    if len(mods) > limit:
-        lines.append(f"- … +{len(mods) - limit} more modules; use graph_neighborhood / who_calls to explore")
+    related = related_modules(graph, proposal, limit)
+    lines.append(f"## Modules related to the proposal by name (lexical match, C-36 — a hint, not a location; "
+                 f"{len(related)} of {total})")
+    for n, hits in related:
+        lines.append(f"- `{n['id']}` — {n['path']}  (matches: {', '.join(hits)})")
+    if not related:
+        lines.append("- none: no proposal term matches a module path or symbol name — use the package tree and search_file")
+    lines.append("")
+    lines.append(f"## Package tree (every directory with modules; {total} modules in all)")
+    lines += package_tree(graph)
+    lines.append("")
+    lines.append("Use search_file / read_file and the knowledge tools (graph_neighborhood, who_calls, "
+                 "tests_guarding) to confirm a location before naming it.")
     lines.append("")
     return "\n".join(lines)
 
@@ -109,7 +199,7 @@ def planner_brief(proposal: str, graph: dict) -> str:
         "involved is not a plan — a long handoff is cut at the model's output limit",
         "and lost entirely (ADR-070). Name the few files you would edit first.",
         "",
-        repo_context(graph),
+        repo_context(graph, proposal),
     ])
 
 

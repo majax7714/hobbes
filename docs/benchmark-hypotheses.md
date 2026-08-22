@@ -615,6 +615,20 @@ ADR-071 (with `--human-first spawn`) is the honest minimum before the
 27B; it is cheap, and it is the first run whose harness we have no
 known reason to doubt.
 
+**Addendum — the planner never had the context (ADR-072).** Max asked
+whether sphinx's planner was given `sphinx/ext/autodoc` and named
+`domains/*` anyway. It was not given it: the planner's map was the
+first 60 modules alphabetically, and across the five briefs of this run
+the gold module was present for **1 of 5** instances. Every planner's
+single tool call was its `reflect`. **Every planner hit recorded on
+2026-08-22 measured the 7B's prior knowledge of these repositories
+(C-39), not Hobbes.** The map is now ranked by the proposal (path and
+symbol tokens, rarity-weighted) with the whole package tree; on the
+five real graphs the gold files rank django 1/38/44, xarray 7/5,
+sklearn 71/44, sphinx 2/9, sympy 40 — all within the 80 listed. The
+next run is the first in which the planner hit rate can say anything
+about derived context.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

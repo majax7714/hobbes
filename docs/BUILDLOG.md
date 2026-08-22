@@ -4047,3 +4047,17 @@ records the abstention; C-53), missing-path search error, handoff
 punctuation strip, zero-site guard. Seven of ten arms read as the
 model's, cleanly, for the first time. 857 pytest. Not re-run: the next
 run is the first with no known harness doubt, and it is Max's go.
+
+## 2026-08-22 (fifty-seventh) — the planner never had the context (ADR-072)
+
+Max: did sphinx's planner name the wrong file *given* the right one?
+Inspected: no. `repo_context` listed the first 60 modules by path —
+the gold module was in 1 of 5 planner briefs; every planner's only
+tool call was its handoff. So every planner hit of the day measured
+the 7B's prior knowledge of the repo (C-39), not Hobbes. Built
+ADR-072: the map ranks modules by proposal overlap on path and symbol
+tokens, rarity-weighted, best-5 + 0.25×rest, top 80 listed with the
+matching terms, plus the full package tree and a confirm-before-naming
+line. Measured on the five real graphs: every gold file now in the map
+(worst rank 71). C-47 amended. 859 pytest. Launching the 7B on
+ADR-071/072 with `--human-first spawn` at Max's go.
