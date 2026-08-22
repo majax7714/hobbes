@@ -335,6 +335,14 @@ class TestHarnessArm:
 
 
 class TestVerdict:
+    def test_docker_host_env_respects_an_explicit_setting_and_finds_the_socket(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DOCKER_HOST", "unix:///custom.sock")
+        assert verdict.docker_host_env()["DOCKER_HOST"] == "unix:///custom.sock"
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        sock = tmp_path / "podman" / "podman.sock"; sock.parent.mkdir(); sock.touch()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        assert verdict.docker_host_env()["DOCKER_HOST"] == f"unix://{sock}"
+
     def test_a_dataset_file_is_made_absolute_for_the_evaluator(self, tmp_path, monkeypatch):
         # the evaluator runs from run_dir/eval; a relative dataset file
         # would not resolve there (the first full-stage run's judge died

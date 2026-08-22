@@ -29,6 +29,45 @@ from pathlib import Path
 #: Pinned evaluator (P9: a provider's limits are ours, and can end on
 #: an upstream release — the version is part of the claim).
 SWEBENCH_VERSION = "5.0.2"
+
+#: The evaluator's schema dataset. swebench 5.0.2's ``make_test_spec``
+#: reads ``instance["image"]``/``eval_script``/``log_parser`` — fields
+#: only the ``SWE-bench/SWE-bench_Verified`` HF dataset (the new image
+#: schema, images named ``swebench/sweb.eval.*``) carries. The classic
+#: ``princeton-nlp/SWE-bench_Verified`` and a plain instances export do
+#: not, so the evaluator (local *or* Modal) dies with ``KeyError:
+#: 'image'`` after the patches are already produced. This is the dataset
+#: the evaluator is pointed at unless the caller names another; instance
+#: *selection* is still the local file, this only supplies the eval
+#: schema per id.
+EVAL_DATASET = "SWE-bench/SWE-bench_Verified"
+
+
+def docker_host_env(env: dict | None = None) -> dict:
+    """A subprocess env in which docker-py (and so swebench's local
+    evaluator) can reach a container engine. On this box the engine is
+    rootless podman (D2), which exposes a Docker-compatible API socket
+    at ``$XDG_RUNTIME_DIR/podman/podman.sock``. If ``DOCKER_HOST`` is
+    already set we respect it; otherwise, when that socket exists (or we
+    can start it via ``systemctl --user start podman.socket``), we point
+    ``DOCKER_HOST`` at it. swebench 5.0.2's ``--modal`` path is broken
+    upstream (C-50), so the local path over this socket is the working
+    evaluator."""
+    import subprocess as sp
+    env = dict(env if env is not None else os.environ)
+    if env.get("DOCKER_HOST"):
+        return env
+    runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    sock = Path(runtime) / "podman" / "podman.sock"
+    if not sock.exists():
+        try:
+            sp.run(["systemctl", "--user", "start", "podman.socket"],
+                   capture_output=True, timeout=15)
+        except (OSError, sp.SubprocessError):
+            pass
+    if sock.exists():
+        env["DOCKER_HOST"] = f"unix://{sock}"
+    return env
 CMD_ENV = "HOBBES_SWEBENCH_CMD"
 
 VERDICTS = ("resolved", "unresolved", "error", "empty-patch", "unjudged")
@@ -75,7 +114,7 @@ def evaluator_command(dataset: str, predictions: Path, run_id: str, instance_ids
     prefix = os.environ.get(CMD_ENV)
     head = shlex.split(prefix) if prefix else [
         "uv", "run", "--no-project", "--with", f"swebench[modal]=={SWEBENCH_VERSION}" if modal
-        else f"swebench=={SWEBENCH_VERSION}",
+        else f"swebench=={SWEBENCH_VERSION}",  # local path over the podman socket (C-50: --modal is broken upstream)
         "python", "-m", "swebench.harness.run_evaluation",
     ]
     return head + [
@@ -93,8 +132,11 @@ def evaluate(dataset: str, predictions: Path, run_id: str, name: str, instance_i
     cwd = Path(cwd)
     cwd.mkdir(parents=True, exist_ok=True)
     cmd = evaluator_command(dataset, predictions, run_id, instance_ids, max_workers, modal=modal)
+    # Local eval needs a container engine; point docker-py at the podman
+    # socket unless the caller set DOCKER_HOST or is running on Modal.
+    env = os.environ if modal else docker_host_env()
     try:
-        proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env)
     except FileNotFoundError as exc:
         raise VerdictError(f"evaluator not runnable: {exc}") from exc
     except subprocess.TimeoutExpired as exc:

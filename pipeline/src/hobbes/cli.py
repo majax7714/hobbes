@@ -836,7 +836,11 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     )
     failed = False
     if args.evaluate:
-        dataset = args.dataset or str(args.instances)
+        # The evaluator (local or Modal) needs the image-schema dataset
+        # (see verdict.EVAL_DATASET); a local instances export lacks the
+        # image/eval_script fields make_test_spec reads.
+        from hobbes.bench import verdict as _verdict
+        dataset = args.dataset or _verdict.EVAL_DATASET
         before = sum(1 for r in records if r.solved is None)
         records = bench_run.evaluate(run_dir, dataset, max_workers=args.workers, modal=args.eval_modal)
         failed = sum(1 for r in records if r.solved is None) == before and before > 0

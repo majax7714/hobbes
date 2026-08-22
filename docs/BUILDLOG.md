@@ -3746,3 +3746,30 @@ Built all three, both arms:
 824 pytest / Go green; hobbes-session rebuilt. The full-stage probe
 that surfaced these is still running with the pre-fix binary
 (resumable); the numbers here are its diagnostic, not a re-run.
+
+## 2026-08-22 (forty-third) — phase 4, step 2: the first end-to-end verdicts
+
+Ran both arms full-stage (`plan,implement,verify`) on astropy-13398 and
+13579, 7B, and got the harness's first real solve verdicts. The
+evaluator fought back and each fight was a fix:
+
+- **Dataset path**: the evaluator runs from `run_dir/eval`, so a
+  relative `--dataset`/instances file (`../verified.jsonl`) died with
+  FileNotFoundError after every patch was produced. `evaluator_command`
+  absolutizes a dataset that is a file (`f76c2f6`).
+- **Dataset schema**: swebench 5.0.2's `make_test_spec` reads
+  `instance["image"]`, which only `SWE-bench/SWE-bench_Verified` (the
+  new image schema) carries — not `princeton-nlp/…` nor a local export.
+  `EVAL_DATASET` is the default for both local and Modal eval.
+- **Modal is broken (C-50, P9)**: `--eval-modal` raises
+  `AttributeError: TestSpec has no setup_env_script` — swebench 5.0.2's
+  own `# TODO`. The **local** path works: `verdict.docker_host_env`
+  points docker-py at rootless podman's Docker socket
+  (`$XDG_RUNTIME_DIR/podman/podman.sock`), closing ADR-055's "podman
+  socket for the evaluator" item.
+
+Result (`benchmark-hypotheses.md` Results, dated): **0/2 both arms**,
+planner hit 100% (2/2). 13579 harness applied cleanly, 41/41 P2P green,
+the one F2P still failing — a real near-miss. The planner finds the
+place; the 7B implementer is the wall on these two (H1's question,
+needs the 45-set). 49 bench tests green; the evaluator is unblocked.

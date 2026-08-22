@@ -1148,6 +1148,33 @@ information appears in both, and the entries cross-reference.
 - **Source:** harness restructure phase 3 (2026-08-22), ADR-059
   amended.
 
+### C-50 — swebench 5.0.2's Modal evaluator is broken; the verdict comes from the local engine
+- **Cannot tell you (via `--eval-modal`):** any verdict. swebench
+  5.0.2's Modal path calls `test_spec.setup_env_script` /
+  `install_repo_script` in `get_instance_image`, attributes its own
+  5.0.2 `TestSpec` does not define — the code carries a `# TODO` saying
+  as much. So `--modal true` raises `AttributeError` for every instance
+  and reports them all `error`, after the patches are already produced.
+- **Because:** the pinned evaluator is a third party we run and do not
+  wrap (P9), and this is its bug, not ours — but the user ran `hobbes
+  bench … --eval-modal` and got no verdict either way. The **local**
+  path (no `--modal`) works: it reads the same `image` field and runs
+  the prebuilt `swebench/sweb.eval.*` container, which on this box is
+  served by rootless podman's Docker-compatible API socket
+  (`$XDG_RUNTIME_DIR/podman/podman.sock`). `verdict.docker_host_env`
+  points docker-py at it; the ADR-055 "podman socket for the evaluator"
+  open item is thereby closed.
+- **Bites at:** a run launched with `--eval-modal` (the handoff's
+  command carried it) — it costs the arms nothing but yields four
+  `error` verdicts that are the evaluator's failure, not the model's.
+  Reading those as solves-failed would be wrong; they are unjudged.
+- **You find out:** **surfaced** — the evaluator's own log records the
+  `AttributeError`; the local path is the default and needs no flag.
+  `--eval-modal` is kept for when swebench fixes its Modal path
+  upstream, and its images-lack-schema failure mode is C-49's sibling.
+- **Source:** phase 4 full-stage run (2026-08-22), swebench 5.0.2.
+  **Provider:** swebench 5.0.2 (`run_evaluation_modal.get_instance_image`).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

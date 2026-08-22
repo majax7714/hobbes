@@ -270,6 +270,36 @@ measured on the planner path. **Reading: the unlock works on these two
 solve.** Not a result for H1–H3 (n=2, planner-only); the full-stage
 run on the same two instances follows, then the 45-set.
 
+### 2026-08-22 — the full-stage run (phase 4, step 2), astropy-13398 & 13579
+
+Both arms, 7B, `--stages plan,implement,verify --max-units 10
+--max-turns 40`, evaluated by the pinned swebench 5.0.2 run **locally
+over the rootless-podman Docker socket** (its `--modal` path is broken
+upstream — C-50). **n=2, not an H1–H3 result** (P11); recorded as the
+first end-to-end verdicts the harness has ever produced.
+
+| instance | planner hit | harness verdict | pure verdict |
+|---|---|---|---|
+| astropy-13398 | 1/4 gold | unresolved (patch applied, F2P failed) | unresolved |
+| astropy-13579 | 1/1 gold | unresolved (patch applied, 41/41 P2P pass, 1 F2P fails) | unresolved |
+
+**0/2 both arms.** The planner found the place both times (hit 100%,
+mean gold recall 62%); neither the harnessed nor the pure 7B turned
+that into a passing fix. On 13579 the harness patch applied cleanly and
+kept all 41 PASS_TO_PASS green but did not make the one FAIL_TO_PASS
+pass — a real near-miss, not a broken patch. The pure 7B on both
+instances edited an invented file (`coordinates/transforms.py`) or a
+test file, never the source.
+
+What the run cost in harness wall time and what inspecting it fixed is
+in the BUILDLOG (2026-08-22, forty-first..forty-third): the implement
+stage ran 21–36 min, ~45% of it on prose turns and no-op exec repeats,
+now capped (`--max-tokens`, exec-repeat refusal). **Reading:** the
+unlock (planner naming the place) holds; the 7B *implementer* is the
+wall on these two — which is H1's actual question and needs the 45-set,
+not two instances, to answer. The evaluator now works, so the set can
+run.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

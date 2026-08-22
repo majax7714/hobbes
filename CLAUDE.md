@@ -285,13 +285,17 @@ never advancing (`branch -f` in the repo, not the worktree). Phase 4's
 after three harness fixes it surfaced: **ADR-060** (read-only roles
 mount an overlay, the `ro` mount killed the C-43 binding), the
 handoff parser reading prose headings + dotted symbol names, and
-planner seeds *replacing* the lexical layer. **Next: full stages on the
-two, then the 45-set.** The first full-stage run (astropy-13398) took
-36 min in the implement stage; four correctness fixes (`40bc4b1`:
-verifier test resolution, stale session dirs, refused-repeat-after-edit
-stall, `--max-turns` to both arms) and three speed fixes (max_tokens
-cap default 1536, exec-repeat refusal, read-only `pip show`/`which` in
-the box) followed from inspecting it. 824 pytest / Go green.
+planner seeds *replacing* the lexical layer. Phase 4
+**full-stage run done on both astropy instances**: 0/2 both arms,
+**planner hit 100% (2/2)** — the planner finds the place, the 7B
+implementer is the wall (13579 harness applied cleanly, 41/41 P2P
+green, one F2P still failing). Getting there took correctness fixes
+(`40bc4b1`), speed fixes (`a646760`: max_tokens cap, exec-repeat
+refusal, read-only pip) after the implement stage ran 21–36 min, and
+**unblocking the evaluator**: swebench 5.0.2's `--modal` is broken
+upstream (C-50), so eval runs **locally over the rootless-podman Docker
+socket** (`docker_host_env`), closing ADR-055's evaluator-socket item.
+**Next: the 45-instance complex set.** 824 pytest / 49 bench / Go green.
 
 **2026-08-21 (run stopped for restructure — read
 `docs/harness-restructure-handoff.md`):** The first live 7B benchmark
