@@ -279,9 +279,15 @@ log), `seed_source` on the record, the planner scored **post hoc
 against the gold patch** (`planner ∩ gold`, C-49 — a one-solution
 proxy), `hobbes bench report` split by `seed_source` with the planner
 hit-rate. Phase 3 also found and fixed phase 2's integration branch
-never advancing (`branch -f` in the repo, not the worktree). **Next is
-phase 4: the planner-only probe** (`--stages plan`) on astropy-13398 /
-13579, reading the hit column before the 45-set. 818 pytest / Go green.
+never advancing (`branch -f` in the repo, not the worktree). Phase 4's
+**planner probe hit on both astropy instances** (13398 1/4, 13579
+1/1; ~10 s, one tool call each — see the hypotheses doc's Results)
+after three harness fixes it surfaced: **ADR-060** (read-only roles
+mount an overlay, the `ro` mount killed the C-43 binding), the
+handoff parser reading prose headings + dotted symbol names, and
+planner seeds *replacing* the lexical layer. Known gap: `bench run
+--max-turns` reaches only the pure arm. **Next: full stages on the
+two, then the 45-set.** 820 pytest / Go green.
 
 **2026-08-21 (run stopped for restructure — read
 `docs/harness-restructure-handoff.md`):** The first live 7B benchmark

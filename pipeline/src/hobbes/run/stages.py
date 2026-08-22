@@ -231,8 +231,9 @@ def run_staged(
             planner_seeds = hits
             seed_source = "planner"
 
-    # 2. derive — deterministic, on the planner's seeds (or the fallback).
-    kwargs = {"seeds": planner_seeds, "max_units": max_units}
+    # 2. derive — deterministic, on the planner's seeds *alone* (the
+    # lexical layer is the fallback, not a co-seeder), or the fallback.
+    kwargs = {"seeds": planner_seeds, "max_units": max_units, "lexical": seed_source != "planner"}
     if budget:
         kwargs["budget"] = budget
     spec_obj = derive_plan(repo, proposal, **kwargs)

@@ -494,6 +494,9 @@ class TestStagedRun:
         # the planner's handoff is a stage, its resolved seed is app.core
         plan = next(s for s in rec["stages"] if s["stage"] == "plan")
         assert "app.core" in plan["resolved"] and plan["unresolved"] == []
+        # and the planner's seeds REPLACE the lexical ones: the proposal's
+        # own words ("handle", "retry") seed nothing on the planner path
+        assert set(rec["seeds"]) == set(plan["resolved"]), rec["seeds"]
         # every implementer's inbox carried the planner note
         assert any(u["spawned"] for u in rec["units"])
         assert rec["integration"]["merged"]

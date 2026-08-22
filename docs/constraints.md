@@ -1140,6 +1140,11 @@ information appears in both, and the entries cross-reference.
   block carries the note naming this entry; the record's
   `detail.planner` states `gold`, `hits`, `named` and the file lists,
   so a miss can be read against what was actually named.
+- **Also (probe, 2026-08-22):** a file the gold patch *creates* is in
+  the denominator and can never be named from the graph — 13398's
+  `itrs_observed_transforms.py` caps that instance's recall at 3/4
+  however good the planner is. The record's `gold_files` list lets a
+  reader see which gold files exist at base.
 - **Source:** harness restructure phase 3 (2026-08-22), ADR-059
   amended.
 

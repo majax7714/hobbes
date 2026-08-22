@@ -226,9 +226,15 @@ def resolve_terms(graph: dict, terms: list[str]) -> tuple[list[str], list[str]]:
 
 
 def resolve_seeds(
-    graph: dict, proposal: str, explicit: list[str]
+    graph: dict, proposal: str, explicit: list[str], lexical: bool = True
 ) -> tuple[dict[str, str], list[str]]:
     """Resolve seeds from *explicit* values and the proposal's terms.
+
+    With *lexical* off the proposal's terms are not read at all — the
+    staged run's planner seeds (ADR-059) *replace* the lexical layer
+    rather than join it; the first live probe showed the join re-admits
+    the prose seeds C-36 warns about (`input`, `frame`, `isinstance`…)
+    and the plan was the capped repository again.
 
     Explicit values must match a node id, a symbol id or name, or a
     file path (exact, or unambiguous path suffix) — one that matches
@@ -248,7 +254,7 @@ def resolve_seeds(
         seeds.setdefault(node, value)
 
     unresolved: list[str] = []
-    for term in _TOKEN.findall(proposal):
+    for term in (_TOKEN.findall(proposal) if lexical else []):
         if term.lower() in STOPWORDS:
             continue
         node = lookup(term)
@@ -337,14 +343,14 @@ def filter_seeds(
     return kept, rejected
 
 
-def build_impact(graph: dict, proposal: str, explicit: list[str]) -> ImpactSet:
+def build_impact(graph: dict, proposal: str, explicit: list[str], lexical: bool = True) -> ImpactSet:
     """Seeds plus expansion; raises :class:`SeedError` when nothing seeds.
 
     An empty impact set is not a plan — it is the mapping saying the
     proposal names nothing it can find, and the fix (name a node with
     --seed) belongs in the error, not in a silently empty change-spec.
     """
-    seeds, unresolved = resolve_seeds(graph, proposal, explicit)
+    seeds, unresolved = resolve_seeds(graph, proposal, explicit, lexical=lexical)
     if not seeds:
         hint = ""
         if unresolved:

@@ -180,8 +180,11 @@ def derive_plan(
     adds: list[str] | None = None,
     budget: int = partition.DEFAULT_BUDGET,
     max_units: int | None = None,
+    lexical: bool = True,
 ) -> ChangeSpec:
-    """The whole derivation: proposal to change-spec. Deterministic."""
+    """The whole derivation: proposal to change-spec. Deterministic.
+    *lexical* off seeds from *seeds* alone (the staged run's planner
+    path, ADR-059)."""
     repo_root = Path(repo_root)
     graph = artifacts.load_graph(repo_root, accepts=artifacts.V4_ONLY)
     tests = artifacts.load_tests(repo_root)
@@ -189,7 +192,7 @@ def derive_plan(
     invariants = load_all(repo_root, known_tests=known)
     declared = _parse_adds(adds or [])
 
-    impact_set = impact.build_impact(graph, proposal, list(seeds or []))
+    impact_set = impact.build_impact(graph, proposal, list(seeds or []), lexical=lexical)
     modules = partition.unit_modules(graph, impact_set.scores)
     history = cochange.observe(repo_root)
     warnings = [history.warning] if history.warning else []

@@ -176,7 +176,7 @@ building it found and fixed phase 2's integration branch never
 advancing (`_integrate_one` ran `branch -f` in the repo, not the
 worktree).
 
-### Phase 4 — the probe, then the run
+### Phase 4 — the probe, then the run  ⏳ probe done (hit both), full stages running
 
 Planner-only (`--stages plan`) on 13398 and 13579; unit interiors vs
 gold checked by hand and recorded in `benchmark-hypotheses.md`'s

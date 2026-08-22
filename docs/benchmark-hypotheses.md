@@ -224,6 +224,52 @@ None yet. The harness exists (ADR-055, 2026-08-21); no live run has
 been made — the first one starts when Max settles the session-image
 and network question and names the instance set and model ladder.
 
+### 2026-08-22 — the planner probe (harness restructure phase 4, step 1)
+
+`hobbes bench run --stages plan` on astropy-13398 and astropy-13579,
+Qwen2.5-Coder-7B on Modal, harness arm only — the question was
+narrow: *can a 7B, given the issue and the graph's standing context,
+name the place?* Read by the planner hit column (C-49), not by any
+verdict. Three attempts, each stopped by a harness finding, the
+third clean:
+
+| attempt | 13398 (gold 4 files) | 13579 (gold 1) | what stopped it |
+|---|---|---|---|
+| 1 | planner died in 1 s, no tokens | — | the C-43 pre-command failed on the `ro` worktree (ADR-060: overlay) |
+| 2 | `files: []` → lexical-fallback, miss | `SlicedLowLevelWCS.world_to_pixel` unresolved → miss | handoff parser keyed only `files:`; no dotted-name rule |
+| 3 | **hit 1/4** (`builtin_frames/itrs.py`), `seed_source: planner` | **hit 1/1** (`wrappers/sliced_wcs.py`) | — |
+
+Both planners took **2 turns, ~9k input tokens, ~10 s** and made
+**one tool call — the `reflect` itself**: neither touched a knowledge
+tool or read a file; the names came from the issue text and the map.
+The 13579 planner named a package dir (`wcs/wcsapi.py`) as a file and
+the gold module only through a symbol; the 13398 planner named four
+plausible neighbours of which one was gold, and missed the file the
+patch *creates* (`itrs_observed_transforms.py`) — a created file can
+never be named from the graph, and the hit-rate's denominator counts
+it (noted under C-49).
+
+**Unit interiors vs gold, re-derived offline on the probe workspaces
+(deterministic, quota-free) after the third fix — the planner's seeds
+now *replace* the lexical layer instead of joining it (attempt 3 had
+joined them, re-admitting `input`/`frame`/`isinstance` and making the
+plan the capped repository again):**
+
+| instance | cap | gold files inside spawned units | deferred |
+|---|---|---|---|
+| 13398 | 20 | 3/4 (`__init__`, `itrs`, `intermediate_rotation_transforms`) | 50 |
+| 13398 | 10 | 2/4 (`__init__`, `itrs`) | 60 |
+| 13398 | 5 | 1/4 (`itrs`) | 65 |
+| 13579 | 20 / 10 / 5 | 1/1 (`sliced_wcs`, in a 4-file unit with `base`, `__init__`, its test) | 41 / 51 / 56 |
+
+The seed-bearing gold unit survives every cap (select-then-cap, C-44,
+doing its job); the neighbour gold files go first. Two to four seeds
+still expand to 60–70 modules, so the cap binds — C-35's grain, now
+measured on the planner path. **Reading: the unlock works on these two
+— the planner found the place both times — and the next number is the
+solve.** Not a result for H1–H3 (n=2, planner-only); the full-stage
+run on the same two instances follows, then the 45-set.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

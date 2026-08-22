@@ -3687,3 +3687,37 @@ had scaffolded `planner.policy` / `reviewer.policy` into the dogfood
 `.hobbes/policies/roles/` untracked; versioned now beside the other
 three. Next: **phase 4** — the planner-only probe on the two astropy
 instances, reading the hit column first.
+
+## 2026-08-22 (forty-first) — phase 4, step 1: the planner probe hits
+
+Ran `hobbes bench run --stages plan` on astropy-13398/13579 (7B on
+Modal). Three attempts; each stop was a harness finding, fixed and
+committed before the next:
+
+1. **ADR-060** — the planner died in 1 s: the C-43 pre-command copies
+   build artifacts into `/work`, and a read-only role's `/work` was
+   `ro`. Read-only roles now mount an **overlay** (`:O`): writable
+   in-container, host untouched — the guarantee the flag was for.
+   Verified on the Enforcing box (`O,z` is rejected; no relabel
+   needed) and with the real astropy pre-command. C-48 narrowed.
+2. **Parser + resolver** — the 7B wrote "The proposed changes touch the
+   following files:" and `SlicedLowLevelWCS.world_to_pixel`; both were
+   recorded as misses by the harness, not the model. `parse_handoff`
+   reads a field word in a prose heading and keeps path-shaped bullets
+   (flagged `files_source: path-shaped`); `build_lookup` resolves a
+   dotted name by unique symbol-id suffix (everyone) or its head
+   (planner only — the lexical seeds still never guess, C-36 tests
+   pinned it).
+3. **Planner seeds replace the lexical layer** (`derive_plan(lexical=)`):
+   attempt 3 had merged them and re-admitted the prose seeds.
+
+Result (`docs/benchmark-hypotheses.md` Results): **hit on both** —
+13398 1/4 (`itrs.py`), 13579 1/1 (`sliced_wcs.py`), `seed_source:
+planner`, 2 turns / ~9k tokens / ~10 s each, **one tool call: the
+reflect** (no knowledge tool, no file read). Offline re-derivation
+with planner-only seeds puts 3/4 and 1/1 gold files inside spawned
+units; the seed-bearing unit survives a cap of 5. Also noted: `bench
+run --max-turns` reaches only the pure arm (the sandbox
+`RuntimeCommand` passes no `--max-turns`; harness sessions run the
+loop's default 60). 820 pytest / Go green. Next: full stages on the
+same two, then the 45-set.
