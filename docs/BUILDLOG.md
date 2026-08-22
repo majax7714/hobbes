@@ -4132,3 +4132,27 @@ failures were harness too (sphinx tripped the stall rule mid-search,
 sklearn hit the 3600 s wall). 866 pytest / Go green (new policy tests); proxy rebuilt
 (static + sandbox copy). Not re-run — the ADR-075 re-run is Max's go,
 and the thinking-model stall/timeout knobs should be settled first.
+
+## 2026-08-22 (sixty-first) — the thinking-model loop knobs, and the shared-failure read (ADR-076)
+
+Inspected the pure-vs-harness losses on `five-fresh-27b`. Of the three
+instances both arms failed — sympy, sklearn, sphinx — only **sympy** is
+a genuine shared *model* miss: both arms localised the gold file and
+edited it, but both implemented only the issue's one worked example
+(`polylog(2, 1/2)`) not the full closed-form table the hidden
+`test_polylog_values` requires; pure put it in `eval` (right method,
+incomplete + `S.Pi` bug), harness put it in `_eval_expand_func` (wrong
+method — never fires on automatic eval) and was blind (8/9 exec calls
+expire-denied, C-54). sklearn and sphinx are **harness**: sklearn's
+gold ranked 44/71 in the map and the planner named `_set_output.py`
+(the module gold *calls*) — a localisation miss — while pure never
+patched (3600 s timeout); sphinx's planner localised (1/2) but the
+implementer units were strangled by C-54 and only the test unit merged,
+while pure stalled at 6 dry turns mid-investigation. So two of the three
+shared losses are the harness, and both pure losses were a timeout and a
+premature stall — not the model. Built ADR-076: `bench run
+--stall-after/--nudge-after`, carried to both arms via Runtime, loop
+defaults (6/3, cut for the 7B) unchanged when unset — a thinking model
+investigates before editing and must not be stopped as if stalled.
+867 pytest / Go green. Next: the scoped ADR-075/076 re-run (the four
+harness failures + xarray as control) at Max's go.

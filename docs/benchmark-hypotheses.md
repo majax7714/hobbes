@@ -688,6 +688,31 @@ model bothered to look (sympy); where it guessed (sphinx) it failed.
 The 27B is the question now — with the harness record behind it, not
 ahead of it. Pure arm: still not reproducible at temperature 0.
 
+### 2026-08-22 — preregistered before the ADR-075/076 27B re-run (scoped)
+
+Stated before the run, per P11. The `five-fresh-27b` run was void (the
+proxy strangled the harness arm, C-54); ADR-075 lets it execute and
+ADR-076 gives a thinking model room to investigate. The re-run is
+**scoped to the four harness failures** — django, sympy, sklearn, sphinx
+— **plus xarray as the control** (verify the harness solve holds). Same
+sampling as the first run (thinking on, effort medium, temp 1.0 / top-p
+0.95), `--stall-after` and `--timeout` raised for the thinking rung.
+
+**Expectation (Max):** with the harness able to run its tests and commit,
+**the harness arm should now beat the pure arm on this set**, even though
+it is mostly failures. The basis is this run's own findings, not
+optimism: the harness losses were the proxy (104/253 exec calls
+expire-denied), not the model; the planner already localises 80% (4/5)
+from derived context; and two of the three shared losses were harness
+(sklearn localisation, sphinx exec-starvation) while both pure losses
+were a timeout and a premature stall. **Falsifier:** if the harness arm
+does not beat pure once it can execute — in particular if it still loses
+on instances whose planner localised (sphinx, django) — the derived-
+context thesis (H1) is weaker than the localisation numbers suggest, and
+the wall is per-unit execution, not the proxy. sympy is expected to stay
+hard for both (a genuine model under-implementation); a harness-only
+solve there would be the strongest single signal.
+
 ### 2026-08-22 — the first 27B run, `five-fresh-27b` (both arms; VOID as a model verdict)
 
 The thinking rung (ADR-074): Qwen3.8-27B, thinking on, `reasoning_effort

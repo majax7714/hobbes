@@ -8,133 +8,72 @@ BUILDLOG entries. **Nothing is running. Do not launch a benchmark
 without a fresh decision from Max — the last session pushed experiments
 faster than the base could stay clean.**
 
-## LATEST (2026-08-22, sixtieth session): the 27B is deployed; its first run is void
+## LATEST (2026-08-22): 27B deployed, its first run void, the harness revised — ready for a scoped re-run
 
-**Qwen3.8-27B is deployed** on Modal (`hobbes-llm-qwen-qwen3-8-27b`,
-A100-80GB, vLLM 0.27.1, window 131,072, `qwen3` reasoning + `qwen3_coder`
-tool parsers, text-only; ADR-074). The owned loop takes
-`--temperature/--top-p/--reasoning-effort/--thinking` and keeps reasoning
-on the transcript; `bench.Runtime` carries the sampling to both arms via
-`hobbes-session --loop-arg`. Deploy pitfalls (all fixed, in `modal_vllm.py`):
-`MODEL` must be baked into the image env; `VLLM_USE_FLASHINFER_SAMPLER=0`
-(the JIT wants nvcc); Modal answers a request that outlives the cold start
-with a `303` poll redirect, so warm with a short-timeout `/models` loop
-before a run (~10 min cold start).
+**The 27B is deployed and the loop can drive it (ADR-074).** Modal app
+`hobbes-llm-qwen-qwen3-8-27b`, A100-80GB, vLLM 0.27.1, window 131,072,
+`qwen3` reasoning + `qwen3_coder` tool parsers, text-only. The owned loop
+takes `--temperature/--top-p/--reasoning-effort/--thinking` and keeps
+reasoning on the transcript; `bench.Runtime` carries sampling and the loop
+knobs to both arms via `hobbes-session --loop-arg`. Deploy pitfalls (all
+fixed in `modal_vllm.py`): bake `MODEL` into the image env;
+`VLLM_USE_FLASHINFER_SAMPLER=0` (JIT wants nvcc); warm with a short-timeout
+`/models` loop before a run (~10 min cold start; Modal answers a request
+that outlives it with a `303` poll redirect).
 
-**The first 27B run (`five-fresh-27b`, both arms) is VOID as a model
-verdict.** pure 40 % / harness 20 %, but 104 of 253 exec calls
-expire-denied because the policy engine matched compound commands
-(`cd /work && pytest`, chained git, env-prefixed) as one anchored string.
-Fixed: **ADR-075** — `Chain.ResolveCommand` resolves per segment,
-most-restrictive-wins (C-54); box policy broadened with read-only filters.
-Real from the run anyway: **planner localised 80 % (4/5) from derived
-context** at 27B; xarray solved on the harness arm end to end; both pure
-losses were harness too (stall rule mid-search; 3600 s wall).
+### The harness revisions (do these before going further — mostly DONE)
 
-**THE NEXT STEP — Max's go:** re-run the five on the ADR-075 harness (the
-first 27B run whose harness arm can actually execute). Before reading H1,
-settle the **thinking-model knobs**: a thinking model investigates longer
-per turn than the 7B the current defaults were cut for — expose
-`--stall-after`/`--nudge-after` on `bench run` (both arms; defaults
-unchanged) and consider a larger `--timeout` (sklearn pure hit 3600 s).
-The launch command below is unchanged except the URL is the 27B\'s and add
-`--temperature 1.0 --top-p 0.95 --reasoning-effort medium`. Do not launch
-without Max\'s go.
+The first 27B run (`five-fresh-27b`) was **void as a model verdict**: the
+harness arm (20%) lost to pure (40%) because the proxy strangled it, not
+because the model was worse. Two revisions came out of reading it:
 
-## Where the work is
+1. **ADR-075 (DONE, committed) — compound-command policy.** The engine
+   matched a whole command string against anchored globs, so a capable
+   model's `cd /work && pytest`, chained git, and env-prefixed commands
+   matched no box allow rule and expire-denied (104 of 253 exec calls).
+   Now `Chain.ResolveCommand` splits on top-level `&& || ; |`, strips
+   `cd`/env prefixes, and resolves each segment most-restrictive-wins
+   (deny > escalate > allow); box policy broadened with the read-only pipe
+   filters. C-54. **This is the fix that should let the harness arm
+   execute.**
+2. **ADR-076 (DONE, committed) — loop-discipline knobs per run.**
+   `bench run --stall-after/--nudge-after`, both arms; loop defaults (6/3,
+   cut for the 7B) unchanged when unset. A thinking model investigates
+   before its first edit — sphinx pure was stopped mid-investigation at 6
+   dry turns. Raise these on a 27B run. The pure wall is `--timeout`
+   (sklearn pure hit 3600 s doing real work) — raise it too.
 
-The derivation programme's **benchmark harness** is the active work:
-Hobbes run as a harness over SWE-bench Verified instances vs a
-pure-model baseline, on a small open model (Qwen2.5-Coder-7B) served
-from Max's Modal. The question is H1 — does derived context let a small
-harnessed model match a larger pure one — but **testing has not reached
-a verdict about the model**, because each run keeps surfacing harness
-defects that must be fixed first. That is the current loop: run a small
-set → read every failure by hand → fix what is the harness, not the
-model → re-run.
+**Known, still open (not blocking the re-run):** a minority of exec calls
+returned `fork/exec /bin/sh: no such file or directory` — a separate
+secondary defect, unread; watch whether ADR-075 alone clears it.
 
-**Standing rule from Max (2026-08-22):** resolve the harness's
-contribution to a failure *before* attributing anything to the model.
-"If in N instances we see harness weakness, that's harness tweaking, not
-model re-evaluation yet." Model-rung re-evaluation (7B → **Qwen3.8 27B**, Max 2026-08-22 —
-not the 32B; see the hypotheses doc's dated amendment) is on the
-table but only once a run's failures are cleanly the model's.
+### The next round — scoped (Max, 2026-08-22)
 
-## What the last two runs showed (both 0-solved, both informative)
+Run **only the four harness failures** — `django`, `sympy`, `sklearn`,
+`sphinx` — **plus `xarray` again as the control** (verify the one harness
+solve still holds). Re-running the passing pair for its own sake is lower
+value; the point is the harness fix applied over the failures. Same five
+ids as before, then, but the framing is four-targets-plus-control.
 
-The astropy pair and the 5-fresh set (django/sympy/xarray/sphinx/
-scikit-learn) both scored 0 solved on both arms. But hand-reading them
-(the point of small sets) showed the failures are **mostly the harness,
-not hallucination**:
+**Preregistered expectation (Max):** with the harness able to execute,
+**Hobbes should now beat pure on this set**, even though it is mostly
+failures — the findings so far (planner localises 80% from derived
+context; the harness losses were the proxy, not the model) point that way.
+Recorded in `docs/benchmark-hypotheses.md` before the run (P11).
 
-- The astropy "model overwrites files unread" pathology **did not
-  generalise** — 1 of 10 arm runs on the 5-fresh set hallucinated a new
-  file. Several arms grounded on the right file (django edited the gold
-  `filters.py` with real symbols).
-- On the 5-fresh set the **planner localised ~4/5**, but the harness
-  recorded 2/5 because the **handoff parser dropped two correct
-  answers** (xarray named both gold files on one markdown line; sympy
-  named the right symbol `polylog` in prose).
-- django's one grounded-but-broken edit was the **repeated-edit stack**,
-  a harness edit-tool defect.
-
-Full analysis: `docs/benchmark-hypotheses.md` Results, 2026-08-22
-entries.
-
-## What was just built (this session, on `main`)
-
-Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
-
-- **ADR-062** (`74ce3c1`) — the planner handoff is projected per unit
-  (`planner_slice`); a unit's `## Interior` is never cut by the brief
-  limit.
-- **ADR-063** (`c54cade`) — implementers run in **waves over the
-  contract DAG** (`--parallel`); gated on a batching endpoint
-  (`--parallel auto` → vLLM detected → 4 workers, else sequential; C-51);
-  integration diffs from the merge-base.
-- **ADR-064** (`7d5c981`) — the owned loop writes a **transcript**
-  (`<session>/transcript.jsonl`); units the planner named nothing in are
-  **not spawned** (C-52); `write_file` refuses to overwrite an unread
-  file. Both arms.
-- **ADR-065** (`11998e5`) — `--instance-workers N` runs **instances
-  concurrently** on the shared Modal endpoint; the speedup is
-  endpoint-throughput-bound (~2–3× on five, one A10G), not N×.
-- **ADR-066** (`a2a5504`) — the two fixes from the 5-fresh read:
-  **inline handoff fields** are split (xarray's one-line handoff now
-  resolves to both gold files) and a **repeated identical edit is
-  refused** (django's stack). Both arms.
-
-## The next step
-
-**Four 7B runs on 2026-08-22, all 0/5 both arms** — read the last four
-dated entries in `docs/benchmark-hypotheses.md` Results. Each run moved
-the failure one layer deeper and built the harness fix it exposed:
-ADR-067 (read-before-edit, anchor stack, cut retry, fences), ADR-068
-(per-call log, pure transcript), ADR-069 (window-sized brief), ADR-070
-(`search_file`, bounded handoff), ADR-071 (the shell is `exec`;
-`--human-first park|spawn`, C-53), **ADR-072** (the planner's map was
-alphabetical — the gold module reached the planner in 1 of 5; now
-ranked by the proposal with the package tree; every gold file in every
-map), **ADR-073** (knowledge tools accept a path).
-
-**The read of the last run (`five-fresh-7b-adr072`):** the planner
-localised from derived context for the first time (sympy, via search +
-read + who_calls + tests_guarding); the implementer still writes from
-memory after seeing the file. **The 7B rung is read: it cannot execute
-on derived context.** No known harness defect remains in the record.
-
-**Next — Max's decision:** the **Qwen3.8-27B** rung. Pinned in
-`scripts/modal_vllm.py` `RUNGS` (A100-80GB), not deployed: bump the
-image's `vllm==0.10.1.1` / `transformers<5` pins (its architecture is
-`Qwen3_5ForConditionalGeneration`), re-verify the 7B deploys, `MODEL=
-Qwen/Qwen3.8-27B uv run scripts/modal_vllm.py deploy`, then the same
-five both arms with `--brief-limit` auto (it will size to the larger
-window) and `--human-first spawn`. The bar: harnessed 7B ≈ pure 27B is
-already answered (0 ≈ 0 says nothing); the informative pair is
-**harnessed 27B vs pure 27B** on a model that can execute.
-
-Known, small, not built: `bench report` roll-up of `calls_saturated`;
-`search_file` matching generated `.c` files (sklearn) — an exclude list.
+**Per-instance targets to watch:**
+- **sympy** — the real model wall: both arms localised and edited gold but
+  under-implemented (only `polylog(2,1/2)`, not the full closed-form table
+  the hidden `test_polylog_values` needs; harness used the wrong method AND
+  was blind). Watch whether the harness arm, now able to run its guarding
+  tests, self-corrects the method and generalises.
+- **sklearn** — localisation miss (gold `base.py`/`_base.py` ranked 44/71;
+  planner named `_set_output.py`). May still miss; a planner-map or
+  partition question if it does.
+- **sphinx** — planner localised (1/2); implementers were strangled by
+  C-54. Should improve most directly from ADR-075.
+- **django** — harness failed 2 F2P (pure passed); should be within reach.
+- **xarray** — control; expect it to hold.
 
 ## How to run the set (unchanged except the two new flags)
 

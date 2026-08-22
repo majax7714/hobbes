@@ -805,7 +805,8 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         runtime = Runtime(kind=args.runtime, base_url=args.llm_base_url or "",
                           api_key_env=args.llm_key_env, max_turns=args.max_turns,
                           max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p,
-                          reasoning_effort=args.reasoning_effort, thinking=args.thinking)
+                          reasoning_effort=args.reasoning_effort, thinking=args.thinking,
+                          stall_after=args.stall_after, nudge_after=args.nudge_after)
     except ValueError as exc:
         print(f"hobbes bench run: {exc}", file=sys.stderr)
         return 2
@@ -1322,6 +1323,13 @@ def build_parser() -> argparse.ArgumentParser:
     brun_parser.add_argument("--thinking", choices=("server", "on", "off"), default="server",
                              help="a thinking model's mode: the server's default, on, or off; a model without "
                                   "the switch ignores it")
+    brun_parser.add_argument("--stall-after", type=int, default=None,
+                             help="dry (no-edit) turns before a stalled session is stopped, both arms "
+                                  "(ADR-076); default: the loop's own 6, cut for the 7B — raise it for a "
+                                  "thinking model that investigates before editing")
+    brun_parser.add_argument("--nudge-after", type=int, default=None,
+                             help="dry turns before a mid-stream nudge, both arms (ADR-076); default: the "
+                                  "loop's own 3")
     brun_parser.add_argument("--name", default="run", help="run name under ~/.hobbes/bench/ (default: run)")
     brun_parser.add_argument("--out", help="run directory (default: ~/.hobbes/bench/<name>)")
     brun_parser.add_argument("--evaluate", action="store_true",

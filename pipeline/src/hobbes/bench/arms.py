@@ -80,6 +80,14 @@ class Runtime:
     top_p: float | None = None
     reasoning_effort: str | None = None
     thinking: str = "server"
+    #: Loop discipline knobs (ADR-076), both arms. ``None`` leaves the
+    #: loop's own default (6 / 3), which was cut for the 7B; a thinking
+    #: model investigates more turns before its first edit, so a
+    #: benchmark on such a rung raises these rather than have a model
+    #: that is *searching* stopped as if it were stalled. The 7B record
+    #: stands because its runs left these unset.
+    stall_after: int | None = None
+    nudge_after: int | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in RUNTIMES:
@@ -97,6 +105,10 @@ class Runtime:
             args.append(f"--reasoning-effort={self.reasoning_effort}")
         if self.thinking != "server":
             args.append(f"--thinking={self.thinking}")
+        if self.stall_after is not None:
+            args.append(f"--stall-after={self.stall_after}")
+        if self.nudge_after is not None:
+            args.append(f"--nudge-after={self.nudge_after}")
         return args
 
     def session_args(self) -> list[str]:
@@ -111,7 +123,8 @@ class Runtime:
         """The runtime as the run record states it."""
         return {"kind": self.kind, "base_url": self.base_url, "max_turns": self.max_turns,
                 "max_tokens": self.max_tokens, "temperature": self.temperature, "top_p": self.top_p,
-                "reasoning_effort": self.reasoning_effort, "thinking": self.thinking}
+                "reasoning_effort": self.reasoning_effort, "thinking": self.thinking,
+                "stall_after": self.stall_after, "nudge_after": self.nudge_after}
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
 HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error", "env-error")

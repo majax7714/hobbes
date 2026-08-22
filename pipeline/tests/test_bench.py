@@ -671,6 +671,14 @@ class TestRuntimeSampling:
         assert rt.describe()["temperature"] == 0.0 and rt.describe()["thinking"] == "server"
         assert "--loop-arg=--temperature=0.0" in rt.session_args()
 
+    def test_stall_and_nudge_knobs_reach_both_arms(self):
+        rt = arms.Runtime(kind="openai", base_url="http://llm/v1", stall_after=12, nudge_after=5)
+        assert "--stall-after=12" in rt.loop_args() and "--nudge-after=5" in rt.loop_args()
+        assert "--loop-arg=--stall-after=12" in rt.session_args()
+        assert rt.describe()["stall_after"] == 12
+        # unset leaves the loop's own default off the argv (the 7B record stands)
+        assert not any("stall-after" in a for a in arms.Runtime(kind="openai", base_url="http://x/v1").loop_args())
+
     def test_thinking_rung_reaches_the_session_launcher(self):
         rt = arms.Runtime(kind="openai", base_url="http://llm/v1", temperature=1.0, top_p=0.95,
                           reasoning_effort="medium", thinking="on")
