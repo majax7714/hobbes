@@ -3909,3 +3909,20 @@ collide under the pool. One instance's failure is caught, not fatal;
 the run stays resumable. 841 pytest / Go green. Relaunching the 5-fresh
 set (django, sympy, xarray, sphinx, scikit-learn) at
 `--instance-workers 5`.
+
+## 2026-08-22 (forty-ninth) — the 5-fresh set: 0/5, but the failures are harness, not model
+
+Ran 5 fresh instances (django/sympy/xarray/sphinx/scikit-learn) both
+arms concurrently (ADR-065). 0/5. Investigation (Max: resolve harness
+contribution before any model verdict) found: the planner localized
+~4/5, but the **handoff parser** dropped two correct answers — xarray
+(both gold files + right fix, on one markdown line: parser swallowed
+later fields into `files`) and sympy (named `polylog`, the right
+symbol, in prose). And django's broken edit was the **repeated-edit
+stack**: identical `edit_file` ×4 (anchor persists in new_text; only
+reads/execs are repeat-refused, not edits). Only sphinx's planner miss
+(9 unrelated domain files) and one pure-arm new-file are genuine model
+faults. Two harness fixes queued: robust handoff parsing (inline
+`key:` splitting, prose fallback) and refusing a repeated identical
+edit. Recorded in benchmark-hypotheses.md. No re-eval of the model
+rung yet — harness first.

@@ -383,6 +383,42 @@ catch; a size-delta refusal (reject a whole-file write that shrinks a
 read file past a fraction, both arms) is the next candidate, but it is
 tuning against one instance until the set runs.
 
+### 2026-08-22 — the 5-fresh-instance set (both arms), django/sympy/xarray/sphinx/scikit-learn
+
+Both arms, 7B, `--parallel auto --instance-workers 5` (ADR-063/065),
+local eval. First multi-repo sample. **n=5, not an H1–H3 result**
+(P11). **0/5 both arms.** But the investigation (every planner handoff
+and the django edit read by hand) found the failures are **harness
+weaknesses masking model capability**, not the astropy hallucination:
+
+Recorded vs actual planner localization:
+
+| instance | recorded | actual | cause |
+|---|---|---|---|
+| django | hit 1/3 | 1/3 | correct (partial) |
+| sklearn | hit 1/2 | 1/2 | correct (partial) |
+| xarray | **0/2** | **2/2** | **parser bug** — planner named both gold files + the right fix (dim→coord) on one markdown line; the parser swallowed `symbols:`/`tests:` into `files` |
+| sympy | **0/1** | symbol ✓ | **parser bug** — planner named `polylog` (in the gold file) in prose; parser extracted nothing → lexical-fallback |
+| sphinx | 0/2 | 0/2 | genuine model miss (named 9 unrelated `domains/*`) |
+
+So corrected localization is ~4/5, not the recorded 2/5.
+
+The one grounded-but-broken edit (django harness, `filters.py`) was a
+**harness bug too**: the 7B repeated a byte-identical `edit_file` four
+times (its test kept failing); `edit_file` re-includes its anchor so
+each repeat stacks a duplicate, and the loop refuses repeated reads and
+execs but not repeated edits — four stacked dead-code blocks.
+
+**Reading:** the astropy hallucination did NOT generalize — of 10 arm
+runs only one pure-arm run hallucinated a new file (sphinx `autodoc.py`).
+The dominant failures here are two harness defects (handoff parsing,
+repeated-edit stacking) that discard or corrupt correct model output.
+Per the standing rule (resolve harness contribution before judging the
+model): both are fixed before the next re-run, then the model rung is
+re-read on clean localization. Instance concurrency (ADR-065) worked —
+five instances overlapped; sphinx showed the first real unit overlap
+(implement wall 1188 s < units_sum 1288 s).
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8
