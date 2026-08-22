@@ -3773,3 +3773,38 @@ planner hit 100% (2/2). 13579 harness applied cleanly, 41/41 P2P green,
 the one F2P still failing — a real near-miss. The planner finds the
 place; the 7B implementer is the wall on these two (H1's question,
 needs the 45-set). 49 bench tests green; the evaluator is unblocked.
+
+## 2026-08-22 (forty-fourth) — write scope enforced at the cut (ADR-061), and the drift's real cause
+
+Inspecting the phase-4 full-stage patches (owner's ask: harness vs pure
+actual work) surfaced a structural fault, not a model one. On
+astropy-13579 four implementers with unrelated interiors all created
+`astropy/wcs/wcsapi.py` — a file none owned, not the gold
+`wrappers/sliced_wcs.py` — while U10, whose interior *was* the gold
+file, changed nothing; a `session_commit.txt` scratch note leaked in.
+On 13398 two units both edited `itrs.py` and the second wrote
+`"<updated content>"`, clobbering the first. Cause: whole-branch merge
+ignores the disjoint-interior partition.
+
+**Fixed (ADR-061):** `_integrate_one` integrates only a unit's
+in-scope diff (`git diff target..branch -- <interior+guards>`, applied
+onto target), so out-of-scope source and scratch files never enter the
+patch and no two units clobber. Record gains `integration.dropped` /
+`empty`. C-38 flips measured→enforced (the run discharged its "would be
+tuning a guess"). The capture is raw (bytes) — `_git` strips and merges
+stderr, which corrupts a patch. Test drives a stand-in writing an
+interior edit + a scratch file, asserts only the interior lands. 827
+pytest / Go green.
+
+**The deeper cause, confirmed not fixed (owner flagged it):** the
+implementers were led astray, not wrong. `_planner_note` builds ONE
+handoff and posts it *identically* to every unit's inbox (short
+memory), and each unit's own derived interior is truncated to fit the
+brief limit — so the loudest, uncut signal in every brief is the
+planner's global file list, and units aim at it instead of their role.
+The short memory is not role-derived. Enforcement stops the damage;
+making each unit's context role-specific (project the planner handoff
+onto the unit's interior; protect the interior from truncation) is the
+next change — deliberately not built yet (owner's call). **No model
+attribution taken from these harness findings** (owner's instruction —
+"that's how we lock a door accidentally").

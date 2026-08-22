@@ -841,7 +841,11 @@ read-only tree (**C-48**). Agent count is still the partition's output
 under the planner's seeds.
 
 What the base states rather than enforces is **C-38**: write scope is
-advisory at path grain and measured as rework; renegotiation has no
+**enforced at the cut** (ADR-061 — a unit's out-of-scope edits are
+dropped at integration, so no neighbour's file or scratch note reaches
+the candidate patch and no two units clobber the same file) but not at
+the mount, so an implementer can still waste a turn writing outside its
+scope; that work is discarded and recorded as rework. Renegotiation has no
 approval flow; nothing is metered. Still parked in
 `future_additions.md`: path-grain write enforcement, the verifier
 session, the renegotiation re-pin, metering, loss fitting, and the

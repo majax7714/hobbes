@@ -549,7 +549,36 @@ class TestStagedRun:
                             sessions_root=tmp_path / "s", max_units=5)
         assert all(u["exit"] == 0 for u in second["units"] if u["spawned"])
 
+    def test_out_of_scope_writes_are_dropped_at_integration(self, plan_repo, tmp_path):  # noqa: F811
+        # the astropy probe finding: units edited files outside their
+        # interior (a neighbour's source, a session_commit.txt scratch
+        # note) and the whole branch was merged, so the clobber + leak
+        # landed in the patch. C-38 is now enforced at the cut.
+        from hobbes.run.stages import run_staged
+        import stat as _stat, subprocess as _sp
+        script = tmp_path / "hobbes-session-scope"
+        script.write_text(STAGED_SESSION.replace(
+            '[ -n "$path" ] && printf \'\\n# %s edit\\n\' "$session" >> "$wt/$path"',
+            '[ -n "$path" ] && printf \'\\n# %s edit\\n\' "$session" >> "$wt/$path"\n'
+            '    printf \'scratch\' > "$wt/session_commit.txt"\n'
+            '    printf \'x\' > "$wt/src/billing.py"'))  # billing.py is another unit\'s interior
+        script.chmod(script.stat().st_mode | _stat.S_IEXEC)
+        rec = run_staged(plan_repo, self._proposal(), session_bin=str(script),
+                         sessions_root=tmp_path / "s", max_units=5)
+        branch = rec["integration"]["branch"]
+        names = _sp.run(["git", "-C", str(plan_repo), "diff", "--name-only", rec["base"], branch],
+                        capture_output=True, text=True).stdout
+        # the scratch note and the neighbour's file never entered the patch
+        assert "session_commit.txt" not in names
+        # each unit contributed only its own interior; nothing was clobbered
+        dropped = rec["integration"].get("dropped", {})
+        assert any("session_commit.txt" in d for d in dropped.values()), dropped
+        # the in-scope edits are still there
+        assert names.strip()
+
     def test_dry_run_spawns_nothing(self, plan_repo, tmp_path):  # noqa: F811
+
+
         from hobbes.run.stages import run_staged
         rec = run_staged(plan_repo, self._proposal(), session_bin=None,
                          sessions_root=tmp_path / "s", max_units=5, dry_run=True)

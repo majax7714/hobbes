@@ -824,15 +824,29 @@ information appears in both, and the entries cross-reference.
   (C-37)` inline.
 - **Source:** ADR-051 (2026-08-19).
 
-### C-38 — A derived write scope is measured, not mounted
-- **Cannot tell you:** that an agent *could not* have written outside
-  its unit. The change-spec's policy manifest names write mounts over
-  the interior and its guarding tests; the sandbox mounts the worktree
-  **whole** (rw for an implementer), and the agent policy layer is
-  command-pattern, which cannot express "these paths only". What the
-  base does instead is observe: the orchestrator diffs the harvested
-  branch against the manifest and records every file outside it as
-  **rework** — §6's first loss term. Two neighbours of the same shape:
+### C-38 — A derived write scope is enforced at the cut, not at the mount
+- **Amended 2026-08-22 (ADR-061):** an implementer's out-of-scope
+  edits are now **dropped at integration** — the candidate patch takes
+  only the part of a unit's diff that touches files the unit owns
+  (interior + guarding tests). C-38's "before a run has shown where
+  agents stray, enforcing would be tuning a guess" was discharged by
+  the phase-4 probe: on astropy-13579 four units with unrelated
+  interiors all created the same file `astropy/wcs/wcsapi.py` (a file
+  none owned, and not the gold `wrappers/sliced_wcs.py`) while the unit
+  that owned the gold file did nothing, and a `session_commit.txt`
+  scratch note leaked into the patch. The run showed the stray, so the
+  cut now enforces the scope: neither a neighbour's file nor a scratch
+  note reaches the patch, and no two units can write the same file.
+- **Cannot tell you (the residual):** that an agent *could not* have
+  written outside its unit *inside its own worktree*. The sandbox still
+  mounts the worktree **whole** (rw for an implementer / overlay for a
+  read-only role, ADR-060), and the agent policy layer is
+  command-pattern, which cannot express "these paths only" — so the
+  model can still waste a turn writing a neighbour's file; that work is
+  discarded at the cut and recorded. The orchestrator diffs the
+  harvested branch against the manifest and records every file outside
+  it as **rework** — §6's first loss term — and the integration record
+  names what it **dropped**. Two neighbours of the same shape:
   contract **renegotiation has no approval flow** (a reflection lands
   in the orchestrator's inbox for a human; nothing re-pins both sides),
   and **tokens and wall time are unmetered** (the loss lists them as
@@ -851,11 +865,13 @@ information appears in both, and the entries cross-reference.
 - **Bites at:** the policy manifest's `write_mounts` list, read as a
   guarantee; the partition record's `rework_files`, which is the
   honest form — "wrote outside", not "could not".
-- **You find out:** **surfaced** — every `context.md` and brief states
-  "write scope is advisory at path grain (C-38)" under its derived
-  policy; `partition-record.json` carries `c38` and the per-unit
-  `rework_files`; the loss lists its unobserved terms by name.
-- **Source:** ADR-054 (2026-08-21).
+- **You find out:** **surfaced** — `partition-record.json` carries the
+  per-unit `rework_files` (what the model wrote out of scope) and
+  `integration.dropped` (what the cut discarded); the loss lists its
+  unobserved terms by name. The brief's "advisory at path grain"
+  wording is now "enforced at the cut" (the model may still write out
+  of scope, but it will not land).
+- **Source:** ADR-054 (2026-08-21); enforced ADR-061 (2026-08-22).
 
 ## Verification — the benchmark harness (ADR-055)
 

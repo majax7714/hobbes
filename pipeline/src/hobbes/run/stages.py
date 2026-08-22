@@ -298,8 +298,9 @@ def run_staged(
             record.exit = proc.returncode if proc else None
             record.wall_seconds = _wall(proc)
             _harvest_unit(repo, base, session, context, test_files, sessions_root, record, orchestrator, unit)
-            # Integrate this one immediately, onto the running target.
-            _integrate_one(repo, target, unit, session, integ)
+            # Integrate this one immediately, scoped to the unit's own
+            # files (C-38 enforced at the cut).
+            _integrate_one(repo, target, unit, session, integ, _manifest_paths(context, test_files))
             records.append(record)
             stage_log.append(_unit_stage("implement", unit, record))
 
@@ -373,16 +374,54 @@ def _harvest_unit(repo, base, session, context, test_files, sessions_root, recor
     reflected = mail.reflections(session_dir)
     record.reflections = [m.get("text", "") for m in reflected]
     mail.fold_back(orchestrator, unit, reflected)
-    manifest_paths = {m["path"] for m in context.get("modules", []) if m.get("path")}
-    manifest_paths |= {test_files[t] for t in context.get("guarding_tests", []) if test_files.get(t)}
-    read_branch(repo, base, session, manifest_paths, record)
+    read_branch(repo, base, session, _manifest_paths(context, test_files), record)
 
 
-def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict) -> None:
-    """Merge one harvested unit branch onto the running target in a
-    detached worktree; a conflict is recorded at the cut, never guessed."""
+def _manifest_paths(context: dict, test_files: dict[str, str]) -> set[str]:
+    """A unit's write scope: its interior module paths plus the files of
+    the tests it guards. The partition makes interiors disjoint, so a
+    file belongs to at most one unit — which is why scoping the harvest
+    to these paths lets no two units write the same file."""
+    paths = {m["path"] for m in context.get("modules", []) if m.get("path")}
+    paths |= {test_files[t] for t in context.get("guarding_tests", []) if test_files.get(t)}
+    return paths
+
+
+def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict,
+                   allowed: set[str] | None = None) -> None:
+    """Integrate one unit's contribution onto the running target,
+    **scoped to its manifest paths** (C-38 enforced at the cut, not just
+    measured as rework). The unit branch was cloned from the current
+    target, so ``target..branch`` is exactly the unit's own change; we
+    take only the part of it that touches files the unit owns and apply
+    that to the target. Files the model wrote outside its scope — a
+    neighbour's source (the astropy probe's four units that all created
+    ``wcsapi.py``) or a scratch note (``session_commit.txt``) — never
+    enter the candidate patch, and no other unit can be clobbered."""
     branch = f"hobbes/{session}"
     if not _branch_exists(repo, branch):
+        return
+    # What the unit changed, and what of it is out of scope (dropped).
+    _, names = _git(repo, "diff", "--name-only", f"{target}..{branch}")
+    changed = [n for n in names.splitlines() if n]
+    dropped = sorted(n for n in changed if allowed is not None and n not in allowed)
+    if dropped:
+        integ.setdefault("dropped", {})[unit] = dropped
+    # The in-scope diff. With no manifest (allowed None) fall back to the
+    # whole change, preserving the pre-C-38 behaviour for callers that
+    # pass no scope. Captured raw (bytes) — _git strips and merges
+    # stderr, which corrupts a patch's trailing newline.
+    diff_args = ["diff", "--binary", f"{target}..{branch}"]
+    if allowed is not None:
+        in_scope = sorted(n for n in changed if n in allowed)
+        if not in_scope:
+            integ.setdefault("empty", []).append(unit)
+            return
+        diff_args += ["--", *in_scope]
+    proc = subprocess.run(["git", "-C", str(repo), *diff_args], capture_output=True)
+    patch = proc.stdout
+    if proc.returncode != 0 or not patch.strip():
+        integ.setdefault("empty", []).append(unit)
         return
     tmp = repo / ".hobbes" / "plans" / target.split("/", 1)[-1] / ".integrate"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -391,18 +430,23 @@ def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict
         integ["failed"].append({"unit": unit, "branch": branch, "error": out[-400:]})
         return
     try:
-        code, out = _git(tmp, "-c", "user.name=hobbes", "-c", "user.email=hobbes@local",
-                         "merge", "--no-ff", "-q", "-m", f"integrate {unit} ({branch})", branch)
-        if code == 0:
-            # HEAD is the *worktree's* — the repo's HEAD is the user's checkout.
+        # The scoped diff is against target exactly, so it applies cleanly
+        # (no 3-way needed) — a failure here is a real conflict at the cut.
+        ap = subprocess.run(["git", "-C", str(tmp), "apply", "--whitespace=nowarn"],
+                            input=patch, capture_output=True)
+        if ap.returncode == 0:
+            _git(tmp, "add", "-A")
+            _git(tmp, "-c", "user.name=hobbes", "-c", "user.email=hobbes@local",
+                 "commit", "-q", "-m", f"integrate {unit} ({branch}, scoped)")
             _git(tmp, "branch", "-f", target, "HEAD")
             integ["merged"].append(unit)
         else:
-            _git(tmp, "merge", "--abort")
-            integ["failed"].append({"unit": unit, "branch": branch, "error": out[-400:]})
+            integ["failed"].append({"unit": unit, "branch": branch,
+                                    "error": ap.stderr.decode(errors="replace")[-400:]})
     finally:
         _git(repo, "worktree", "remove", "--force", str(tmp))
         shutil.rmtree(tmp, ignore_errors=True)
+    return
 
 
 def run_review(repo, spec, pdir, session_bin, sessions_root, extra_args, brief_limit, dry_run) -> dict:
@@ -544,7 +588,7 @@ def _run_rework(repo, task, target, base, verify, spec, contexts, test_files, di
         record.exit = proc.returncode if proc else None
         record.wall_seconds = _wall(proc)
         _harvest_unit(repo, base, session, contexts[unit], test_files, sessions_root, record, orchestrator, unit)
-        _integrate_one(repo, target, unit, session, integ)
+        _integrate_one(repo, target, unit, session, integ, _manifest_paths(contexts[unit], test_files))
         records.append(record)
         stage_log.append(_unit_stage("rework", unit, record))
 
