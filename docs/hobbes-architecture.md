@@ -928,7 +928,7 @@ interprets nothing.
   `pipeline/src/hobbes/agent/loop.py` is a stdlib-only tool loop over
   any OpenAI-compatible endpoint, identical on both arms: in the
   harness arm its tools are *listed from the hobbes-proxy* (exec, the
-  knowledge tools, reflect) plus confined file tools and **no bash**;
+  knowledge tools, reflect) plus confined file tools (read, list, and — ADR-070 — a confined regex search, so a line in a large file can be found and then read by range) and **no bash**;
   in the pure arm, bash plus the same file tools. `hobbes-session
   --runtime` copies it into the session dir and runs it with the
   image's `python3`; it prints Claude Code's result envelope, so one

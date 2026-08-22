@@ -176,6 +176,16 @@ FILE_TOOLS = [
     {"type": "function", "function": {
         "name": "list_files", "description": "List files under a directory of the working tree (default: its root), recursively, up to 500 entries.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}},
+    {"type": "function", "function": {
+        "name": "search_file",
+        "description": "Find lines matching a regular expression in one file (or every file under a directory) of the "
+                       "working tree. Returns path:line: text for each match — use it to locate a definition in a "
+                       "large file, then read_file that line range and copy old_text from what you see.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "file or directory, relative to the working tree"},
+            "pattern": {"type": "string", "description": "Python regular expression, e.g. 'def integrate\\('"},
+            "max_results": {"type": "integer", "description": "default 50"},
+        }, "required": ["path", "pattern"]}}},
 ]
 
 WRITE_TOOLS = [
@@ -212,6 +222,39 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
             end = min(int(args.get("end_line") or len(lines)), len(lines))
             body = "\n".join(f"{n:6d}\t{lines[n - 1]}" for n in range(start, end + 1))
             return (body or "(empty file)"), False
+        if name == "search_file":
+            # ADR-070: a 7,000-line file reads as its first 12k chars
+            # (C-46's clip) and the model never narrowed a range on its
+            # own — 15 of 18 anchor-missing sessions had a clipped read.
+            # The search is how it finds the line to read.
+            full = _confine(workdir, args.get("path") or ".")
+            try:
+                rx = re.compile(str(args["pattern"]))
+            except re.error as exc:
+                return f"pattern is not a valid regular expression: {exc}", True
+            limit = max(1, int(args.get("max_results") or 50))
+            hits: list[str] = []
+            files = [full] if os.path.isfile(full) else []
+            if not files:
+                for root, dirs, names in os.walk(full):
+                    dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules", "__pycache__", ".hobbes"))
+                    files += [os.path.join(root, f) for f in sorted(names)]
+            scanned = 0
+            for path in files:
+                scanned += 1
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        for n, line in enumerate(fh, 1):
+                            if rx.search(line):
+                                hits.append(f"{os.path.relpath(path, workdir)}:{n}: {line.rstrip()[:200]}")
+                                if len(hits) >= limit:
+                                    return "\n".join(hits) + f"\n… stopped at {limit} matches; narrow the pattern", False
+                except OSError:
+                    continue
+                if scanned >= 2000:
+                    hits.append("… stopped after 2000 files; give a narrower directory")
+                    break
+            return "\n".join(hits) or "(no matches)", False
         if name == "list_files":
             full = _confine(workdir, args.get("path") or ".")
             out = []
@@ -248,9 +291,9 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
             # 3993's U2 sent nine identical pairs against a signature
             # that does not exist and never read the file.
             if read_paths is not None and os.path.normpath(args["path"]) not in read_paths:
-                return (f"this session has not read {args['path']}. read_file it (the region you "
-                        "intend to change) before edit_file — old_text must be copied from the "
-                        "file as it is, not recalled."), True
+                return (f"this session has not read {args['path']}. search_file for the name you are "
+                        "changing, read_file that line range, then edit_file — old_text must be copied "
+                        "from the file as it is, not recalled."), True
             text = open(full, encoding="utf-8").read()
             count = text.count(args["old_text"])
             if count != 1:
@@ -443,7 +486,8 @@ def clip(text: str, limit: int) -> str:
     carries its imports and signatures), the cut stated."""
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n… [truncated: {len(text) - limit:,} more characters; read a narrower range]"
+    return text[:limit] + (f"\n… [truncated: {len(text) - limit:,} more characters not shown. This is NOT the "
+                           "whole file: search_file for the name you need, then read_file that line range]")
 
 
 # --------------------------------------------------------------------------

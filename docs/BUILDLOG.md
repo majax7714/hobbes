@@ -4011,3 +4011,19 @@ sections by priority (inbox → guarding tests → neighborhood → module
 docs) with a 60 % per-section cap instead of equal shares; the limit
 is a guarantee. C-45 and architecture §6 amended. 851 pytest. Launching
 the cheap 7B 5-run on ADR-067/068/069 at Max's go.
+
+## 2026-08-22 (fifty-fifth) — the cheap run: reads clipped, no search; ADR-070
+
+Max's go. Ran the five on ADR-067/068/069 (brief auto-sized to 37,847
+chars from the endpoint's 32k window). 0/5 both arms. The per-call
+log earned its keep on its first run: forced reads pushed four
+sessions to 31–32k prompts; 40 of 161 reads were clipped at 12k chars
+and only one used a line range — the model read the top of a
+260k-char file and kept guessing the anchor (15 of 18 anchor-missing
+sessions had a clipped read); the loop had no search tool. The sphinx
+planner was cut at 1,536 and at the 3,072 retry (a 9,895-char file
+enumeration). Built ADR-070: `search_file` (confined regex over a file
+or tree, both arms), the clip notice and the unread-edit refusal both
+name it, the planner brief bounds the handoff (≤5 files, <15 lines).
+853 pytest. Recorded in benchmark-hypotheses.md. Next launch is Max's
+call; the 27B remains the rung after the 7B's failures read clean.

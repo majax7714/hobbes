@@ -73,37 +73,33 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 
 ## The next step
 
-**The re-run is done (2026-08-22, `~/.hobbes/bench/five-fresh-7b-clean`):
-0/5 both arms.** Full read in `docs/benchmark-hypotheses.md` Results
-(the last dated entry). The ADR-066 fixes held. What is now in the way,
-in order:
+**Two re-runs done on 2026-08-22, both 0/5 both arms** — read the last
+two dated entries in `docs/benchmark-hypotheses.md` Results before
+anything else. Each run moved the failure one layer deeper and built
+the harness fix it exposed:
 
-1. **Harness — built (ADR-067, same day):** `edit_file` refuses an
-   unread path; a reworded edit at an applied anchor is refused; a
-   completion cut at `max_tokens` is retried once at 2× (`cut_retried`
-   in the envelope); the fence parser takes any tag, an unclosed fence,
-   and non-strict JSON. **ADR-068 (same night):** every call logged to
-   `calls.jsonl` beside the transcript, `prompt_tokens_max` /
-   `calls_saturated` in the envelope, the pure arm now writes a
-   transcript. 848 pytest. **Not yet run against the set.** Read the
-   hypotheses doc's addendum before trusting any window claim: the
-   re-run was *not* saturated; the two runs before it were.
-2. **The brief's shape — first cut built (ADR-069):** sized to the
-   endpoint's window (35 % of `max_model_len`), cuttable sections
-   filled by priority with a 60 % cap. The share and order are declared
-   guesses; Max still owns the deeper question (what the sections
-   *should* contain). Original note: 82 % of an implementer brief
-   is neighborhood/guarding tests/contracts; the window is the binding
-   constraint once reads are forced (C-46, measured). Options: cap those
-   sections per unit, list guarding tests by id instead of body, or a
-   larger-window rung. This is the derived-context design itself, so it
-   is not decided by a session.
-3. Then re-run the same 5; only failures cleanly the model's open the
-   **Qwen3.8-27B** rung (see below).
+- `five-fresh-7b-clean` → ADR-067 (read-before-edit, anchor-stack
+  refusal, cut-completion retry, any-fence parser), ADR-068 (per-call
+  `calls.jsonl`, `calls_saturated`, pure-arm transcript), ADR-069
+  (brief sized to the window — 35 % of `max_model_len` — filled by
+  priority).
+- `five-fresh-7b-adr069` → ADR-070 (`search_file` for both arms; the
+  clip notice says "NOT the whole file"; the planner handoff bounded to
+  ≤5 files / <15 lines). **Not yet run.**
 
-Two earlier known items stand: planner brief → structured handoff
-(sympy's planner still hands off in prose, this time a hallucinated
-path); and why some planner localisations are wrong, not unparsed.
+**What to do next (Max's go needed for any launch):**
+
+1. Re-run the same five on ADR-070. The read: did `search_file` get
+   used (`calls.jsonl` / transcript)? Did anchors stop missing? Did the
+   sphinx planner's handoff land? If the model ignores the search and
+   still guesses, the 7B's failures are finally cleanly its own — then
+   the **Qwen3.8-27B** rung (pinned, undeployed; vLLM/transformers bump
+   needed — see below) is the question.
+2. The brief's deeper shape (what the sections should *contain*, not
+   just their size) is still Max's.
+
+Known, not built: `bench report` roll-up of `calls_saturated` /
+`prompt_tokens_max` (future_additions).
 
 ## How to run the set (unchanged except the two new flags)
 

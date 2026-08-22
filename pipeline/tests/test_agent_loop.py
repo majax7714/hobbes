@@ -716,3 +716,30 @@ class TestPerCallLog:
         assert calls[1]["fitted"] == 1 and calls[1]["max_tokens_sent"] == 32768 - 30000 - 16 and calls[1]["window"] == 32768
         assert all("finish_reason" in c and "wall_ms" in c and "completion_tokens" in c for c in calls)
         assert env["calls"] == len(calls) and env["calls_saturated"] == 1 and env["prompt_tokens_max"] == 100
+
+
+class TestSearchFile:
+    """ADR-070: a confined search, so a large file's clipped read is not
+    the end of the road."""
+
+    def test_search_finds_the_line_in_a_big_file_and_in_a_tree(self, tree):
+        big = "\n".join(f"x = {i}" for i in range(20000)) + "\n    def integrate(self, coord, datetime_unit=None):\n"
+        (tree / "src" / "big.py").write_text(big)
+        model = ScriptedModel([
+            [("search_file", {"path": "src/big.py", "pattern": r"def integrate\("})],
+            [("search_file", {"path": "src", "pattern": "def f"})],
+            [("search_file", {"path": "../outside", "pattern": "x"})],
+            [("search_file", {"path": "src", "pattern": "("})],
+            [("read_file", {"path": "src/big.py"})],
+            "done",
+        ])
+        try:
+            run_loop(model, tree)
+        finally:
+            model.close()
+        tools = [m["content"] for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        assert tools[0] == "src/big.py:20001:     def integrate(self, coord, datetime_unit=None):"
+        assert tools[1] == "src/a.py:1: def f():"
+        assert tools[2].startswith("ERROR:") and "outside the working tree" in tools[2]
+        assert tools[3].startswith("ERROR:") and "regular expression" in tools[3]
+        assert "NOT the whole file" in tools[4] and "search_file" in tools[4]

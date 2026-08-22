@@ -808,3 +808,9 @@ class TestWindowRelativeBrief:
             srv.shutdown()
         assert window == 32768 and "max_model_len=32768" in reason
         assert endpoint_window("") == (None, "no endpoint: the runtime is not an OpenAI-compatible server")
+
+
+def test_planner_brief_bounds_the_handoff():
+    from hobbes.run.stages import planner_brief
+    brief = planner_brief("fix it", {"nodes": [], "edges": []})
+    assert "at most 5" in brief and "under 15 lines" in brief and "ADR-070" in brief

@@ -515,6 +515,52 @@ honest description of those runs: most of their implement wall was
 spent at the limit. The instrument that makes this a read instead of
 a reconstruction is ADR-068's `calls.jsonl` + `calls_saturated`.
 
+### 2026-08-22 — the cheap 7B run on ADR-067/068/069, `five-fresh-7b-adr069`
+
+Same five, both arms, brief **sized to the window** (37,847 chars = 35 %
+of 32,768 tokens, read from the endpoint — ADR-069), read-before-edit +
+anchor-stack refusal + cut retry (ADR-067), every call logged (ADR-068).
+**0/5 both arms** (harness 3 unresolved / 2 empty; pure 2 / 3 loop-error).
+**n=5, not an H1–H3 result.** Planner: django 1/3, sklearn 1/2, xarray
+2/2, sympy 0 (prose again), sphinx 0 (cut again). Implement walls rose
+(xarray 1,186 s, sympy 1,490 s, sphinx 1,922 s): the forced reads cost
+turns and tokens.
+
+**What the per-call log shows (the first run that has one):**
+
+- **The window bound where reads were forced**: xarray U2/U7 and sympy
+  U1/U4 reached 31–32k-token prompts with 1–3 saturated calls each; most
+  sessions stayed at 12–22k. The smaller brief made room; the reads
+  filled it.
+- **Read-before-edit worked and was not enough.** The refusal fired
+  (`has not read`: 1–4 per session), the model read — and the reads
+  were **clipped**: 161 `read_file` calls, **40 clipped at 12k chars,
+  1 with a line range**. xarray U2 read `dataarray.py`,
+  `test_dataarray.py`, `test_dataset.py` whole, saw only their imports,
+  and re-sent `def integrate(self, dim=None, **kwargs):` (a signature
+  that does not exist; the real one is at line 5,966 of a 260,900-char
+  file) six more times. 15 of the 18 sessions with an anchor miss had a
+  clipped read. The loop had no search; the pure arm had `bash` and
+  never grepped. → **ADR-070: `search_file`**, and the clip notice says
+  "this is NOT the whole file".
+- **The cut retry fired and was not enough for the sphinx planner**:
+  cut at 1,536 and at 3,072 — a 9,895-char enumeration of
+  `sphinx/domains/*`. → ADR-070 bounds the handoff in the brief (≤5
+  files, <15 lines).
+- The pure arm's three loop-errors are all the same exit: repeated
+  refused edits (xarray: 24 anchor misses after one clipped read).
+- sympy pure touched the gold file (`zeta_functions.py`, the
+  `exp_polar` line) — unresolved, but the first pure-arm edit on the
+  right line in this set.
+
+**Reading.** The failures are now one layer deeper than last time and
+still not cleanly the model's: the model's habit (edit from memory)
+meets a tool set in which a large file is unreadable. With ADR-070 the
+search exists and every refusal points at it; if the next run shows
+`search_file` unused and anchors still guessed, that is the 7B, cleanly.
+Planner localization is unchanged (3/5 hit; sympy prose, sphinx
+verbose) — the 27B question.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8
