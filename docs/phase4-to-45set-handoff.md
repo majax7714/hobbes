@@ -41,7 +41,12 @@ flipped measured→enforced. Results recorded in
 
 ## THE decision before the 45-set — role-specific implementer context
 
-**Confirmed by inspecting the phase-4 patches; not yet built.** On
+**BUILT 2026-08-22 — ADR-062** (`_planner_note` takes the unit's
+context; `planner_slice`; `## Interior` protected from the C-45 cut).
+What remains of this section is the reasoning; the next step is the
+two-instance re-probe named at its end. Original text follows.
+
+**Confirmed by inspecting the phase-4 patches.** On
 astropy-13579 four implementers with unrelated interiors all created
 `astropy/wcs/wcsapi.py` (a file none owned, not the gold
 `wcsapi/wrappers/sliced_wcs.py`), while the unit that owned the gold

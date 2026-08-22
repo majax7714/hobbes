@@ -205,12 +205,14 @@ def render_context(spec: dict, unit: str) -> str:
     return "\n".join(lines)
 
 
-#: Standing-context sections a brief limit never cuts: the complement
-#: (ADR-047's contract — derived context must carry what it cannot see),
-#: the policy, the contracts and the invariants. Everything else is
-#: detail the model can re-fetch through the knowledge tools.
-PROTECTED_SECTIONS = ("## What Hobbes cannot see", "## Derived policy", "## Contracts at your boundary",
-                      "## Invariants in scope")
+#: Standing-context sections a brief limit never cuts: the unit's own
+#: **interior** (the paths it is there to edit — a unit that cannot see
+#: its files aims at someone else's, ADR-062), the complement (ADR-047's
+#: contract — derived context must carry what it cannot see), the
+#: policy, the contracts and the invariants. Everything else is detail
+#: the model can re-fetch through the knowledge tools.
+PROTECTED_SECTIONS = ("## Interior", "## What Hobbes cannot see", "## Derived policy",
+                      "## Contracts at your boundary", "## Invariants in scope")
 
 
 def limit_context(context: str, limit: int) -> tuple[str, int]:

@@ -3808,3 +3808,25 @@ onto the unit's interior; protect the interior from truncation) is the
 next change — deliberately not built yet (owner's call). **No model
 attribution taken from these harness findings** (owner's instruction —
 "that's how we lock a door accidentally").
+
+## 2026-08-22 (forty-fifth) — the planner handoff projected per unit (ADR-062); the interior never cut
+
+Resumed from `docs/phase4-to-45set-handoff.md`: its one
+decided-but-unbuilt fix, built before the 45-set spends compute.
+**ADR-062:** the plan stage keeps `terms` (planner-named term → module);
+`planner_slice` splits them per unit into *in your interior* (resolved
+module, or a path-suffix match so an unresolvable named file still
+lands with its owner) and *owned elsewhere*; `_planner_note` now takes
+the unit's context and posts a **different note to each inbox** — "your
+slice of the change — IN YOUR INTERIOR: …", the approach, "N locations
+owned by other units: not yours, dropped at integration" — or, when
+nothing intersects, says so plainly and nudges toward a no-change
+handoff. `## Interior` joins `PROTECTED_SECTIONS`: the C-45 cut never
+touches a unit's own paths (phase 4 had cut U1's 21 KB of them while
+the global handoff stayed whole). Architecture §6 and C-45 amended.
+Tests: the staged stand-in asserts exactly one unit is told the file is
+its slice and every other is told it has none; `limit_context` keeps
+the 300th interior path; the old `_inflate` helper pads the
+neighborhood now. 830 pytest / Go untouched. Next: re-run the
+two-instance full-stage probe and read whether 13579's owner unit
+edits `sliced_wcs.py`.

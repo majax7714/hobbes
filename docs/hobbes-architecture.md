@@ -835,7 +835,13 @@ owner's commit, integrated immediately after harvest; a `verifier`
 (read-only) runs the named tests and hands off pass/fail; an opt-in
 `reviewer` judges the spec and an opt-in bounded `rework` redoes what
 the verifier failed. Agents never read each other's transcripts — the
-handoffs and the pinned contracts are the only shared state. The
+handoffs and the pinned contracts are the only shared state, and a
+handoff is **projected onto its receiver** (ADR-062): each implementer's
+inbox carries the planner's named files that lie in *its* interior, the
+approach, and a plain "the rest is owned elsewhere" — or "nothing the
+planner named is yours" — never the global list, which phase 4 showed
+leads every unit to the same unowned file; and the brief limit (C-45)
+never cuts a unit's interior. The
 planner's seeds are a model opinion (**C-47**) and the verifier reads a
 read-only tree (**C-48**). Agent count is still the partition's output
 under the planner's seeds.

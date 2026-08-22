@@ -1031,10 +1031,13 @@ information appears in both, and the entries cross-reference.
   cut a unit's brief to fit: the unprotected sections (interior
   listing, guarding tests, module docs, neighborhood) are trimmed to
   an equal share, each ending in a stated `… cut: N more line(s)`;
-  the protected ones — the complement (*What Hobbes cannot see*,
-  ADR-047's contract), the derived policy, the contracts, the
-  invariants — are never cut, so a limit below their size is not met
-  and the brief is simply as small as honesty allows.
+  the protected ones — the unit's own **interior** (since ADR-062:
+  phase 4 cut U1's 21 KB of paths while the global planner handoff
+  stayed whole, and the unit aimed at someone else's file), the
+  complement (*What Hobbes cannot see*, ADR-047's contract), the
+  derived policy, the contracts, the invariants — are never cut, so a
+  limit below their size is not met and the brief is simply as small
+  as honesty allows.
 - **Because:** a capped unit (C-44) carries the context of everything
   it absorbed — one astropy unit's brief reached 488 KB, past the
   kernel's single-argument limit (the crash that surfaced this) and
@@ -1049,7 +1052,8 @@ information appears in both, and the entries cross-reference.
   ends in its cut line; the partition record carries `brief_chars`
   and `brief_cut` per unit and the bench record copies them; the run
   banner prints the limit.
-- **Source:** ADR-058 (2026-08-21), the second finding.
+- **Source:** ADR-058 (2026-08-21), the second finding; the interior
+  protected by ADR-062 (2026-08-22).
 
 ### C-46 — A small model's window is fitted, and old tool results elide
 - **Cannot tell you:** that a harness session's model saw every tool

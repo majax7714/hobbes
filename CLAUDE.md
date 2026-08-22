@@ -295,7 +295,7 @@ refusal, read-only pip) after the implement stage ran 21–36 min, and
 **unblocking the evaluator**: swebench 5.0.2's `--modal` is broken
 upstream (C-50), so eval runs **locally over the rootless-podman Docker
 socket** (`docker_host_env`), closing ADR-055's evaluator-socket item.
-**A fresh session resumes from `docs/phase4-to-45set-handoff.md`** —
+**2026-08-22, later: the role-context fix is built (ADR-062** — the planner handoff is projected per unit via `planner_slice`, the Interior section is never cut; 830 pytest). **A fresh session resumes from `docs/phase4-to-45set-handoff.md`** —
 it holds this session's build, the corrected 45-set command (local
 podman-socket eval, not `--eval-modal`), and the one decided-but-unbuilt
 fix: **role-specific implementer context** (the planner handoff is

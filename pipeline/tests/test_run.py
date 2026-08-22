@@ -369,16 +369,17 @@ class TestBriefLimit:
         from hobbes.run.agents import limit_context
         big = "\n".join(f"line {i}" for i in range(2000))
         doc = ("# Standing context — unit U1\n\nintro\n\n"
-               f"## Interior (full resolution — yours to change)\n{big}\n"
+               "## Interior (full resolution — yours to change)\n- src/a.py\n"
                f"## Guarding tests (run these)\n{big}\n"
                "## Invariants in scope (breaking one is a review failure)\n- I-1\n"
                "## Contracts at your boundary (the only interface to other units)\n- c1\n"
                f"## Neighborhood (one hop out)\n{big}\n"
                "## What Hobbes cannot see here (read this before trusting the rest)\n- complement\n"
+               f"## Module docs (pinned claims)\n{big}\n"
                "## Derived policy (advisory at path grain)\n- deny: x\n")
         out, dropped = limit_context(doc, 6000)
         assert dropped > 0 and len(out) <= 6000
-        for kept in ("- complement", "- deny: x", "- c1", "- I-1", "## Interior", "## Neighborhood"):
+        for kept in ("- complement", "- deny: x", "- c1", "- I-1", "- src/a.py", "## Neighborhood"):
             assert kept in out
         assert out.count("… cut:") == 3 and "C-45" in out
         same, none = limit_context(doc, len(doc) + 1)
@@ -386,14 +387,50 @@ class TestBriefLimit:
 
     @staticmethod
     def _inflate(monkeypatch):
-        """The fixture's context is tiny; give its interior 3,000 lines."""
+        """The fixture's context is tiny; give its neighborhood 3,000
+        lines (the interior is never cut — ADR-062)."""
         real = agents.render_context
 
         def big(spec, unit):
             doc = real(spec, unit)
-            pad = "\n".join(f"    # interior line {i}" for i in range(3000))
-            return doc.replace("## Guarding tests", pad + "\n## Guarding tests", 1)
+            pad = "\n".join(f"    # neighbour line {i}" for i in range(3000))
+            return doc.replace("## What Hobbes cannot see", pad + "\n## What Hobbes cannot see", 1)
         monkeypatch.setattr(agents, "render_context", big)
+
+    def test_limit_never_cuts_the_interior(self):
+        from hobbes.run.agents import limit_context
+        interior = "\n".join(f"- src/pkg/mod{i}.py (module `pkg.mod{i}`)" for i in range(300))
+        doc = ("# Standing context — unit U1\n\n## Interior (full resolution)\n" + interior +
+               "\n\n## Guarding tests\n" + "\n".join(f"- t{i}" for i in range(300)) +
+               "\n\n## Neighborhood\n" + "\n".join(f"- `n{i}`: a, b" for i in range(300)) +
+               "\n\n## What Hobbes cannot see here\n- x\n")
+        out, dropped = limit_context(doc, len(doc) // 3)
+        assert dropped > 0
+        assert "src/pkg/mod299.py" in out  # every interior path survives (ADR-062)
+        assert "## Guarding tests" in out and "… cut:" in out
+
+    def test_planner_note_projects_onto_the_unit(self):
+        from hobbes.run.stages import _planner_note, planner_slice
+        plan = {"stage": "plan", "files": ["pkg/a.py", "./pkg/b.py", "pkg/new_file.py"], "symbols": ["pkg.c.run"],
+                "terms": {"pkg/a.py": "pkg.a", "pkg/b.py": "pkg.b", "pkg/new_file.py": None, "pkg.c.run": "pkg.c"},
+                "approach": "move the helper", "handoff": "files: …", "tests": ["tests/test_a.py"]}
+        owner = {"unit": "U1", "modules": [{"id": "pkg.a", "path": "pkg/a.py"}, {"id": "pkg.x", "path": "pkg/x.py"}]}
+        other = {"unit": "U2", "modules": [{"id": "pkg.z", "path": "pkg/z.py"}]}
+        assert planner_slice(plan, owner) == (["pkg/a.py"], ["./pkg/b.py", "pkg/new_file.py", "pkg.c.run"])
+        note = _planner_note("planner", [plan], owner)
+        assert note.startswith("planner: your slice of the change — the planner named these IN YOUR INTERIOR: pkg/a.py.")
+        assert "approach: move the helper" in note and "3 location(s) owned by other units" in note
+        assert note.endswith("run these tests: tests/test_a.py")
+        none = _planner_note("planner", [plan], other)
+        assert none.startswith("planner: nothing the planner named lies in your interior. It named: pkg/a.py, ./pkg/b.py")
+        assert "approach: move the helper" in none and "owned by other units (" not in none
+        # a path-shaped term the graph could not resolve still lands by suffix
+        newfile = {"unit": "U3", "modules": [{"id": "pkg.new_file", "path": "src/pkg/new_file.py"}]}
+        assert planner_slice(plan, newfile)[0] == ["pkg/new_file.py"]
+        # the fallback seed source carries no planner note at all
+        assert _planner_note("lexical-fallback", [plan], owner) == ""
+        # and without a unit the old whole-handoff shape still stands
+        assert _planner_note("planner", [plan], None).startswith("planner: files: …")
 
     def test_render_brief_limit_is_visible_at_the_top(self, planned, monkeypatch):
         self._inflate(monkeypatch)
@@ -512,6 +549,25 @@ class TestStagedRun:
         # the verifier ran and passed
         verify = rec["verify"]
         assert verify["verdict"] == "pass" and verify["verdict_source"] == "keyed"
+
+    def test_the_planner_handoff_is_projected_per_unit(self, plan_repo, staged_session, tmp_path):  # noqa: F811
+        # ADR-062: the unit whose interior holds the planner's file is told
+        # it is ITS slice; every other unit is told plainly that nothing
+        # the planner named is in its interior — no unit is handed the
+        # global list as if it were its own job.
+        from hobbes.run.stages import run_staged
+        rec = run_staged(plan_repo, self._proposal(), session_bin=staged_session,
+                         sessions_root=tmp_path / "s", max_units=5)
+        plan = next(s for s in rec["stages"] if s["stage"] == "plan")
+        assert plan["terms"] == {"src/app/core.py": "app.core"}
+        briefs = {p.parent.name: p.read_text() for p in plan_repo.glob(".hobbes/plans/*/agents/U*/brief.md")}
+        owners = [u for u, b in briefs.items() if "IN YOUR INTERIOR: src/app/core.py" in b]
+        assert len(owners) == 1, briefs.keys()
+        for unit, brief in briefs.items():
+            if unit != owners[0]:
+                assert "nothing the planner named lies in your interior" in brief
+                assert "IN YOUR INTERIOR" not in brief
+        assert len({b.split("## Short-term context")[1].split("#")[0] for b in briefs.values()}) == len(briefs) or len(briefs) == 1
 
     def test_lexical_fallback_when_the_planner_names_nothing_real(self, plan_repo, staged_session, tmp_path, monkeypatch):  # noqa: F811
         # a planner that resolves nothing → the deterministic seeds stand,

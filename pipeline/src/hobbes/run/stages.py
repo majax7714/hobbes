@@ -42,7 +42,7 @@ from pathlib import Path
 from hobbes import artifacts
 from hobbes.derive import derive_plan, write_spec
 from hobbes.derive.changespec import task_id
-from hobbes.derive.impact import resolve_terms
+from hobbes.derive.impact import build_lookup, resolve_terms
 from hobbes.run import agents, mail
 from hobbes.run.handoff import parse_handoff
 from hobbes.run.orchestrate import (
@@ -227,12 +227,14 @@ def run_staged(
         result = run_planner(repo, proposal, graph, pdir, session_bin, sessions_root,
                              extra_args, brief_limit, dry_run)
         handoff = result["handoff"]
-        hits, planner_misses = resolve_terms(graph, handoff.get("files", []) + handoff.get("symbols", []))
+        named = handoff.get("files", []) + handoff.get("symbols", [])
+        hits, planner_misses = resolve_terms(graph, named)
         planner_tests = handoff.get("tests", [])
         stage_log.append({"stage": "plan", "role": "planner", "agent": "planner",
                           **{k: result.get(k) for k in ("session", "exit", "wall_seconds")},
-                          "handoff": handoff.get("raw", ""),
+                          "handoff": handoff.get("raw", ""), "approach": handoff.get("approach", ""),
                           "files": list(handoff.get("files", [])), "symbols": list(handoff.get("symbols", [])),
+                          "terms": term_modules(graph, named),
                           "resolved": hits, "unresolved": planner_misses, "tests": planner_tests})
         if hits:
             planner_seeds = hits
@@ -254,15 +256,18 @@ def run_staged(
 
     dirs = agents.materialize(pdir, spec, tests_doc, role="implementer")
     orchestrator = agents.agent_dir(pdir, agents.ORCHESTRATOR)
-    # The planner's handoff is the first short memory every implementer gets.
-    planner_note = _planner_note(seed_source, stage_log)
+    contexts = {c["unit"]: c for c in spec.get("contexts", [])}
+    # The planner's handoff is the first short memory every implementer
+    # gets — PROJECTED onto the unit (ADR-062): each inbox carries only
+    # the part of the change that lies in its own interior, and says so
+    # when none does. One global handoff led every unit to the same file.
     for unit in dirs:
+        planner_note = _planner_note(seed_source, stage_log, contexts.get(unit))
         if planner_note:
             mail.post(dirs[unit], "planner", planner_note, kind="handoff")
 
     code, head = _git(repo, "rev-parse", "HEAD")
     base = head if code == 0 else spec.get("graph_sha", "")
-    contexts = {c["unit"]: c for c in spec.get("contexts", [])}
     test_files = {t["id"]: t.get("file", "") for t in tests_doc.get("tests", [])}
     order = order_units(spec)
     records: list[UnitRecord] = []
@@ -356,15 +361,76 @@ def artifacts_spec(repo: Path, task: str) -> dict:
     return load_spec(repo, task)
 
 
-def _planner_note(seed_source: str, stage_log: list[dict]) -> str:
+def term_modules(graph: dict, terms: list[str]) -> dict[str, str | None]:
+    """Each planner-named term → the module id it resolves to (``None``
+    when it does not), the same tolerant lookup :func:`resolve_terms`
+    uses. Kept on the plan stage so the handoff can be projected per
+    unit (ADR-062)."""
+    lookup = build_lookup(graph, dotted_head=True)
+    out: dict[str, str | None] = {}
+    for term in terms:
+        cleaned = (term or "").strip()
+        if cleaned and cleaned not in out:
+            out[cleaned] = lookup(cleaned)
+    return out
+
+
+def _in_interior(term: str, module: str | None, ids: set[str], paths: list[str]) -> bool:
+    if module in ids:
+        return True
+    bare = term.strip().lstrip("./")
+    return any(p == bare or p.endswith("/" + bare) or bare.endswith("/" + p) for p in paths if p)
+
+
+def planner_slice(plan: dict, context: dict) -> tuple[list[str], list[str]]:
+    """Split the planner's named terms into (in this unit's interior,
+    owned elsewhere). A term is the unit's when it resolved to one of
+    its interior modules or path-matches one of its interior files."""
+    ids = {m.get("id") for m in context.get("modules", [])}
+    paths = [m.get("path", "") for m in context.get("modules", [])]
+    terms = plan.get("terms") or {}
+    named = [t for t in plan.get("files", []) + plan.get("symbols", []) if t and t.strip()]
+    mine, others = [], []
+    for term in dict.fromkeys(t.strip() for t in named):
+        (mine if _in_interior(term, terms.get(term), ids, paths) else others).append(term)
+    return mine, others
+
+
+def _planner_note(seed_source: str, stage_log: list[dict], context: dict | None = None) -> str:
+    """The planner's handoff as ONE unit's short memory (ADR-062): its
+    slice of the change, the approach, and a plain statement that the
+    rest is owned elsewhere — or that nothing named lies in its interior.
+    Without *context* the whole handoff is returned (the pre-062 shape)."""
     if seed_source != "planner":
         return ""
     plan = next((s for s in stage_log if s.get("stage") == "plan"), None)
     if not plan:
         return ""
-    parts = [f"planner: {plan['handoff'].strip()[:800]}"]
-    if plan.get("tests"):
-        parts.append("run these tests: " + ", ".join(plan["tests"]))
+    approach = (plan.get("approach") or "").strip() or plan.get("handoff", "").strip()[:600]
+    tests = "run these tests: " + ", ".join(plan["tests"]) if plan.get("tests") else ""
+    if context is None:
+        return "\n".join(p for p in [f"planner: {plan['handoff'].strip()[:800]}", tests] if p)
+    mine, others = planner_slice(plan, context)
+    parts = []
+    if mine:
+        parts.append("planner: your slice of the change — the planner named these IN YOUR INTERIOR: "
+                     + ", ".join(mine) + ". Edit those paths (see Interior below).")
+    else:
+        parts.append("planner: nothing the planner named lies in your interior. It named: "
+                     + (", ".join(others[:8]) + (" …" if len(others) > 8 else "") or "nothing") +
+                     " — all owned by other units. You are in the plan because the graph reaches "
+                     "you from the change: change a file here only if a contract at your boundary "
+                     "requires it; otherwise hand off that no change was needed. Do not create or "
+                     "edit files outside your interior — they are dropped at integration.")
+    if approach:
+        parts.append(f"approach: {approach[:600]}")
+    if mine and others:
+        parts.append(f"the planner also named {len(others)} location(s) owned by other units ("
+                     + ", ".join(others[:8]) + (" …" if len(others) > 8 else "") +
+                     "): not yours — do not create or edit them; edits outside your interior are "
+                     "dropped at integration.")
+    if tests:
+        parts.append(tests)
     return "\n".join(parts)
 
 
