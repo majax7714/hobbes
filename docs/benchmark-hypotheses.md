@@ -435,6 +435,64 @@ re-read on clean localization. Instance concurrency (ADR-065) worked —
 five instances overlapped; sphinx showed the first real unit overlap
 (implement wall 1188 s < units_sum 1288 s).
 
+### 2026-08-22 — the 5-fresh re-run on the ADR-066 harness (both arms), `five-fresh-7b-clean`
+
+Same five instances, same flags, harness at `a2a5504`+. **0/5 both arms**
+(harness: 2 unresolved, 3 empty-patch; pure: 3 unresolved, 1 empty,
+1 loop-error). **n=5, not an H1–H3 result** (P11). Planner hit 3/5
+recorded — and this time the record is right: the ADR-066 parser split
+xarray's one-line handoff into both gold files (2/2), django 1/3,
+sklearn 1/2; sympy and sphinx are misses of different kinds (below).
+Instances overlapped (ADR-065); implement walls 90 s – 1,479 s.
+
+**The window, read properly (Max's question — the Modal 400s).** The
+envelopes on disk explain what Modal shows: the two earlier big runs
+today paid **~390 context-length 400s** (`five-fresh-7b`: 14 fitted +
+184 elided + 2 fatal; `probe-full-7b`: 55 + 131 + 4); this run paid
+~10. The drop is **not** a roomier window — mean harness input is still
+13.7k tokens/turn — it is that sessions now end earlier on the 6-turn
+no-progress exit. Where the window goes: an implementer brief is
+33.8k chars mean / 59.8k max (the C-45 limit; sympy U2's tokenized to
+**16,750 tokens of 32,768**), and **82 % of it is outside the unit** —
+Neighborhood 11.1k + Guarding tests 10.2k + Contracts 6.4k chars mean —
+while the unit's own Interior averages 171 chars. With `max_tokens`
+1536 and 12k-char read clips, a unit gets three or four `read_file`s
+before the first overflow, and C-46's fit then elides **the model's own
+reads first** (the brief is protected): sympy U2 read the file it was
+about to edit, had the read elided, guessed the anchor, and spun. That
+is a constraint the harness imposes, and it is registered as such
+(C-46 amended).
+
+**Per instance, classified** (gold files → arm touches → planner → unit
+transcript):
+
+| instance | planner | harness units | pure | class |
+|---|---|---|---|---|
+| django | 1/3 (`filters.py`) | U4 edited `filters.py` **without reading it**: one guessed anchor missed, one hit; the hit edit applied 3× with slightly different `new_text` each time (the ADR-066 byte-identity refusal correctly did not fire) — stacked; unresolved | edited `filters.py`; unresolved | implementer-execution (no read; anchor stacking) |
+| sympy | **0** — named `sympy/polys/modules/zeta.py`, a path that does not exist, in prose → lexical fallback | U2's reads elided (fit 2 / elided 3); guessed anchor ×6 | touched 4 files incl. gold; unresolved | planner-localisation (model) + window (harness) |
+| xarray | **2/2** | U1 wrote its edits as a ```` ```python ```` fence (unparsed, invalid JSON); U2 `edit_file` on `def integrate(self, dim=None, **kwargs):` — a signature that does not exist — **9 identical pairs, never a read** | loop-error (no-progress) | implementer-execution (no read) |
+| sklearn | 1/2 (`base.py`) | U1 prose only across 3 nudges; U2 ran the guarding tests, then *reported* edits it never made | empty | implementer-execution (no edit) |
+| sphinx | **0** — the planner wrote `reflect` as a ```` ```json ```` fence that **`--max-tokens 1536` cut mid-list**, three times; the loop does not record `finish_reason`, so a truncated tool call is treated as prose and nudged → lexical fallback | U1/U7 edited `domains/cpp.py`, `util/inspect.py`; unresolved | hallucinated new file `sphinx/ext/autodoc.py`; unresolved | harness (truncation) + planner-localisation |
+
+**Reading.** The two ADR-066 fixes did what they were built for (xarray
+2/2; no byte-identical stack). What dominates now is one model
+behaviour and three harness gaps around it. The behaviour: **the 7B
+implementer edits from memory** — in 30 unit sessions the first turn is
+a prose "Changes made" and the edits that follow carry guessed anchors;
+`read_file` is rarely called before `edit_file`. The gaps: (1) a
+completion cut at `max_tokens` is not detected — the sphinx planner's
+correct-shaped handoff was lost three times; (2) the fenced-call parser
+accepts only ```` ```json ```` / bare fences with strict JSON; (3)
+`edit_file` has no read-before-edit rule (ADR-064 gave `write_file`
+one), so a guessed anchor costs the model nothing but a turn; and the
+anchor-stacking variant ADR-066 does not cover (same anchor, reworded
+text). Behind all of it sits the window: **82 % of the brief is
+context the unit cannot change**, and forcing reads will make that the
+binding constraint — the brief's shape is a design decision (Max's),
+not a parser fix. Per the standing rule, the four gaps are harness and
+are fixed before the model is re-read; the brief question is put to
+Max with the numbers above.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

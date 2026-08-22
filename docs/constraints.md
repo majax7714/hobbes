@@ -1078,7 +1078,19 @@ information appears in both, and the entries cross-reference.
   result is the literal placeholder in the transcript; a clipped result
   ends in its cut line. Larger windows (a rung with more context, or a
   paged-context loop) lift it — parked in `future_additions.md`.
-- **Source:** ADR-058 (2026-08-21), the third finding.
+- **Measured (2026-08-22, the 5-fresh re-run):** the brief itself is
+  the window's main tenant — an implementer brief tokenized to up to
+  **16,750 of 32,768 tokens**, and 82 % of it is context the unit
+  cannot change (neighborhood, guarding tests, contracts; the unit's
+  interior averages 171 chars). The brief is never elided, so the fit
+  drops **the model's own reads first** — sympy-13852 U2 read the file
+  it was about to edit, had that read elided, guessed the anchor, and
+  spun. Two earlier runs the same day paid ~390 context-length 400s
+  between them (the Modal log Max read); the re-run paid ~10, because
+  sessions now end sooner, not because the window got roomier. The
+  brief's shape is a derivation decision, not a loop fix — open.
+- **Source:** ADR-058 (2026-08-21), the third finding; measured
+  2026-08-22 (`benchmark-hypotheses.md` Results).
 
 ### C-47 — A staged plan's seeds are a model's opinion, not a derivation
 - **Cannot tell you:** that a staged run's change-spec is reproducible.

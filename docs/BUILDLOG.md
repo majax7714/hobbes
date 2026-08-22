@@ -3941,3 +3941,26 @@ sentence stays a planner-brief question). **Loop:** a byte-identical
 new_text re-includes its anchor. Verified the xarray handoff now yields
 both gold files. 843 pytest / Go green. No re-run — the base is being
 tidied and handed off fresh.
+
+## 2026-08-22 (fifty-first) — the 5-fresh re-run on the clean harness: 0/5, the window and the no-read pattern
+
+Max's go for the handoff's next step. Preflight (binaries rebuilt,
+843 pytest / Go green, podman socket, Modal 7B cold-started), then the
+five instances both arms at `--instance-workers 5`, local eval. **0/5
+both arms.** Max also redirected the ladder's next rung to
+**`Qwen/Qwen3.8-27B`** (not the 32B; pinned in `RUNGS`, not deployed —
+the image's vLLM pin predates its architecture; ADR-057 amended,
+hypotheses doc carries the dated reasoning), and, reading the Modal
+logs for the first time, asked about the flood of context-length 400s.
+Answered from the envelopes on disk: ~390 across the two earlier big
+runs, ~10 in this one; the brief is up to 16.7k of 32k tokens, 82 %
+of it outside the unit, and the fit elides the model's own reads
+first — C-46 amended with the measurement. Hand-read of all ten arms
+(recorded in `benchmark-hypotheses.md`): ADR-066's fixes held (xarray
+planner 2/2, no byte-identical stack); the dominant pattern is the 7B
+**editing without reading** (guessed anchors, "occurs 0 times" ×N);
+and three harness gaps around it — a completion cut at `max_tokens` is
+undetected (sphinx's planner handoff lost 3×), the fenced-call parser
+is narrow, and `edit_file` has no read-before-edit rule (plus the
+reworded anchor-stack ADR-066 does not cover). Nothing fixed in this
+entry; the fixes follow as their own ADR. No push.

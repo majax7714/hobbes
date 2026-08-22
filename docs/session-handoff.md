@@ -73,32 +73,33 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 
 ## The next step
 
-**Re-run the same 5 on the now-clean harness**, then read the failures
-again. The two ADR-066 fixes should turn ~2 of the 5 planner "misses"
-into hits and stop the edit stacking — so the next 0-vs-N is closer to
-being about the model. Only if the failures are then cleanly the
-model's does the next rung become the question — **Qwen3.8 27B**
-(Max, 2026-08-22): high instruction-following/agentic-coding scores,
-low deep-SWE scores, so a harness gain on the deep set is easier to
-attribute. Pinned as `Qwen/Qwen3.8-27B` in `scripts/modal_vllm.py`
-`RUNGS` (A100-80GB), **not deployed**: its architecture
-(`Qwen3_5ForConditionalGeneration`) postdates the image's `vllm==0.10.1.1`
-/ `transformers<5` pin, so taking the rung = bump those, re-verify the
-7B deploys, then `MODEL=Qwen/Qwen3.8-27B … deploy`. The 32B entry
-stays pinned but is no longer next.
+**The re-run is done (2026-08-22, `~/.hobbes/bench/five-fresh-7b-clean`):
+0/5 both arms.** Full read in `docs/benchmark-hypotheses.md` Results
+(the last dated entry). The ADR-066 fixes held. What is now in the way,
+in order:
 
-Two harness items are known but **not yet built** (decide before or
-after the re-run, Max's call):
+1. **Harness (fix before any model re-read):** (a) a completion cut at
+   `max_tokens` is undetected — record `finish_reason`, and continue or
+   retry a cut tool call rather than nudging it as prose (sphinx's
+   planner lost a correct-shaped handoff 3×); (b) `_FENCED` accepts only
+   ```` ```json ````/bare fences with strict JSON — accept any fence tag,
+   an unterminated trailing fence, `strict=False`; (c) `edit_file` on a
+   path never read is refused, the way ADR-064's `write_file` guard
+   works — the 7B edits from memory with guessed anchors in nearly
+   every unit; (d) the reworded anchor-stack: same `old_text` on the
+   same path already applied, `new_text` containing it → refuse.
+2. **Max's decision — the brief's shape.** 82 % of an implementer brief
+   is neighborhood/guarding tests/contracts; the window is the binding
+   constraint once reads are forced (C-46, measured). Options: cap those
+   sections per unit, list guarding tests by id instead of body, or a
+   larger-window rung. This is the derived-context design itself, so it
+   is not decided by a session.
+3. Then re-run the same 5; only failures cleanly the model's open the
+   **Qwen3.8-27B** rung (see below).
 
-1. **Planner brief → structured handoff.** sympy's planner wrote a
-   correct symbol (`polylog`) in prose the parser declines to mine (the
-   no-prose-inference principle, deliberate). The fix is prompt-side:
-   push the planner to emit the `files:`/`symbols:` shape. Cheaper than
-   loosening the parser.
-2. **Why some planner localisations are wrong, not just unparsed.**
-   sphinx's planner named 9 unrelated `domains/*` files — a genuine
-   model miss. Whether a better planner brief or a bigger planner rung
-   helps is open.
+Two earlier known items stand: planner brief → structured handoff
+(sympy's planner still hands off in prose, this time a hallucinated
+path); and why some planner localisations are wrong, not unparsed.
 
 ## How to run the set (unchanged except the two new flags)
 
