@@ -128,3 +128,31 @@ rules:
     decision: allow
   - pattern: "make*"
     decision: allow
+  # read-only text filters a model pipes test output through — now that a
+  # compound command is resolved per segment (ADR-075), the pipe target is
+  # policy-checked too, so the harmless filters must be named or an
+  # allowed `pytest … | tr …` escalates (C-54)
+  - pattern: "tr *"
+    decision: allow
+  - pattern: "wc*"
+    decision: allow
+  - pattern: "awk *"
+    decision: allow
+  - pattern: "sort*"
+    decision: allow
+  - pattern: "uniq*"
+    decision: allow
+  - pattern: "cut *"
+    decision: allow
+  - pattern: "xargs*"
+    decision: allow
+  - pattern: "tee *"
+    decision: allow
+  - pattern: "echo*"
+    decision: allow
+  - pattern: "true"
+    decision: allow
+  - pattern: "diff *"
+    decision: allow
+  - pattern: "wc *"
+    decision: allow

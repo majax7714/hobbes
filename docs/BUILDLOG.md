@@ -4103,3 +4103,32 @@ from the host env and unset in the container (the 27B app served the
 dead, startup timeout). Both fixed; 7B re-verified on the new image;
 27B smoke: 131,072 window, 305k KV tokens, reasoning split, structured
 tool call. Launched `five-fresh-27b` at the pre-registered settings.
+
+## 2026-08-22 (sixtieth) — the first 27B run, and the harness defect it exposed (ADR-075)
+
+Ran `five-fresh-27b` (both arms) on the deployed thinking rung at its
+pre-registered settings. **pure 40 % (2/5), harness 20 % (1/5), delta
+−20 pts** — and the cause is a harness defect, so the run is **void as
+a model verdict** (resolve-harness-first). The policy engine matched a
+whole command string against anchored globs; a capable model's compound
+commands (`cd /work && python -m pytest …`, `git -C /work status && …`,
+`PYTHONDONTWRITEBYTECODE=1 python …`) matched no box allow rule and fell
+to `default: escalate` → 5 s expire-deny, no approver. **104 of 253
+exec calls escalated**; implementers couldn't self-test, all three
+unresolved verifiers reported "nothing could be executed", some couldn't
+commit. The pure arm runs bash directly (no proxy), so it was unharmed —
+the gap is the proxy, not the model, and the 27B (writing `cd /work &&`
+more than the 7B) was penalised harder. Built ADR-075:
+`Chain.ResolveCommand` splits on top-level `&& || ; |` (quote-aware,
+conservative), strips `cd`/env prefixes, resolves each segment and takes
+most-restrictive-wins (deny > escalate > allow) — a command is as
+permitted as its least-permitted part; this also closes a hole where
+`git status && rm -rf /` matched `git status*`. Box policy broadened
+with the read-only pipe filters (now that a pipe target is checked).
+C-54 registered. **Real despite the defect:** planner localised from
+derived context at 80 % (4/5) grounded via search + who_calls +
+tests_guarding; xarray solved on the harness arm end to end; both pure
+failures were harness too (sphinx tripped the stall rule mid-search,
+sklearn hit the 3600 s wall). 866 pytest / Go green (new policy tests); proxy rebuilt
+(static + sandbox copy). Not re-run — the ADR-075 re-run is Max's go,
+and the thinking-model stall/timeout knobs should be settled first.

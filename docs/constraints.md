@@ -1285,6 +1285,37 @@ information appears in both, and the entries cross-reference.
   default is still `park`, and `hobbes run` has no such switch.
 - **Source:** ADR-071 (2026-08-22).
 
+### C-54 — A compound shell command is resolved per segment, and its filters must be named
+- **Cannot tell you:** that every shell command a session runs will be
+  judged as the model wrote it. The policy engine now splits a command
+  on top-level `&&`, `||`, `;`, and `|` and resolves each segment on its
+  own (ADR-075): the command is as permitted as its least-permitted
+  part, and a leading `cd <dir>` or `VAR=value` prefix is handled so it
+  cannot hide the command under it. The split is quote-aware but
+  conservative — an unbalanced quote falls back to matching the whole
+  string, never more permissively.
+- **Because:** the anchored glob (ADR-001) matched a whole command
+  string, so an allowed rule like `python -m pytest*` could not see past
+  a `cd /work &&` prefix or an env-var assignment, and two allowed
+  commands chained with `&&` matched nothing — all three fell to the
+  box floor's `escalate`, which on a benchmark expire-denies with no
+  approver. In `five-fresh-27b` that escalated **104 of 253** exec calls
+  and starved the harness arm (implementers could not run their tests,
+  verifiers could not run the suite, some could not commit). The old
+  behaviour was also *unsafe*: `git status && rm -rf /` matched
+  `git status*` and ran the `rm`; per-segment resolution closes that.
+- **Bites at:** a pipe or chain into a tool the policy does not name —
+  it now escalates rather than riding the head command's allow. The
+  benchmark box policy names the common read-only filters (`tr`, `awk`,
+  `wc`, `sort`, `uniq`, `cut`, `xargs`, `tee`, `grep`, `sed -n`, `head`,
+  `tail`, `cat`); a repo policy that relied on the old `*`-swallow for a
+  chained command must add the segment's rule.
+- **You find out:** **surfaced** — the flight log records the decisive
+  segment's rule per exec, `hobbes policy resolve "<compound>"` shows
+  the per-segment decision, and the box policy carries a comment naming
+  why the filters are listed.
+- **Source:** ADR-075 (2026-08-22).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

@@ -688,6 +688,65 @@ model bothered to look (sympy); where it guessed (sphinx) it failed.
 The 27B is the question now — with the harness record behind it, not
 ahead of it. Pure arm: still not reproducible at temperature 0.
 
+### 2026-08-22 — the first 27B run, `five-fresh-27b` (both arms; VOID as a model verdict)
+
+The thinking rung (ADR-074): Qwen3.8-27B, thinking on, `reasoning_effort
+medium`, temperature 1.0 / top-p 0.95, 8192 max_tokens, the same five
+instances, `--human-first spawn`, brief auto-sized to the 131,072
+window. Evaluated locally. **pure 40 % (2/5) — django, xarray; harness
+20 % (1/5) — xarray; delta −20 pts.** The harness arm lost to pure on
+the same model — and the cause is a harness defect, so **this run says
+nothing about the 27B** (the resolve-harness-first rule).
+
+**The defect (C-54 / ADR-075).** The policy engine matched a whole
+command string against anchored globs, so a capable model's compound
+commands never matched the box policy's allow rules: `cd /work &&
+python -m pytest …`, `git -C /work status && git -C /work branch`,
+`PYTHONDONTWRITEBYTECODE=1 python …` all fell to `default: escalate` →
+5 s expire-deny, no approver. **104 of 253 exec calls escalated.** The
+harness arm was starved exactly where it needed to act: implementers
+could not run their own tests to self-check, **all three unresolved
+verifiers reported "nothing could be executed"** (so a correct patch
+could still read as fail), and some units could not commit. The pure
+arm runs `bash` directly with no proxy, so its compound commands just
+ran — the −20 pts is the proxy gap, not a model gap. The 27B, being
+more capable than the 7B, writes `cd /work &&` and chains commands far
+more, so the better model was penalised harder. Fixed per-segment
+(ADR-075); not re-run (Max's go).
+
+**What is real from this run, defect notwithstanding:**
+- **The planner localises from derived context, at 27B.** Planner hit
+  **80 % (4/5)** — django 1/3, sympy 1/1, xarray 1/2, sphinx 1/2,
+  sklearn 0/2 — every planner using search + read + `who_calls` /
+  `tests_guarding` / `graph_neighborhood`, grounded, not from memory
+  (ADR-072/073 held). sklearn's miss named `_set_output.py`, the module
+  the gold patch *calls*, not the two it edits — a real
+  partition/localisation edge, not a hallucination.
+- **xarray solved on the harness arm** (2 F2P pass, 2398 P2P green): the
+  one instance whose implementers happened to write commit-friendly,
+  cd-less commands. Proof the staged path can carry a solve end to end
+  at this rung.
+- **Both pure failures were harness too, not the model.** sphinx pure
+  stalled at 6 dry turns *mid-investigation* (search + ranged reads
+  toward the fix) — the stall rule (`--stall-after`, tuned against the
+  7B's 55-identical-call loop) stops a model that investigates before
+  editing. sklearn pure hit the 3600 s wall at turn 40 doing real work
+  (prompt grown to 78k). Neither is a model verdict.
+
+**Also observed:** the endpoint held five concurrent sessions at ~75
+tok/s aggregate, KV at 16 %; `reasoning_content` rode the transcript as
+designed, but vLLM 0.27 reports no `completion_tokens_details`, so
+`reasoning_tokens` logged 0 (the reasoning is counted inside
+`completion_tokens`, unsplit — ADR-074). Sampling at temperature 1.0
+makes both arms non-reproducible by design.
+
+**Next.** Re-run the five on the ADR-075 harness (Max's go): the first
+27B run whose harness arm can execute. Before drawing H1, the stall/
+timeout knobs a thinking model needs (expose `--stall-after` /
+`--nudge-after` on `bench run`; the pure timeout) should be settled too
+— a thinking model investigates longer per turn than the 7B the current
+defaults were cut for.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8

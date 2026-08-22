@@ -264,6 +264,25 @@ deliberately not started. The build plan
 (`docs/hobbes-build-plan-v2.md`) is record, not plan; the backlog in
 `docs/future_additions.md` stays parked unless Max names an item.
 
+**2026-08-22 (the thinking rung, ADR-074 — built and deployed; the
+first 27B run launched):** Max's go after the 7B read clean. The Modal
+image is vLLM 0.27.1 / transformers ≥ 5.8 for every rung;
+`Qwen/Qwen3.8-27B` (a thinking hybrid, text-only serving, window
+131,072, `qwen3` reasoning + `qwen3_coder` tool parsers) is deployed
+and smoke-verified, the 7B re-verified on the same image. The owned
+loop takes `--temperature/--top-p/--reasoning-effort/--thinking`,
+keeps `reasoning_content` on the transcript, counts
+`usage.reasoning_tokens` when reported (vLLM 0.27 does not);
+`bench.Runtime` carries the sampling once for both arms via
+`hobbes-session --loop-arg`. Two cold-start lessons in `modal_vllm.py`:
+`MODEL` must be baked into the image env (the container re-imports the
+script without the host's env — the 27B app came up serving the 7B),
+and `VLLM_USE_FLASHINFER_SAMPLER=0` (the JIT needs nvcc). Modal answers
+a request that outlives its cold start with a `303` poll redirect —
+warm an endpoint with a short-timeout `/models` loop before a run.
+The run's settings are pre-registered in the hypotheses doc. 866
+pytest / Go green.
+
 **2026-08-22 (harness restructure, phases 0–3 built — read
 `docs/harness-restructure-plan.md`):** Max restated the execution
 shape (single-use *derived-context* agents, one alive at a time, job =

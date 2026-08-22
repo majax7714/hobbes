@@ -1,12 +1,45 @@
 # Session handoff — the single resume point
 
-**Written 2026-08-22, updated the same day after the re-run and ADR-067.** This is the one authoritative resume doc for a
+**Written 2026-08-22, updated after the first 27B run and ADR-075.** This is the one authoritative resume doc for a
 fresh session. The old per-phase handoffs are deleted; their history is
 in `docs/BUILDLOG.md` (append-only, one entry per session). Read this,
 then `docs/benchmark-hypotheses.md` (the reading rules) and the recent
 BUILDLOG entries. **Nothing is running. Do not launch a benchmark
 without a fresh decision from Max — the last session pushed experiments
 faster than the base could stay clean.**
+
+## LATEST (2026-08-22, sixtieth session): the 27B is deployed; its first run is void
+
+**Qwen3.8-27B is deployed** on Modal (`hobbes-llm-qwen-qwen3-8-27b`,
+A100-80GB, vLLM 0.27.1, window 131,072, `qwen3` reasoning + `qwen3_coder`
+tool parsers, text-only; ADR-074). The owned loop takes
+`--temperature/--top-p/--reasoning-effort/--thinking` and keeps reasoning
+on the transcript; `bench.Runtime` carries the sampling to both arms via
+`hobbes-session --loop-arg`. Deploy pitfalls (all fixed, in `modal_vllm.py`):
+`MODEL` must be baked into the image env; `VLLM_USE_FLASHINFER_SAMPLER=0`
+(the JIT wants nvcc); Modal answers a request that outlives the cold start
+with a `303` poll redirect, so warm with a short-timeout `/models` loop
+before a run (~10 min cold start).
+
+**The first 27B run (`five-fresh-27b`, both arms) is VOID as a model
+verdict.** pure 40 % / harness 20 %, but 104 of 253 exec calls
+expire-denied because the policy engine matched compound commands
+(`cd /work && pytest`, chained git, env-prefixed) as one anchored string.
+Fixed: **ADR-075** — `Chain.ResolveCommand` resolves per segment,
+most-restrictive-wins (C-54); box policy broadened with read-only filters.
+Real from the run anyway: **planner localised 80 % (4/5) from derived
+context** at 27B; xarray solved on the harness arm end to end; both pure
+losses were harness too (stall rule mid-search; 3600 s wall).
+
+**THE NEXT STEP — Max's go:** re-run the five on the ADR-075 harness (the
+first 27B run whose harness arm can actually execute). Before reading H1,
+settle the **thinking-model knobs**: a thinking model investigates longer
+per turn than the 7B the current defaults were cut for — expose
+`--stall-after`/`--nudge-after` on `bench run` (both arms; defaults
+unchanged) and consider a larger `--timeout` (sklearn pure hit 3600 s).
+The launch command below is unchanged except the URL is the 27B\'s and add
+`--temperature 1.0 --top-p 0.95 --reasoning-effort medium`. Do not launch
+without Max\'s go.
 
 ## Where the work is
 

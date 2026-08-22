@@ -165,7 +165,9 @@ func (s *Server) handleExec(ctx context.Context, req *mcp.CallToolRequest, args 
 	if err != nil {
 		return errResult("exec: loading policy chain: %v", err), nil, nil
 	}
-	res := chain.Resolve(args.Command)
+	// Compound-aware: a `cd /work && pytest` or `git add && git commit` is
+	// resolved per segment, as permitted as its least-permitted part (ADR-075).
+	res := chain.ResolveCommand(args.Command)
 
 	ev := recorder.Event{
 		Session: s.cfg.Session,

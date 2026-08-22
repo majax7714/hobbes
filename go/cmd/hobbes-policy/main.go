@@ -112,7 +112,7 @@ func runResolve(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	result := chain.Resolve(command)
+	result := chain.ResolveCommand(command)
 	out, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		fmt.Fprintf(stderr, "hobbes-policy resolve: %v\n", err)

@@ -32,6 +32,8 @@ rules:
     decision: allow
   - pattern: "head *"
     decision: allow
+  - pattern: "tr *"
+    decision: allow
   - pattern: "cat *"
     decision: allow
   - pattern: "false"
