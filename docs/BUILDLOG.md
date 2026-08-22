@@ -3884,3 +3884,13 @@ that overwrote the fixture without reading now write a new path — the
 guard changed their premise, not their intent. 840 pytest / Go green;
 hobbes-session rebuilt. Next: re-run the single instance through both
 arms and review.
+
+**Same session, the ADR-064 re-run (13579, both arms, 0/1):** every
+mechanism verified. Selection spawned 2 of 10 units (implement
+670→274 s); parallel gate detected vLLM → 4 workers but the 2 live
+units are a contract chain (no overlap, wall≈sum); the 62 KB
+transcript made U10's reasoning readable; the overwrite guard refused
+the blind write, U10 read the 308-line file and wrote a 1,088-byte
+stub regardless — the guard forces a read, not comprehension (the ADR
+said so). The 7B is the wall on this instance, now cleanly. Recorded
+in `benchmark-hypotheses.md`. Stopped for Max's review.

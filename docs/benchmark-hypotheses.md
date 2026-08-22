@@ -341,6 +341,48 @@ a loop-side guard applied to both arms is the next harness decision,
 and the non-owner note's `approach` line is a candidate for removal.
 The loop keeps no transcript; a trace stops at the tool call.
 
+### 2026-08-22 — the ADR-064 re-run (both arms), astropy-13579
+
+Both arms, 7B, `--stages plan,implement,verify --parallel auto
+--max-units 10`, local eval, after ADR-064 (transcript, task-tailored
+selection, read-before-overwrite). **n=1, not an H1–H3 result** (P11).
+
+**0/1 both arms** (harness patch 1 file, pure patch 2 files; both
+unresolved). What the three mechanisms did, each verified from the
+record and the new transcript:
+
+- **Selection (C-52) worked and paid off:** of 10 units, **2 were
+  spawned** (U5, U10 — the planner-named ones), 7 skipped as
+  "planner named no file in interior", 1 human-first. Implement wall
+  **274 s** (was 670 s on the same instance last run) — the do-nothing
+  sessions are gone.
+- **Parallel gate (ADR-063) worked, no overlap here:** the endpoint was
+  detected as vLLM → 4 workers, but the two live units are a contract
+  chain (`waves [[U5],[U10]]`), so `implement_wall_seconds 274 ≈
+  implement_units_sum 273` — nothing independent to run at once. The
+  lever is correct; this instance had no work for it.
+- **Transcript (ADR-064) worked:** 62 KB of U10's full message list,
+  the first time the model's own reasoning is readable turn by turn.
+- **Read-before-overwrite worked as specified and did not change the
+  outcome:** U10 called `write_file` on the unread `sliced_wcs.py` →
+  **refused**; it read the 308-line file (transcript: "I'll read the
+  file first"), then wrote a **1,088-byte stub replacing 308 lines**
+  anyway. The guard forces a read, not comprehension — exactly the
+  boundary the ADR named. It then looped the identical stub and the
+  pre-existing repeat-refusal stopped it (the loop is the model's, not
+  the guard's).
+
+**Reading (no claim beyond n=1):** the harness now aims one unit at the
+exact gold file, forces it to read that file, drops every unit that has
+no work — and this 7B still answers by overwriting a 308-line module
+with a stub. On this instance the model, not the harness, is the wall,
+and the measurement is now clean of the harness faults that used to
+confound it. Whether that holds is the 45-set's question. Open, for
+Max: the stub is a `write_file`-shaped failure a `read`-gate cannot
+catch; a size-delta refusal (reject a whole-file write that shrinks a
+read file past a fraction, both arms) is the next candidate, but it is
+tuning against one instance until the set runs.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8
