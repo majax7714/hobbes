@@ -4061,3 +4061,17 @@ matching terms, plus the full package tree and a confirm-before-naming
 line. Measured on the five real graphs: every gold file now in the map
 (worst rank 71). C-47 amended. 859 pytest. Launching the 7B on
 ADR-071/072 with `--human-first spawn` at Max's go.
+
+## 2026-08-22 (fifty-eighth) — the ADR-071/072 run: the planner uses Hobbes, the 7B still writes from memory (ADR-073)
+
+Fourth 7B run, `--human-first spawn`. 0/5 both arms. For the first time
+a planner localised from derived context — sympy: search → read →
+who_calls → tests_guarding → the gold file and the gold test. sklearn's
+planner called `graph_neighborhood` by path and was refused three
+times: ADR-073, the tool resolves a path (Go, proxy rebuilt). The exec
+fix verified (a re-run after an edit runs; the no-edit repeat is
+refused with the right message); sympy's human-first owner ran and
+tried to overwrite the module from memory. No anchor miss is a
+line-number artefact. Read: the 7B cannot execute on derived context;
+the rung is done. 859 pytest / Go green. The 27B is the next decision —
+Max's.

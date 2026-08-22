@@ -73,33 +73,35 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 
 ## The next step
 
-**Three 7B runs on 2026-08-22, all 0/5 both arms** — read the last three
-dated entries in `docs/benchmark-hypotheses.md` Results first. Each run
-moved the failure one layer deeper and built the harness fix it exposed:
+**Four 7B runs on 2026-08-22, all 0/5 both arms** — read the last four
+dated entries in `docs/benchmark-hypotheses.md` Results. Each run moved
+the failure one layer deeper and built the harness fix it exposed:
 ADR-067 (read-before-edit, anchor stack, cut retry, fences), ADR-068
 (per-call log, pure transcript), ADR-069 (window-sized brief), ADR-070
-(`search_file`, bounded handoff), **ADR-071** (the shell is `exec` — a
-test re-run after an edit had been refused in *every* harness run;
-`--human-first park|spawn`, C-53; missing-path search error; handoff
-punctuation). **ADR-072** (the planner's map was alphabetical — the gold module reached
-the planner in 1 of 5 instances; every planner hit so far was the
-model's prior, not Hobbes; the map is now proposal-ranked with the
-package tree, all five gold files in it). **ADR-071/072 run launched
-2026-08-22 night as `five-fresh-7b-adr072` with `--human-first spawn`;
-read it first.**
+(`search_file`, bounded handoff), ADR-071 (the shell is `exec`;
+`--human-first park|spawn`, C-53), **ADR-072** (the planner's map was
+alphabetical — the gold module reached the planner in 1 of 5; now
+ranked by the proposal with the package tree; every gold file in every
+map), **ADR-073** (knowledge tools accept a path).
 
-**The verification read (ADR-070 run):** seven of ten arms fail in the
-model cleanly — it searches, gets ground truth, and writes from memory,
-or searches and never reads. The two harness items left were the exec
-name (size unknown until a run without it) and sympy's owner parked
-human-first in every partition.
+**The read of the last run (`five-fresh-7b-adr072`):** the planner
+localised from derived context for the first time (sympy, via search +
+read + who_calls + tests_guarding); the implementer still writes from
+memory after seeing the file. **The 7B rung is read: it cannot execute
+on derived context.** No known harness defect remains in the record.
 
-**Next (Max's go for any launch):** one more 7B run on ADR-071 with
-`--human-first spawn` — the first run whose harness we have no known
-reason to doubt, and cheap. Then, if it reads the same, the
-**Qwen3.8-27B** rung (pinned, undeployed; vLLM/transformers bump first).
-Also worth knowing: the pure arm is not reproducible at temperature 0
-under vLLM batching (n=1 per instance is noisy).
+**Next — Max's decision:** the **Qwen3.8-27B** rung. Pinned in
+`scripts/modal_vllm.py` `RUNGS` (A100-80GB), not deployed: bump the
+image's `vllm==0.10.1.1` / `transformers<5` pins (its architecture is
+`Qwen3_5ForConditionalGeneration`), re-verify the 7B deploys, `MODEL=
+Qwen/Qwen3.8-27B uv run scripts/modal_vllm.py deploy`, then the same
+five both arms with `--brief-limit` auto (it will size to the larger
+window) and `--human-first spawn`. The bar: harnessed 7B ≈ pure 27B is
+already answered (0 ≈ 0 says nothing); the informative pair is
+**harnessed 27B vs pure 27B** on a model that can execute.
+
+Known, small, not built: `bench report` roll-up of `calls_saturated`;
+`search_file` matching generated `.c` files (sklearn) — an exclude list.
 
 ## How to run the set (unchanged except the two new flags)
 

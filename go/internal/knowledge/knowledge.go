@@ -229,6 +229,13 @@ func (s *Store) Neighborhood(nodeID string) (string, error) {
 		}
 	}
 	if found == nil {
+		// ADR-073: the planner's map lists "`id` — path"; a 7B passes the
+		// path. A path that names exactly one node is that node.
+		if found = byPath(g.Nodes, nodeID); found != nil {
+			nodeID = found.ID
+		}
+	}
+	if found == nil {
 		b.WriteString(fmt.Sprintf("no node %q in the graph\n", nodeID))
 		b.WriteString(suggest(nodeID, ids))
 		return b.String(), nil
@@ -435,6 +442,22 @@ type moduleDoc struct {
 // stale warning is blob-level (ADR-019), not the HEAD compare the
 // skeleton tools use: docs regenerate per cited file, so HEAD moving
 // on its own proves nothing about this doc.
+// byPath resolves a repo-relative path to the one node that carries it
+// (a trailing "/" is tolerated); nil when none or several do.
+func byPath(nodes []node, p string) *node {
+	p = strings.TrimSuffix(p, "/")
+	var hit *node
+	for i := range nodes {
+		if nodes[i].Path != "" && nodes[i].Path == p {
+			if hit != nil {
+				return nil
+			}
+			hit = &nodes[i]
+		}
+	}
+	return hit
+}
+
 func (s *Store) ModuleDoc(nodeID string) (string, error) {
 	// TS/JS module ids are repo-relative paths (ADR-021), so "/" is
 	// legal and artifacts nest under docs/modules/; traversal is not.

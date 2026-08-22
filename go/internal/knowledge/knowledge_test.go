@@ -734,3 +734,36 @@ func TestBlindSpotsOnAnOlderArtifactOmitsTheNotes(t *testing.T) {
 		}
 	}
 }
+
+
+func TestNeighborhoodAcceptsTheNodePath(t *testing.T) {
+	// ADR-073: the map shows "`id` — path" and the 7B passes the path.
+	s := Open(fixtureRepo(t))
+	byID, err := s.Neighborhood("app.core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var g graphDoc
+	if err := s.loadInto("graph.json", &g); err != nil {
+		t.Fatal(err)
+	}
+	var p string
+	for _, n := range g.Nodes {
+		if n.ID == "app.core" {
+			p = n.Path
+		}
+	}
+	if p == "" {
+		t.Skip("fixture node app.core has no path")
+	}
+	byPath, err := s.Neighborhood(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byPath != byID {
+		t.Fatalf("by path differs from by id:\n%s\n---\n%s", byPath, byID)
+	}
+	if out, _ := s.Neighborhood("no/such/path.py"); !strings.Contains(out, "no node") {
+		t.Fatalf("unknown path should still say no node: %s", out)
+	}
+}

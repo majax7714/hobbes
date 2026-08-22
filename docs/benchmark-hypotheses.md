@@ -629,6 +629,45 @@ sklearn 71/44, sphinx 2/9, sympy 40 — all within the 80 listed. The
 next run is the first in which the planner hit rate can say anything
 about derived context.
 
+### 2026-08-22 — the ADR-071/072 run, `five-fresh-7b-adr072` (`--human-first spawn`)
+
+Same five, both arms; shell recognised (ADR-071), planner map ranked by
+the proposal (ADR-072), human-first units spawned (C-53). **0/5 both
+arms** (harness 1 unresolved / 4 empty; pure 3 unresolved / 2 empty).
+**n=5, not an H1–H3 result.**
+
+**The planner changed shape — the first Hobbes-derived localisation.**
+Before ADR-072 no planner called a tool. Now: sympy `search_file
+("polylog")` → `read_file(zeta_functions.py)` → `who_calls` →
+`tests_guarding` → a correct handoff naming the gold file **and** the
+gold test — grounded in derived context, not memory. sklearn's planner
+searched twice and called `graph_neighborhood` three times (by path —
+refused, ADR-073). sphinx's planner searched three times for a guessed
+string, found nothing, and handed off the failure message (lexical
+fallback). Hits: django 1/3, sympy 1/1, xarray 2/2, sklearn 0/2
+(before: 1/2 by memory — now it named `_set_output.py`, the module the
+gold patch *calls*), sphinx 0/2. Gold rank in the map: django 1,
+xarray 5/7, sklearn 71/44, sphinx 2/9, sympy 40.
+
+**Implementers, per session:** ranged reads are now common (5–7 per
+session where the search was used); the exec fix shows as `exec ok`
+followed by the *correct* "nothing edited since" refusal; sympy's
+human-first owner ran (U9): searched, found `polylog` at line 63, then
+tried to `write_file` the whole module from memory (refused, ADR-064)
+and never read it. Anchor misses carry no line-number prefixes — the
+model invents names (`def get_attribute` for `id_attributes`) and once
+a literal `<path_to_found_file>`. Nothing in this run's harness arm is
+left that a known harness defect explains.
+
+**Reading.** Four runs, 0/5 each, and the failure has walked all the
+way down to the model: it now gets the place from Hobbes (sympy), the
+file's real text from the search, and still writes from memory. The
+7B rung is read: **it cannot execute on derived context**, cleanly.
+Planner localisation from derived context works in the one case the
+model bothered to look (sympy); where it guessed (sphinx) it failed.
+The 27B is the question now — with the harness record behind it, not
+ahead of it. Pure arm: still not reproducible at temperature 0.
+
 ### Pre-run observations (quota-free; not results)
 
 - **2026-08-21 — seed probe, `psf/requests`, SWE-bench Verified, 8
