@@ -46,6 +46,37 @@ _HEADING = re.compile(r"^\s*(?:[-*•#]+\s*)?[`*_]*([A-Za-z][^:`]{0,80}?)[`*_]*\
 _PATHISH = re.compile(r"^[\w.-]+(?:/[\w.-]+)+(?:\.\w+)?$|^[\w-]+\.(?:py|ts|tsx|js|go|rs|c|h|cfg|toml|yaml|yml|ini|txt|rst|md)$")
 
 
+#: Field keywords (canonical + single-word aliases) for splitting a
+#: value that runs several fields onto ONE line — the xarray planner
+#: wrote `**Handoff:** files: a.py, b.py  symbols: X  tests: t  approach:
+#: …` on one line, and a line-only parser swallowed `symbols:`/`tests:`
+#: into `files`. Multi-word aliases are left out; they do not appear
+#: inline in practice.
+_INLINE_KEYS = sorted({k for k in (*LIST_FIELDS, *TEXT_FIELDS, *ALIASES) if " " not in k},
+                      key=len, reverse=True)
+_INLINE = re.compile(r"\s+[`*_]*(" + "|".join(re.escape(k) for k in _INLINE_KEYS) + r")[`*_]*\s*[:=]\s*",
+                     re.IGNORECASE)
+
+
+def _split_inline(value: str) -> tuple[str, list[tuple[str, str]]]:
+    """Split a single value that contains inline ``field:`` boundaries.
+
+    Returns ``(head, extras)``: *head* is the part belonging to the
+    field already in hand, *extras* the ``(field, value)`` pairs the
+    inline keys open. No inline key → ``(value, [])`` unchanged, so a
+    normal multi-line handoff is untouched."""
+    matches = [m for m in _INLINE.finditer(value) if _norm_key(m.group(1))]
+    if not matches:
+        return value, []
+    head = value[: matches[0].start()]
+    extras: list[tuple[str, str]] = []
+    for i, m in enumerate(matches):
+        field = _norm_key(m.group(1))
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(value)
+        extras.append((field, value[m.end(): end]))
+    return head, extras
+
+
 def _clean(item: str) -> str:
     return item.strip().strip("`'\"*-•[]() ").strip()
 
@@ -132,8 +163,12 @@ def parse_handoff(text: str) -> dict:
                     elif tail and field and _field_in_phrase(tail.group(1)):
                         field, rest = _field_in_phrase(tail.group(1)), tail.group(2).strip()
             if field:
+                head, extras = _split_inline(rest)
                 current = field
-                out[field] = (out[field] + "\n" + rest).strip() if field in out else rest
+                out[field] = (out[field] + "\n" + head).strip() if field in out else head
+                for f2, v2 in extras:
+                    out[f2] = (out[f2] + "\n" + v2).strip() if f2 in out else v2
+                    current = f2  # a continuation line belongs to the last inline field
             elif current and line.strip():
                 out[current] = (out[current] + "\n" + line.strip()).strip()
             elif line.strip():

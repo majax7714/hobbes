@@ -147,6 +147,30 @@ class TestNativeLoop:
         assert "occurs 2 times" in tool_msgs[2]["content"]
         assert (tree / "src" / "dup.py").read_text() == "x = 1\nx = 1\n"
 
+    def test_a_repeated_identical_edit_is_refused(self, tree):
+        # ADR-066: django-11400's U4 stacked one broken block 4x because
+        # edit_file's new_text re-includes its anchor, so the same edit
+        # applies again instead of being a no-op. The second identical
+        # edit is refused; a different edit is still allowed.
+        (tree / "src" / "a.py").write_text("def f():\n    return 1\n")
+        model = ScriptedModel([
+            [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 1"})],
+            [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 1"})],  # identical → refused
+            [("edit_file", {"path": "src/a.py", "old_text": "return 1", "new_text": "return 2"})],  # different → ok
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        assert not msgs[0]["content"].startswith("ERROR:")            # first edit applied
+        assert msgs[1]["content"].startswith("ERROR:") and "already made this exact edit" in msgs[1]["content"]
+        assert not msgs[2]["content"].startswith("ERROR:")            # a different edit is allowed
+        assert env["edited"] is True and env["repeats_refused"] == 1
+        # the anchor was inserted once, not stacked
+        assert (tree / "src" / "a.py").read_text().count("x = 1") == 1
+
     def test_write_file_must_read_an_existing_file_first(self, tree):
         # ADR-064: overwriting an existing file the session never read is
         # refused; a new file is fine; a write after a read is fine.

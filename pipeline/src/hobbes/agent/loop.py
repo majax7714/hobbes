@@ -305,6 +305,12 @@ EXEC_REPEAT_REFUSAL = (
     "so its result would be the same. Edit something first, or run a "
     "different command."
 )
+EDIT_REPEAT_REFUSAL = (
+    "You already made this exact edit. Applying it again does not change "
+    "the file the way you intend — an edit whose new text still contains "
+    "its own anchor stacks a duplicate. Read the file to see its current "
+    "state, then make a different edit."
+)
 
 
 class ContextOverflow(RuntimeError):
@@ -419,6 +425,7 @@ def run(args: argparse.Namespace) -> dict:
     reflected = False
     nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
+    applied_edits: set[tuple[str, str]] = set()
     read_paths: set[str] = set()
     repeats, dry_turns, refused_run = 0, 0, 0
     edited_since_exec = True  # the first run of any command is always fresh
@@ -464,6 +471,16 @@ def run(args: argparse.Namespace) -> dict:
                         text, is_err = EXEC_REPEAT_REFUSAL, True
                         repeats += 1
                         refused_turn = True
+                    elif name in MUTATING_TOOLS and sig in applied_edits:
+                        # The same edit, already applied. edit_file's
+                        # new_text re-includes its anchor, so a repeat
+                        # stacks a duplicate rather than being a no-op —
+                        # django-11400's U4 stacked one broken block four
+                        # times this way. Refuse the identical repeat; a
+                        # genuinely different edit is still allowed.
+                        text, is_err = EDIT_REPEAT_REFUSAL, True
+                        repeats += 1
+                        refused_turn = True
                     else:
                         seen_calls.add(sig)
                         if is_exec:
@@ -478,6 +495,7 @@ def run(args: argparse.Namespace) -> dict:
                             productive = True
                             if not is_exec:
                                 edited_since_exec = True
+                                applied_edits.add(sig)
                         if not is_err and name.endswith("reflect") and targs.get("kind") == "handoff":
                             # A read-only role's deliverable (planner, verifier):
                             # the handoff is its edit.

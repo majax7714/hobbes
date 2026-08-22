@@ -3926,3 +3926,18 @@ faults. Two harness fixes queued: robust handoff parsing (inline
 `key:` splitting, prose fallback) and refusing a repeated identical
 edit. Recorded in benchmark-hypotheses.md. No re-eval of the model
 rung yet — harness first.
+
+## 2026-08-22 (fiftieth) — two harness fixes from the 5-fresh read (ADR-066)
+
+Per the resolve-harness-first rule, fixed the two defects the 5-fresh
+investigation surfaced. **Handoff parser:** `_split_inline` splits a
+value at inline `field:` boundaries, so a one-line handoff (xarray's
+`**Handoff:** files: … symbols: … tests: …`) parses into each field
+instead of swallowing them into `files`; multi-line handoffs untouched;
+pure prose still not inferred (by design — sympy's `polylog` in a
+sentence stays a planner-brief question). **Loop:** a byte-identical
+`edit_file`/`write_file` already applied is refused (`EDIT_REPEAT_REFUSAL`)
+— django-11400's U4 had stacked one broken block 4× because edit_file's
+new_text re-includes its anchor. Verified the xarray handoff now yields
+both gold files. 843 pytest / Go green. No re-run — the base is being
+tidied and handed off fresh.

@@ -704,6 +704,23 @@ class TestHandoffParsing:
         # prose with no path names nothing
         assert "files" not in parse_handoff("change the frame code and run the tests")
 
+    def test_inline_fields_on_one_line_are_split_not_swallowed(self):
+        # the xarray planner (2026-08-22) wrote every field on ONE line
+        # after a markdown prefix; the line-only parser swallowed
+        # symbols:/tests:/approach: into files. ADR-066.
+        from hobbes.run.handoff import parse_handoff
+        h = parse_handoff("**Handoff:** files: xarray/core/dataset.py, xarray/core/dataarray.py   "
+                          "symbols: xarray.Dataset.integrate, xarray.DataArray.integrate   "
+                          "tests: xarray/tests/test_core.py   approach: change 'dim' to 'coord'")
+        assert h["files"] == ["xarray/core/dataset.py", "xarray/core/dataarray.py"]
+        assert h["symbols"] == ["xarray.Dataset.integrate", "xarray.DataArray.integrate"]
+        assert h["tests"] == ["xarray/tests/test_core.py"]
+        assert h["approach"].startswith("change 'dim'")
+        # a normal multi-line handoff is untouched by the splitter
+        multi = parse_handoff("\n".join(["files: a.py, b.py", "symbols: Foo", "approach: do the thing"]))
+        assert multi["files"] == ["a.py", "b.py"] and multi["symbols"] == ["Foo"]
+        assert multi["approach"] == "do the thing"
+
     def test_dotted_symbol_names_resolve_to_their_module(self):
         # the second live planner wrote `SlicedLowLevelWCS.world_to_pixel`
         # (an inherited method — no such symbol id); the class is unique
