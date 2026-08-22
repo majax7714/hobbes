@@ -188,6 +188,6 @@ re-probe.
 ### Deliberately not in this plan
 
 Path-grain write enforcement (C-38), metering beyond the envelopes,
-loss fitting, the renegotiation re-pin, parallel implementers (build
-sequential first; parallelism is a scheduler change that needs the
-chained-worktree story solid).
+loss fitting, the renegotiation re-pin. ~~Parallel implementers~~ —
+built 2026-08-22 as ADR-063 once the measurement showed decode at batch
+1 was the whole cost (waves over the contract DAG, vLLM-gated).

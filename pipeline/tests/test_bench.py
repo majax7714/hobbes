@@ -312,10 +312,17 @@ class TestHarnessArm:
         stages = result.detail["stages"]
         assert [s["stage"] for s in stages][:1] == ["plan"] and stages[-1]["stage"] == "verify"
         assert any(s["stage"] == "implement" for s in stages)
-        # every stage carries a wall time measured from outside; the sum is the arm's
+        # every stage carries a wall time measured from outside; the arm's is
+        # the sum of the stage clocks — implement's being the outside clock
+        # over the whole stage (ADR-063), never less than its units' sum
         assert all(s["wall_seconds"] is not None for s in stages)
-        assert result.usage.wall_seconds == pytest.approx(sum(s["wall_seconds"] for s in stages), abs=0.01)
-        assert set(result.detail["run"]["stage_wall"]) == {"plan", "implement", "verify"}
+        stage_wall = result.detail["run"]["stage_wall"]
+        assert stage_wall["implement"] >= stage_wall["implement_units_sum"]
+        assert stage_wall["implement_units_sum"] == pytest.approx(
+            sum(s["wall_seconds"] for s in stages if s["stage"] == "implement"), abs=0.01)
+        assert result.usage.wall_seconds == pytest.approx(
+            sum(v for k, v in stage_wall.items() if k != "implement_units_sum"), abs=0.01)
+        assert set(stage_wall) == {"plan", "implement", "implement_units_sum", "verify"}
         # the planner's session log exists and was read (no envelope in the stand-in: tokens unobserved)
         planner_log = ws / ".hobbes" / "plans" / result.detail["plan"]["task"] / "agents" / "planner" / "session.log"
         assert planner_log.is_file() and "session planner done" in planner_log.read_text()

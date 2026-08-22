@@ -1195,6 +1195,28 @@ information appears in both, and the entries cross-reference.
 - **Source:** phase 4 full-stage run (2026-08-22), swebench 5.0.2.
   **Provider:** swebench 5.0.2 (`run_evaluation_modal.get_instance_image`).
 
+### C-51 — Parallel units see only their owners' commits; the speed-up needs a batching endpoint
+- **Cannot tell you:** that an implementer's clone held every commit
+  that had landed before it finished. With `--parallel` > 1 (ADR-063)
+  units whose contract owners are integrated run at once, each cloned
+  at the integration head *as of its start*; a unit sees its owners'
+  commits — the promised interface — and not those of units it has no
+  contract with, which the sequential order used to deliver for free.
+  The speed-up itself exists only on an endpoint that batches
+  concurrent requests (vLLM); on any other engine the requests queue
+  and the harness cannot tell, so `auto` falls back to sequential.
+- **Because:** ~85–90 % of a unit's wall is one decode stream at ~28
+  tok/s against an engine that can batch many; the harness's own
+  per-unit overhead is ~1 s. Ten serial units was the whole cost.
+- **Bites at:** a unit that relied on a non-contract neighbour's edit
+  (a verifier failure is where it shows); reading `stage_wall` per unit
+  as if the units had run alone.
+- **You find out:** **surfaced** — the run banner prints `parallel
+  implementers: <reason>`; the run manifest and the record carry
+  `parallel` (`workers`, `waves`) and `implement_wall_seconds` beside
+  `implement_units_sum`; `--parallel 1` restores the chained order.
+- **Source:** ADR-063 (2026-08-22).
+
 ## The system's own claims
 
 ### C-31 — "Supported" is a verified sample, not the language

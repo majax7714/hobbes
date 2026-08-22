@@ -43,7 +43,7 @@ from hobbes import artifacts
 from hobbes.derive import derive_plan, write_spec
 from hobbes.derive.changespec import task_id
 from hobbes.derive.impact import build_lookup, resolve_terms
-from hobbes.run import agents, mail
+from hobbes.run import agents, mail, parallel
 from hobbes.run.handoff import parse_handoff
 from hobbes.run.orchestrate import (
     RunError, UnitRecord, integrate, loss, order_units, read_branch,
@@ -113,8 +113,9 @@ def spawn(session_bin: str | None, repo: Path, role: str, agent_dir: Path, sessi
           brief_path: Path, sessions_root: Path, extra_args: list[str], ref: str | None,
           dry_run: bool) -> subprocess.CompletedProcess | None:
     """Start one single-use session; returns the completed process (or
-    None on a dry run with no binary). One session at a time — the caller
-    blocks on it before starting the next (agent-mapping §3.4). The
+    None on a dry run with no binary). The caller blocks on it; in a
+    staged run several may be alive in one wave (ADR-063), never two of
+    the same unit. The
     process carries ``wall_seconds`` (measured from outside, so it is
     observed even when the session emits no envelope) and its output is
     the agent's ``session.log`` — every stage's meter, whatever the role."""
@@ -199,6 +200,7 @@ def run_staged(
     sessions_root: Path | None = None,
     extra_args: list[str] | None = None,
     brief_limit: int | None = None,
+    workers: int = 1,
     max_units: int | None = None,
     budget: int | None = None,
     seeds: list[str] | None = None,
@@ -275,18 +277,21 @@ def run_staged(
     target = f"hobbes/{task}"
     integ = {"branch": target, "merged": [], "failed": []}
 
+    implement_wall: float | None = None
+    waves: list[list[str]] = []
     if "implement" in stages:
         _git(repo, "branch", "-f", target, base)
-        for unit in order:
+        implement_started = time.monotonic()
+        deps = parallel.unit_dependencies(spec)
+        pending = list(order)
+        done: set[str] = set()
+
+        def start(unit: str):
+            """Brief + spawn for one unit; runs on a worker thread. Only
+            reads the repo (the clone is at the integration head as of
+            now) — harvest and integration happen on the caller's thread."""
             session = f"{task}-{unit.lower()}"
-            sessions[unit] = session
             record = UnitRecord(unit=unit, role="implementer", session=session, spawned=False)
-            context = contexts[unit]
-            if context.get("human_first"):
-                record.reason = "human-first: not spawned — " + context.get("human_first_reason", "")
-                mail.post(orchestrator, unit, record.reason, kind="human-first")
-                records.append(record)
-                continue
             inbox = mail.read(dirs[unit])
             full = agents.render_brief(spec, unit, "implementer", inbox, session)
             brief = agents.render_brief(spec, unit, "implementer", inbox, session, limit=brief_limit)
@@ -302,12 +307,57 @@ def run_staged(
             record.spawned = not dry_run
             record.exit = proc.returncode if proc else None
             record.wall_seconds = _wall(proc)
-            _harvest_unit(repo, base, session, context, test_files, sessions_root, record, orchestrator, unit)
+            return record
+
+        def finish(unit: str, record: UnitRecord):
+            sessions[unit] = record.session
+            _harvest_unit(repo, base, record.session, contexts[unit], test_files, sessions_root, record,
+                          orchestrator, unit)
             # Integrate this one immediately, scoped to the unit's own
             # files (C-38 enforced at the cut).
-            _integrate_one(repo, target, unit, session, integ, _manifest_paths(context, test_files))
+            _integrate_one(repo, target, unit, record.session, integ, _manifest_paths(contexts[unit], test_files))
             records.append(record)
             stage_log.append(_unit_stage("implement", unit, record))
+            done.add(unit)
+
+        # Human-first units are never spawned; they count as done for
+        # their consumers (the orchestrator's inbox says why).
+        for unit in list(pending):
+            if contexts[unit].get("human_first"):
+                record = UnitRecord(unit=unit, role="implementer", session=f"{task}-{unit.lower()}", spawned=False)
+                record.reason = "human-first: not spawned — " + contexts[unit].get("human_first_reason", "")
+                mail.post(orchestrator, unit, record.reason, kind="human-first")
+                records.append(record)
+                pending.remove(unit)
+                done.add(unit)
+
+        # Waves over the contract DAG (ADR-063): every unit whose owners
+        # are integrated may run at once, up to *workers*; each finishes
+        # on this thread (harvest + scoped integration are serial), which
+        # may free the next wave. workers == 1 is exactly the old order.
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            running: dict = {}
+            while pending or running:
+                ready = parallel.ready_units(pending, done, deps)
+                if not ready and not running and pending:
+                    ready = [pending[0]]  # cycle: by order, as order_units breaks it
+                started_now = []
+                for unit in ready:
+                    if len(running) >= max(1, workers):
+                        break
+                    pending.remove(unit)
+                    running[pool.submit(start, unit)] = unit
+                    started_now.append(unit)
+                if started_now:
+                    waves.append(started_now)
+                if not running:
+                    continue
+                finished, _ = wait(list(running), return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    unit = running.pop(fut)
+                    finish(unit, fut.result())
+        implement_wall = round(time.monotonic() - implement_started, 3)
 
     review = {"skipped": "dry run" if dry_run else "not run"}
     if not dry_run and integ["merged"]:
@@ -342,6 +392,10 @@ def run_staged(
         "contracts": len(spec.get("contracts", [])),
         "integration": integ, "review": review, "verify": verify,
         "rework": reworked,
+        # Outside-measured: with parallel units the sum of per-unit walls
+        # overstates the stage (ADR-063); this is what the clock saw.
+        "implement_wall_seconds": implement_wall,
+        "parallel": {"workers": max(1, workers), "waves": waves},
         "loss": loss(records, contract_failures),
     }
     (pdir / "partition-record.json").write_text(json.dumps(record_doc, indent=2, sort_keys=True) + "\n")
@@ -467,8 +521,15 @@ def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict
     branch = f"hobbes/{session}"
     if not _branch_exists(repo, branch):
         return
+    # The unit's change is what it did since it was cloned — the
+    # merge-base, not the target's tip, which may have advanced under a
+    # parallel unit (ADR-063). Its scoped files are disjoint from
+    # anything that landed meanwhile, so the base-relative patch still
+    # applies onto the tip; a failure is a real conflict at the cut.
+    code, merge_base = _git(repo, "merge-base", target, branch)
+    since = merge_base if code == 0 and merge_base else target
     # What the unit changed, and what of it is out of scope (dropped).
-    _, names = _git(repo, "diff", "--name-only", f"{target}..{branch}")
+    _, names = _git(repo, "diff", "--name-only", f"{since}..{branch}")
     changed = [n for n in names.splitlines() if n]
     dropped = sorted(n for n in changed if allowed is not None and n not in allowed)
     if dropped:
@@ -477,7 +538,7 @@ def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict
     # whole change, preserving the pre-C-38 behaviour for callers that
     # pass no scope. Captured raw (bytes) — _git strips and merges
     # stderr, which corrupts a patch's trailing newline.
-    diff_args = ["diff", "--binary", f"{target}..{branch}"]
+    diff_args = ["diff", "--binary", f"{since}..{branch}"]
     if allowed is not None:
         in_scope = sorted(n for n in changed if n in allowed)
         if not in_scope:
@@ -496,8 +557,9 @@ def _integrate_one(repo: Path, target: str, unit: str, session: str, integ: dict
         integ["failed"].append({"unit": unit, "branch": branch, "error": out[-400:]})
         return
     try:
-        # The scoped diff is against target exactly, so it applies cleanly
-        # (no 3-way needed) — a failure here is a real conflict at the cut.
+        # The scoped diff touches only this unit's files, so it applies
+        # cleanly (no 3-way needed) — a failure here is a real conflict at
+        # the cut (two units guarded by one test file both edited it).
         ap = subprocess.run(["git", "-C", str(tmp), "apply", "--whitespace=nowarn"],
                             input=patch, capture_output=True)
         if ap.returncode == 0:

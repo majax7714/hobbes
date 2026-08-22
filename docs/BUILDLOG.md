@@ -3830,3 +3830,27 @@ the 300th interior path; the old `_inflate` helper pads the
 neighborhood now. 830 pytest / Go untouched. Next: re-run the
 two-instance full-stage probe and read whether 13579's owner unit
 edits `sliced_wcs.py`.
+
+## 2026-08-22 (forty-sixth) — parallel implementers over the contract DAG (ADR-063)
+
+Max asked why implement takes so long and where the gaps are. Measured
+from the probe's envelopes and a direct timing of the Modal endpoint:
+harness per-unit overhead **~1 s** (wall ≈ loop duration for every
+unit — my earlier 30–50 s claim was wrong), model decode **~28 tok/s**
+is 85–90 % of every unit's wall, prefill ~1 s with the prefix cache,
+execs small. The only gap that is ours: ten serial units against an
+engine that batches. Max: apply it, speed only, note it as a vLLM
+restriction or fall back. **Built:** `run/parallel.py` (deps from
+contracts, readiness, `endpoint_batches` via `/models` `owned_by`,
+`resolve_workers`); `run_staged(workers=)` runs waves — ready units
+start together, harvest+scoped integration stay serial on the
+orchestrator thread, human-first units count as done, cycles break by
+order; `_integrate_one` diffs from the **merge-base** so a neighbour's
+landed change is neither dropped nor reversed; record gains
+`implement_wall_seconds` + `parallel.waves`, bench `stage_wall` keeps
+`implement_units_sum` beside the outside clock. `hobbes bench run
+--parallel auto|N` (auto: vLLM → 4 workers, else sequential, reason in
+the banner + manifest), `hobbes run --from-proposal --parallel N`. C-51
+registered surfaced. 836 pytest. The ADR-062 re-probe was running on
+the old code meanwhile: 13398 implement 1523 s (was 2148), patch 6
+files, planner hit 1/4.

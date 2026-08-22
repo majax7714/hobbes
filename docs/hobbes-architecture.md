@@ -821,8 +821,10 @@ owner's structure (2026-08-21):
 
 **Staged execution (ADR-059).** `hobbes run --from-proposal "<text>"`
 (and the benchmark harness arm with `--stages`) runs a proposal through
-**stages**, one single-use session alive at a time, each agent's job
-arriving as its short-term memory — the previous agent's **handoff**
+**stages**, one single-use *wave* alive at a time — implementers whose
+contract owners are integrated run together up to `--parallel`, gated
+on an endpoint that batches and otherwise sequential (ADR-063, C-51) —
+each agent's job arriving as its short-term memory — the previous agent's **handoff**
 (a `reflect` with `kind: handoff`). A `planner` (read-only) reads the
 repo under a graph-derived map and hands off the files/symbols/tests
 the change touches; those resolve *tolerantly* to seeds, so this is the

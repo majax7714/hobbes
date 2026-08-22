@@ -16,6 +16,8 @@ skipped, so an interrupted run continues where it stopped.
 
 from __future__ import annotations
 
+import os
+
 import json
 import shutil
 import subprocess
@@ -68,6 +70,7 @@ def run(
     max_units: int | None = None,
     brief_limit: int | None = None,
     stages: tuple[str, ...] | None = None,
+    parallel_setting: str | int | None = 1,
     log=print,
 ) -> list[results.Record]:
     """Run every (instance, model, arm) not yet recorded; return all records.
@@ -85,10 +88,20 @@ def run(
     session_args = list(session_args or [])
     if not any(a == "--network" or a.startswith("--network=") for a in session_args):
         session_args += [f"--network={network}"]
+    # Parallel implementers (ADR-063) only pay off on an endpoint that
+    # batches; `auto` asks it once and falls back to sequential, saying
+    # why (C-51). Only the staged harness arm schedules units.
+    workers, parallel_reason = 1, "sequential: the harness arm is not staged"
+    if stages and "harness" in which:
+        from hobbes.run.parallel import resolve_workers
+        workers, parallel_reason = resolve_workers(parallel_setting, runtime.base_url,
+                                                   os.environ.get(runtime.api_key_env or "") or None)
+    log(f"  parallel implementers: {parallel_reason} (ADR-063)")
     write_manifest(run_dir, selection, models, list(which), {
         "session_bin": session_bin, "session_args": session_args, "budget": budget,
         "max_units": max_units, "brief_limit": brief_limit, "environment": environment_kind, "network": network,
         "stages": list(stages) if stages else None,
+        "parallel": {"setting": str(parallel_setting), "workers": workers, "reason": parallel_reason},
         "timeout": timeout, "clean": clean,
         "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns,
                     "max_tokens": runtime.max_tokens},
@@ -129,7 +142,7 @@ def run(
                             instance, ws, model, session_bin=session_bin, sessions_root=sessions_root,
                             extra_session_args=session_args, budget=budget, runtime=runtime,
                             environment=env, max_units=max_units, brief_limit=brief_limit,
-                            stages=stages,
+                            stages=stages, workers=workers,
                         )
                 record = results.make_record(instance, result)
                 results.append(run_dir, record)

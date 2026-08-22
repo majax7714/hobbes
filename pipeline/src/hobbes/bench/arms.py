@@ -209,6 +209,7 @@ def run_harness_arm(
     seeds: list[str] | None = None,
     runtime: Runtime | None = None,
     stages: tuple[str, ...] | None = None,
+    workers: int = 1,
 ) -> ArmResult:
     """``ingest`` → ``plan`` → ``run`` → patch on *workspace*. The
     sessions run on *runtime* (Claude Code, or the owned loop through
@@ -249,7 +250,7 @@ def run_harness_arm(
     if stages:
         return _run_staged_arm(instance, workspace, model, detail, started, stages,
                                session_bin, sessions_root, extra_session_args, environment,
-                               max_units, brief_limit, budget, seeds, runtime)
+                               max_units, brief_limit, budget, seeds, runtime, workers)
     try:
         kwargs = {"seeds": seeds or [], "max_units": max_units}
         if budget:
@@ -312,7 +313,7 @@ def run_harness_arm(
 
 def _run_staged_arm(instance, workspace, model, detail, started, stages, session_bin,
                     sessions_root, extra_session_args, environment, max_units, brief_limit,
-                    budget, seeds, runtime) -> ArmResult:
+                    budget, seeds, runtime, workers: int = 1) -> ArmResult:
     """The staged harness arm (ADR-059): run_staged does ingest's
     successor stages. The candidate patch is the integration branch's
     diff, exactly as the per-unit path. The record carries every stage
@@ -335,7 +336,7 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
         record = run_staged(workspace, instance.problem_statement, stages=stages,
                             session_bin=session_bin, sessions_root=sessions_root,
                             extra_args=session_args, brief_limit=brief_limit,
-                            max_units=max_units, budget=budget, seeds=seeds or None)
+                            max_units=max_units, budget=budget, seeds=seeds or None, workers=workers)
     except SeedError as exc:
         detail["plan"] = {"unresolved_terms": _unresolved_from(str(exc))}
         return ArmResult("harness", model, "no-seed", detail=detail, error=str(exc))
@@ -356,10 +357,15 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
         if st.get("wall_seconds") is not None:
             stage_wall[st["stage"]] = round(stage_wall.get(st["stage"], 0.0) + st["wall_seconds"], 3)
         stage_rows.append(row)
+    # With parallel implementers (ADR-063) the per-unit walls overlap;
+    # the stage's clock time is what the record measured from outside.
+    if record.get("implement_wall_seconds") is not None and "implement" in stage_wall:
+        stage_wall["implement_units_sum"] = stage_wall["implement"]
+        stage_wall["implement"] = round(record["implement_wall_seconds"], 3)
     if usage.wall_seconds is None:
         # Stage wall times are measured from outside the sessions, so the
         # arm's wall time is observed even when no envelope was emitted.
-        walls = [st.get("wall_seconds") for st in record.get("stages", []) if st.get("wall_seconds") is not None]
+        walls = [v for k, v in stage_wall.items() if k != "implement_units_sum"]
         usage.wall_seconds = round(sum(walls), 3) if walls else round(time.monotonic() - started, 3)
     detail["seed_source"] = record.get("seed_source")
     detail["stages"] = stage_rows
@@ -380,6 +386,7 @@ def _run_staged_arm(instance, workspace, model, detail, started, stages, session
                       "contracts": record.get("contracts", 0)}
     detail["run"] = {"seed_source": record.get("seed_source"),
                      "stage_wall": stage_wall,
+                     "parallel": record.get("parallel"),
                      "units": [{k: u.get(k) for k in ("unit", "spawned", "exit", "commits", "wall_seconds",
                                                        "reflections", "reason", "brief_cut")}
                                for u in record.get("units", [])],

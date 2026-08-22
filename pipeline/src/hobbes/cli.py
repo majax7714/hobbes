@@ -671,6 +671,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 repo_root, args.from_proposal, stages=stages, dry_run=args.dry_run,
                 session_bin=args.session_bin, sessions_root=Path(args.sessions) if args.sessions else None,
                 extra_args=args.session_arg or [], brief_limit=args.brief_limit, max_units=args.max_units,
+                workers=args.parallel,
             )
         except (RunError, artifacts.ArtifactError) as exc:
             print(f"hobbes run: {exc}", file=sys.stderr)
@@ -833,6 +834,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         environment_kind=args.environment, network=args.network, max_units=args.max_units,
         brief_limit=args.brief_limit or None,
         stages=tuple(s.strip() for s in args.stages.split(",") if s.strip()) if args.stages else None,
+        parallel_setting=args.parallel,
     )
     failed = False
     if args.evaluate:
@@ -1211,6 +1213,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--from-proposal", metavar="TEXT",
                             help="staged run (ADR-059): a planner names the change, `hobbes plan` derives on "
                             "its seeds, implementers run chained, a verifier checks — no pre-written spec")
+    run_parser.add_argument("--parallel", type=int, default=1,
+                            help="implementer sessions alive at once in a staged run (ADR-063): units whose "
+                                 "contract owners are integrated run together; default 1 = the chained order")
     run_parser.add_argument("--stages", default="plan,implement,verify",
                             help="staged run: comma-separated from plan,review,implement,verify,rework "
                             "(default plan,implement,verify)")
@@ -1324,6 +1329,10 @@ def build_parser() -> argparse.ArgumentParser:
     brun_parser.add_argument("--environment", choices=["swebench", "none"], default="swebench",
                              help="bind both arms to the instance's own swebench image (default) or run "
                              "without the target's environment (tests cannot run)")
+    brun_parser.add_argument("--parallel", default="auto",
+                             help="implementers alive at once in the staged harness arm (ADR-063): 'auto' "
+                                  "(default) asks the endpoint and uses 4 workers when it is vLLM, else runs "
+                                  "sequentially and says why (C-51); an integer is the owner's call; 1 = chained")
     brun_parser.add_argument("--stages", default=None,
                              help="staged harness arm (ADR-059): comma-separated from "
                                   "plan,review,implement,verify,rework — a planner names the change and a "
