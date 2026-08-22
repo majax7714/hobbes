@@ -1,6 +1,6 @@
 # Session handoff — the single resume point
 
-**Written 2026-08-22.** This is the one authoritative resume doc for a
+**Written 2026-08-22, updated the same day after the re-run and ADR-067.** This is the one authoritative resume doc for a
 fresh session. The old per-phase handoffs are deleted; their history is
 in `docs/BUILDLOG.md` (append-only, one entry per session). Read this,
 then `docs/benchmark-hypotheses.md` (the reading rules) and the recent
@@ -78,16 +78,11 @@ Every commit is on `main`, tests green (843 pytest / Go), nothing pushed.
 (the last dated entry). The ADR-066 fixes held. What is now in the way,
 in order:
 
-1. **Harness (fix before any model re-read):** (a) a completion cut at
-   `max_tokens` is undetected — record `finish_reason`, and continue or
-   retry a cut tool call rather than nudging it as prose (sphinx's
-   planner lost a correct-shaped handoff 3×); (b) `_FENCED` accepts only
-   ```` ```json ````/bare fences with strict JSON — accept any fence tag,
-   an unterminated trailing fence, `strict=False`; (c) `edit_file` on a
-   path never read is refused, the way ADR-064's `write_file` guard
-   works — the 7B edits from memory with guessed anchors in nearly
-   every unit; (d) the reworded anchor-stack: same `old_text` on the
-   same path already applied, `new_text` containing it → refuse.
+1. **Harness — built (ADR-067, same day):** `edit_file` refuses an
+   unread path; a reworded edit at an applied anchor is refused; a
+   completion cut at `max_tokens` is retried once at 2× (`cut_retried`
+   in the envelope); the fence parser takes any tag, an unclosed fence,
+   and non-strict JSON. 847 pytest. **Not yet run against the set.**
 2. **Max's decision — the brief's shape.** 82 % of an implementer brief
    is neighborhood/guarding tests/contracts; the window is the binding
    constraint once reads are forced (C-46, measured). Options: cap those

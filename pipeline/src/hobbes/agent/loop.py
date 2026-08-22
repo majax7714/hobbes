@@ -60,7 +60,9 @@ message.
 #: restructure, phase 1). Mirrors go/internal/sandbox ReadOnlyRoles.
 READ_ONLY_ROLES = {"reviewer", "verifier", "planner"}
 
-_FENCED = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```|<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+#: Any fence tag (the 7B writes ```python and ```sh around JSON too), a
+#: fence the model never closed (ADR-067), or a <tool_call> block.
+_FENCED = re.compile(r"```[\w+-]*[ \t]*\n?\s*(\{.*?\})\s*(?:```|\Z)|<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 
 def text_tool_calls(content: str) -> list[dict]:
@@ -74,7 +76,10 @@ def text_tool_calls(content: str) -> list[dict]:
     for n, match in enumerate(_FENCED.finditer(content or "")):
         raw = match.group(1) or match.group(2)
         try:
-            doc = json.loads(raw)
+            # strict=False: a model writes real newlines inside the
+            # "text" of a handoff; refusing those measures the JSON
+            # encoder, not the model (ADR-067).
+            doc = json.loads(raw, strict=False)
         except json.JSONDecodeError:
             continue
         if not isinstance(doc, dict) or not isinstance(doc.get("name"), str):
@@ -237,6 +242,15 @@ def native_call(name: str, args: dict, workdir: str, allow_bash: bool, allow_wri
                 with open(full, "w", encoding="utf-8") as fh:
                     fh.write(args["content"])
                 return f"wrote {args['path']} ({len(args['content'])} bytes)", False
+            # Read before you edit (ADR-067, the same rule as the write
+            # guard above): an anchor guessed from memory is how the 7B
+            # spent whole sessions on "old_text occurs 0 times" — xarray-
+            # 3993's U2 sent nine identical pairs against a signature
+            # that does not exist and never read the file.
+            if read_paths is not None and os.path.normpath(args["path"]) not in read_paths:
+                return (f"this session has not read {args['path']}. read_file it (the region you "
+                        "intend to change) before edit_file — old_text must be copied from the "
+                        "file as it is, not recalled."), True
             text = open(full, encoding="utf-8").read()
             count = text.count(args["old_text"])
             if count != 1:
@@ -313,6 +327,19 @@ EDIT_REPEAT_REFUSAL = (
 )
 
 
+ANCHOR_STACK_REFUSAL = (
+    "You already edited this file at this exact old_text, and your new_text "
+    "still contains it — applying another edit at the same anchor stacks a "
+    "second copy instead of replacing the first. read_file the region to see "
+    "what the file holds now, then anchor the edit on the current text."
+)
+#: A completion the endpoint cut at max_tokens (finish_reason "length")
+#: is retried once with this much more room (ADR-067); the window fit
+#: still bounds it. A cut completion is never what the model meant —
+#: the sphinx-8548 planner lost a correct-shaped handoff three times.
+CUT_RETRY_FACTOR = 2
+
+
 class ContextOverflow(RuntimeError):
     """The endpoint refused the request for length; carries the window
     and input sizes it reported."""
@@ -330,13 +357,14 @@ class Endpoint:
         #: envelope reports both, so a run can see the window bind.
         self.fitted, self.elided = 0, 0
 
-    def chat(self, messages: list[dict], tools: list[dict]) -> dict:
+    def chat(self, messages: list[dict], tools: list[dict], max_tokens: int | None = None) -> dict:
         """One completion, fitted to the model's window: a length
         refusal retries with ``max_tokens`` shrunk to what is left, and
         when that would leave fewer than :data:`MIN_COMPLETION` tokens
         the oldest tool results are elided (in place, stated) until the
-        request fits or nothing is left to elide."""
-        max_tokens = self.max_tokens
+        request fits or nothing is left to elide. *max_tokens* overrides
+        the session's cap for this one call (the cut-completion retry)."""
+        max_tokens = max_tokens or self.max_tokens
         while True:
             try:
                 return self._post(messages, tools, max_tokens)
@@ -426,7 +454,9 @@ def run(args: argparse.Namespace) -> dict:
     nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
     applied_edits: set[tuple[str, str]] = set()
+    applied_anchors: set[tuple[str, str]] = set()
     read_paths: set[str] = set()
+    cut_retried = 0
     repeats, dry_turns, refused_run = 0, 0, 0
     edited_since_exec = True  # the first run of any command is always fresh
     try:
@@ -436,7 +466,21 @@ def run(args: argparse.Namespace) -> dict:
             u = reply.get("usage") or {}
             usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
             usage["output_tokens"] += int(u.get("completion_tokens") or 0)
-            message = (reply.get("choices") or [{}])[0].get("message") or {}
+            choice = (reply.get("choices") or [{}])[0]
+            message = choice.get("message") or {}
+            if choice.get("finish_reason") == "length" and not message.get("tool_calls"):
+                # Cut at max_tokens with no structured call: whatever the
+                # model was writing (a fenced tool call, a handoff) is
+                # incomplete, and treating it as prose nudges the model
+                # to write it again and be cut again. One retry with
+                # more room (ADR-067); if that is cut too, it stands.
+                cut_retried += 1
+                reply = endpoint.chat(messages, tools, max_tokens=endpoint.max_tokens * CUT_RETRY_FACTOR)
+                u = reply.get("usage") or {}
+                usage["input_tokens"] += int(u.get("prompt_tokens") or 0)
+                usage["output_tokens"] += int(u.get("completion_tokens") or 0)
+                choice = (reply.get("choices") or [{}])[0]
+                message = choice.get("message") or {}
             calls = message.get("tool_calls") or []
             if not calls:
                 calls = text_tool_calls(message.get("content") or "")
@@ -481,6 +525,17 @@ def run(args: argparse.Namespace) -> dict:
                         text, is_err = EDIT_REPEAT_REFUSAL, True
                         repeats += 1
                         refused_turn = True
+                    elif name == "edit_file" and (str(targs.get("old_text")) in str(targs.get("new_text"))) \
+                            and (os.path.normpath(str(targs.get("path"))), str(targs.get("old_text"))) in applied_anchors:
+                        # The reworded repeat ADR-066 does not cover: the
+                        # same anchor on the same path, already applied,
+                        # new_text again containing the anchor — django-
+                        # 11400's U4 applied three *different* wordings
+                        # of one block at one anchor and stacked all
+                        # three (ADR-067).
+                        text, is_err = ANCHOR_STACK_REFUSAL, True
+                        repeats += 1
+                        refused_turn = True
                     else:
                         seen_calls.add(sig)
                         if is_exec:
@@ -496,6 +551,9 @@ def run(args: argparse.Namespace) -> dict:
                             if not is_exec:
                                 edited_since_exec = True
                                 applied_edits.add(sig)
+                                if name == "edit_file":
+                                    applied_anchors.add((os.path.normpath(str(targs.get("path"))),
+                                                         str(targs.get("old_text"))))
                         if not is_err and name.endswith("reflect") and targs.get("kind") == "handoff":
                             # A read-only role's deliverable (planner, verifier):
                             # the handoff is its edit.
@@ -561,7 +619,7 @@ def run(args: argparse.Namespace) -> dict:
         "is_error": bool(error), "duration_ms": duration, "num_turns": turns,
         "tool_calls": tool_calls_made, "text_tool_calls": text_calls,
         "context_fitted": endpoint.fitted, "context_elided": endpoint.elided,
-        "nudges": nudges, "edited": edited, "reflected": reflected, "repeats_refused": repeats,
+        "cut_retried": cut_retried, "nudges": nudges, "edited": edited, "reflected": reflected, "repeats_refused": repeats,
         "role": args.role,
         "result": final or error, "model": args.model,
         "runtime": "hobbes-agent-loop", "usage": usage,

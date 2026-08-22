@@ -3964,3 +3964,17 @@ undetected (sphinx's planner handoff lost 3×), the fenced-call parser
 is narrow, and `edit_file` has no read-before-edit rule (plus the
 reworded anchor-stack ADR-066 does not cover). Nothing fixed in this
 entry; the fixes follow as their own ADR. No push.
+
+## 2026-08-22 (fifty-second) — read before edit, the anchor stack, cut completions, any fence (ADR-067)
+
+The four harness gaps the re-run read named, fixed in the owned loop
+(both arms): `edit_file` on an unread path is refused (ADR-064's rule
+extended to edits — the 7B edits from memory); an edit at an already-
+applied anchor whose new_text still holds the anchor is refused (the
+reworded stack ADR-066 could not see); a completion cut at max_tokens
+with no tool call is retried once at 2× (the sphinx planner's lost
+handoff), `cut_retried` in the envelope; `_FENCED` takes any fence
+tag, an unclosed fence, and `strict=False` JSON. Four tests re-premised
+with a read step; four new. 847 pytest / Go untouched. Not re-run:
+the brief's shape (82 % outside the unit, C-46 measured) is Max's
+decision first, and a launch needs his go.

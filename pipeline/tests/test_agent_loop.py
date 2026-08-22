@@ -65,14 +65,17 @@ class ScriptedModel:
                     self.end_headers()
                     self.wfile.write(step[2].encode())
                     return
-                if isinstance(step, str):
+                finish = "stop"
+                if isinstance(step, tuple) and step[0] == "cut":  # ("cut", text): cut at max_tokens
+                    message, finish = {"role": "assistant", "content": step[1]}, "length"
+                elif isinstance(step, str):
                     message = {"role": "assistant", "content": step}
                 else:
                     message = {"role": "assistant", "content": None, "tool_calls": [
                         {"id": f"call_{i}", "type": "function",
                          "function": {"name": name, "arguments": json.dumps(args)}}
                         for i, (name, args) in enumerate(step)]}
-                reply = {"choices": [{"message": message, "finish_reason": "stop"}],
+                reply = {"choices": [{"message": message, "finish_reason": finish}],
                          "usage": {"prompt_tokens": 100, "completion_tokens": 10}}
                 data = json.dumps(reply).encode()
                 self.send_response(200)
@@ -133,6 +136,7 @@ class TestNativeLoop:
     def test_file_tools_are_confined_and_edits_must_be_unique(self, tree):
         (tree / "src" / "dup.py").write_text("x = 1\nx = 1\n")
         model = ScriptedModel([
+            [("read_file", {"path": "src/dup.py"})],   # ADR-067: an edit needs a read first
             [("read_file", {"path": "../outside"}), ("write_file", {"path": "/etc/passwd", "content": "no"}),
              ("edit_file", {"path": "src/dup.py", "old_text": "x = 1", "new_text": "x = 2"})],
             "gave up",
@@ -141,7 +145,7 @@ class TestNativeLoop:
             run_loop(model, tree)
         finally:
             model.close()
-        tool_msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        tool_msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"][1:]
         assert all(m["content"].startswith("ERROR:") for m in tool_msgs)
         assert "outside the working tree" in tool_msgs[0]["content"]
         assert "occurs 2 times" in tool_msgs[2]["content"]
@@ -154,6 +158,7 @@ class TestNativeLoop:
         # edit is refused; a different edit is still allowed.
         (tree / "src" / "a.py").write_text("def f():\n    return 1\n")
         model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],   # ADR-067: an edit needs a read first
             [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 1"})],
             [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 1"})],  # identical → refused
             [("edit_file", {"path": "src/a.py", "old_text": "return 1", "new_text": "return 2"})],  # different → ok
@@ -163,7 +168,7 @@ class TestNativeLoop:
             env = run_loop(model, tree)
         finally:
             model.close()
-        msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        msgs = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"][1:]
         assert not msgs[0]["content"].startswith("ERROR:")            # first edit applied
         assert msgs[1]["content"].startswith("ERROR:") and "already made this exact edit" in msgs[1]["content"]
         assert not msgs[2]["content"].startswith("ERROR:")            # a different edit is allowed
@@ -425,6 +430,7 @@ class TestBenchRuntime:
                                          "problem_statement": "handle() should return 1"})
         ws = workspace.checkout(inst, tmp_path / "ws")
         model = ScriptedModel([
+            [("read_file", {"path": "src/core.py"})],   # ADR-067: an edit needs a read first
             [("edit_file", {"path": "src/core.py", "old_text": "return None", "new_text": "return 1"})],
             "fixed",
         ])
@@ -433,7 +439,7 @@ class TestBenchRuntime:
         finally:
             model.close()
         assert result.outcome == "patch" and result.patch_files == ["src/core.py"], result.error
-        assert result.usage.total_tokens == 220 and result.usage.turns == 2
+        assert result.usage.total_tokens == 330 and result.usage.turns == 3   # read, edit, final
         assert result.detail["runtime"] == "openai"
         assert inst.problem_statement in model.requests[0]["body"]["messages"][1]["content"]
 
@@ -611,3 +617,76 @@ class TestStrictPipeline:
         finally:
             model.close()
         assert env["edited"] is True and not env["is_error"] and env["repeats_refused"] == 0
+
+
+class TestReadBeforeEditAndCutCompletions:
+    """ADR-067: the four gaps the 5-fresh re-run read surfaced."""
+
+    def test_an_edit_of_an_unread_path_is_refused_and_a_read_unlocks_it(self, tree):
+        # xarray-3993 U2: nine identical edit pairs against an anchor that
+        # does not exist, never a read. The edit now costs a read first.
+        model = ScriptedModel([
+            [("edit_file", {"path": "src/a.py", "old_text": "return 1", "new_text": "return 2"})],
+            [("read_file", {"path": "src/a.py"})],
+            [("edit_file", {"path": "src/a.py", "old_text": "return 1", "new_text": "return 2"})],
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        tools = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"]
+        assert tools[0]["content"].startswith("ERROR:") and "has not read src/a.py" in tools[0]["content"]
+        assert tools[2]["content"] == "edited src/a.py" and env["edited"] is True
+        assert (tree / "src" / "a.py").read_text() == "def f():\n    return 2\n"
+
+    def test_a_reworded_edit_at_an_applied_anchor_is_refused(self, tree):
+        # django-11400 U4: three different wordings of one block at one
+        # anchor, all applied, all stacked. ADR-066's byte-identity
+        # refusal cannot see it; the anchor can.
+        model = ScriptedModel([
+            [("read_file", {"path": "src/a.py"})],
+            [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 1"})],
+            [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def f():\n    x = 2"})],  # same anchor, reworded
+            [("edit_file", {"path": "src/a.py", "old_text": "def f():", "new_text": "def g():"})],  # anchor consumed → allowed
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree)
+        finally:
+            model.close()
+        tools = [m for m in model.requests[-1]["body"]["messages"] if m["role"] == "tool"][1:]
+        assert tools[0]["content"] == "edited src/a.py"
+        assert tools[1]["content"].startswith("ERROR:") and "same anchor" in tools[1]["content"]
+        assert tools[2]["content"] == "edited src/a.py"
+        assert (tree / "src" / "a.py").read_text() == "def g():\n    x = 1\n    return 1\n"
+        assert env["repeats_refused"] == 1
+
+    def test_a_completion_cut_at_max_tokens_is_retried_once_with_more_room(self, tree):
+        # sphinx-8548's planner: a fenced reflect cut mid-list three times,
+        # each time nudged as prose. A cut completion is retried at 2x.
+        model = ScriptedModel([
+            ("cut", "```json\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"sr"),
+            [("read_file", {"path": "src/a.py"})],
+            ("cut", "still too long"),       # cut again → stands as prose
+            ("cut", "and again"),
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--max-tokens", "100")
+        finally:
+            model.close()
+        bodies = [r["body"] for r in model.requests]
+        assert bodies[0]["max_tokens"] == 100 and bodies[1]["max_tokens"] == 200   # the retry
+        assert env["cut_retried"] >= 1 and not env["is_error"] or env["cut_retried"] >= 1
+        # the cut prefix never reached the transcript as an assistant turn
+        assert not any("\"path\": \"sr" in (m.get("content") or "") for m in bodies[-1]["messages"])
+
+    def test_fenced_calls_with_any_tag_and_real_newlines_parse(self):
+        fenced = ('```python\n{"name": "reflect", "arguments": {"kind": "handoff", "text": "files:\n- a.py\n- b.py"}}\n```')
+        calls = loop.text_tool_calls(fenced)
+        assert [c["function"]["name"] for c in calls] == ["reflect"]
+        assert json.loads(calls[0]["function"]["arguments"])["text"] == "files:\n- a.py\n- b.py"
+        unterminated = '```json\n{"name": "read_file", "arguments": {"path": "a.py"}}'
+        assert [c["function"]["name"] for c in loop.text_tool_calls(unterminated)] == ["read_file"]
+        assert loop.text_tool_calls("```sh\npytest\n```") == []
