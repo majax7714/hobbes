@@ -495,13 +495,14 @@ func TestRuntimeMaxTurnsReachesTheLoop(t *testing.T) {
 	cfg.LLMBaseURL = "https://llm.example/v1"
 	cfg.Model = "m"
 	cfg.MaxTurns = 40
+	cfg.MaxTokens = 1536
 	p, err := NewPlan(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := strings.Join(p.RuntimeCommand(), " ")
-	if !strings.Contains(cmd, "--max-turns 40") {
-		t.Errorf("max turns not passed to the loop: %s", cmd)
+	if !strings.Contains(cmd, "--max-turns 40") || !strings.Contains(cmd, "--max-tokens 1536") {
+		t.Errorf("max turns/tokens not passed to the loop: %s", cmd)
 	}
 	cfg.MaxTurns = 0
 	p, _ = NewPlan(cfg)

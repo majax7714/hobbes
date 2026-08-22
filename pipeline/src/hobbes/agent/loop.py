@@ -284,6 +284,11 @@ REPEAT_REFUSAL = (
     "result has not changed. Stop repeating it. Read something new, edit "
     "a file with write_file/edit_file, or finish — do not call it again."
 )
+EXEC_REPEAT_REFUSAL = (
+    "That exact command already ran and nothing has been edited since, "
+    "so its result would be the same. Edit something first, or run a "
+    "different command."
+)
 
 
 class ContextOverflow(RuntimeError):
@@ -399,6 +404,7 @@ def run(args: argparse.Namespace) -> dict:
     nudge_text = NUDGE_READ_ONLY if read_only else NUDGE
     seen_calls: set[tuple[str, str]] = set()
     repeats, dry_turns, refused_run = 0, 0, 0
+    edited_since_exec = True  # the first run of any command is always fresh
     try:
         while turns < args.max_turns:
             turns += 1
@@ -425,14 +431,26 @@ def run(args: argparse.Namespace) -> dict:
                     text, is_err = f"arguments were not valid JSON: {exc}", True
                 else:
                     sig = (name, json.dumps(targs, sort_keys=True))
-                    mutating = name in MUTATING_TOOLS or name.endswith("__exec") or name == "bash"
+                    is_exec = name.endswith("__exec") or name == "bash"
+                    mutating = name in MUTATING_TOOLS or is_exec
                     if sig in seen_calls and not mutating:
                         # A repeated read-only call: refuse, do not re-run it.
                         text, is_err = REPEAT_REFUSAL, True
                         repeats += 1
                         refused_turn = True
+                    elif is_exec and sig in seen_calls and not edited_since_exec:
+                        # The same command again with no edit in between
+                        # returns the same result: U4 of the first
+                        # full-stage probe ran one failing pytest 8x until
+                        # the window overflowed. A re-run after an edit is
+                        # legitimate and still allowed.
+                        text, is_err = EXEC_REPEAT_REFUSAL, True
+                        repeats += 1
+                        refused_turn = True
                     else:
                         seen_calls.add(sig)
+                        if is_exec:
+                            edited_since_exec = False
                         if mcp and name in mcp_names:
                             text, is_err = mcp.call(name, targs)
                         else:
@@ -441,6 +459,8 @@ def run(args: argparse.Namespace) -> dict:
                         if not is_err and mutating:
                             edited = True
                             productive = True
+                            if not is_exec:
+                                edited_since_exec = True
                         if not is_err and name.endswith("reflect") and targs.get("kind") == "handoff":
                             # A read-only role's deliverable (planner, verifier):
                             # the handoff is its edit.

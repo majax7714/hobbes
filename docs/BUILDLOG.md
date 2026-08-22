@@ -3721,3 +3721,28 @@ run --max-turns` reaches only the pure arm (the sandbox
 `RuntimeCommand` passes no `--max-turns`; harness sessions run the
 loop's default 60). 820 pytest / Go green. Next: full stages on the
 same two, then the 45-set.
+
+## 2026-08-22 (forty-second) — three speed fixes from the first full-stage run
+
+Inspected the 13398 harness arm's 36-min implement stage (per-unit
+envelopes + flight logs): 45% of the wall was long prose turns
+(U1/U2/U5/U8 wrote the patch as a ~2,800-token essay at ~27 tok/s and
+never called a tool; nudged, then stopped), 28% was U4 running one
+failing pytest 8x until the window overflowed (exec is exempt from
+repeat-refusal), 17% was U6's refused-repeat loop (fixed in 40bc4b1).
+Built all three, both arms:
+
+1. **Completion cap** (`--max-tokens`, default **1536**): reaches the
+   owned loop through `hobbes-session` → `RuntimeCommand` and
+   `Runtime.session_args`/`run_pure_arm`; cuts the essay short so the
+   nudge fires sooner. Big enough for a ~120-line whole-file write.
+2. **Exec repeat refusal**: the same command with no edit since it last
+   ran is refused (`EXEC_REPEAT_REFUSAL`) — a re-run after an edit stays
+   legitimate (`edited_since_exec`).
+3. **Box policy**: `pip show/list/freeze`, `which` allowed (read-only
+   environment questions) — a 5 s expire-to-deny on `pip show numpy`
+   cost U9 its session; `pip uninstall` still escalates.
+
+824 pytest / Go green; hobbes-session rebuilt. The full-stage probe
+that surfaced these is still running with the pre-fix binary
+(resumable); the numbers here are its diagnostic, not a re-run.

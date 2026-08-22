@@ -285,9 +285,13 @@ never advancing (`branch -f` in the repo, not the worktree). Phase 4's
 after three harness fixes it surfaced: **ADR-060** (read-only roles
 mount an overlay, the `ro` mount killed the C-43 binding), the
 handoff parser reading prose headings + dotted symbol names, and
-planner seeds *replacing* the lexical layer. Known gap: `bench run
---max-turns` reaches only the pure arm. **Next: full stages on the
-two, then the 45-set.** 820 pytest / Go green.
+planner seeds *replacing* the lexical layer. **Next: full stages on the
+two, then the 45-set.** The first full-stage run (astropy-13398) took
+36 min in the implement stage; four correctness fixes (`40bc4b1`:
+verifier test resolution, stale session dirs, refused-repeat-after-edit
+stall, `--max-turns` to both arms) and three speed fixes (max_tokens
+cap default 1536, exec-repeat refusal, read-only `pip show`/`which` in
+the box) followed from inspecting it. 824 pytest / Go green.
 
 **2026-08-21 (run stopped for restructure — read
 `docs/harness-restructure-handoff.md`):** The first live 7B benchmark

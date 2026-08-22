@@ -70,6 +70,24 @@ rules:
     decision: allow
   - pattern: "python -m pip install*"
     decision: allow
+  # read-only environment questions: a 5 s expire-to-deny on `pip show
+  # numpy` cost a session in the first full-stage probe (U9)
+  - pattern: "pip show*"
+    decision: allow
+  - pattern: "pip3 show*"
+    decision: allow
+  - pattern: "pip list*"
+    decision: allow
+  - pattern: "pip3 list*"
+    decision: allow
+  - pattern: "pip freeze*"
+    decision: allow
+  - pattern: "python -m pip show*"
+    decision: allow
+  - pattern: "python -m pip list*"
+    decision: allow
+  - pattern: "which *"
+    decision: allow
 
   # --- committing the work (single and compound forms both match) ---
   - pattern: "git add*"

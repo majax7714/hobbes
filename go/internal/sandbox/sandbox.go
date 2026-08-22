@@ -59,6 +59,12 @@ type Config struct {
 	// first full-stage probe ran harness sessions at the loop's 60 while
 	// the pure arm got the run's 40, a fairness gap the meter cannot see.
 	MaxTurns int
+	// MaxTokens caps one completion of the owned loop; 0 leaves the
+	// loop's default. The first full-stage probe spent 45% of its wall
+	// on 2,800-token prose turns at ~27 tok/s (a 7B writing the patch
+	// as an essay instead of calling write_file); the cap cuts the
+	// essay short so the nudge fires sooner. Same cap on both arms.
+	MaxTokens int
 	// Path overrides the in-container PATH; "" keeps the image-neutral
 	// default. Env adds KEY=VALUE pairs on top of HOME and PATH — an
 	// environment binding the host authored (ADR-058: PYTHONPATH=/work
@@ -338,6 +344,9 @@ func (p *Plan) RuntimeCommand() []string {
 	}
 	if p.cfg.MaxTurns > 0 {
 		cmd = append(cmd, "--max-turns", strconv.Itoa(p.cfg.MaxTurns))
+	}
+	if p.cfg.MaxTokens > 0 {
+		cmd = append(cmd, "--max-tokens", strconv.Itoa(p.cfg.MaxTokens))
 	}
 	return cmd
 }

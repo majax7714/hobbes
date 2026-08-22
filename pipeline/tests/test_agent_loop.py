@@ -346,7 +346,7 @@ class TestBenchRuntime:
         # the turn budget reaches the harness sessions too (the first
         # full-stage probe ran them at the loop's default 60 vs pure's 40)
         assert rt.session_args() == ["--runtime", str(arms.LOOP_PATH), "--llm-base-url", "http://x/v1",
-                                     "--max-turns", "60"]
+                                     "--max-turns", "60", "--max-tokens", "1536"]
         assert arms.Runtime().session_args() == []
 
     def test_pure_arm_on_the_owned_loop(self, tmp_path, monkeypatch):
@@ -507,6 +507,26 @@ class TestStrictPipeline:
         assert env["edited"] is True and env["is_error"]
         assert "refused repeated calls" in env["result"] and env["repeats_refused"] == 4
         assert len(model.requests) <= 7  # 1 edit + 1 first read + 4 refused, then stopped
+
+    def test_same_exec_without_an_edit_between_is_refused(self, tree):
+        # U4 of the first full-stage probe: one failing pytest run 8x with
+        # no edit between; a re-run after an edit stays legitimate
+        model = ScriptedModel([
+            [("bash", {"command": "echo hi"})],
+            [("bash", {"command": "echo hi"})],   # nothing changed: refused
+            [("write_file", {"path": "src/a.py", "content": "def f():\n    return 2\n"})],
+            [("bash", {"command": "echo hi"})],   # after an edit: runs
+            "done",
+        ])
+        try:
+            env = run_loop(model, tree, "--max-nudges", "0")
+        finally:
+            model.close()
+        assert env["repeats_refused"] == 1 and env["edited"] is True and not env["is_error"]
+        tool_msgs = [m for m in model.requests[2]["body"]["messages"] if m["role"] == "tool"]
+        assert any("nothing has been edited since" in m["content"] for m in tool_msgs)
+        ran = [m for m in model.requests[4]["body"]["messages"] if m["role"] == "tool" and "hi" in m["content"] and "ERROR" not in m["content"]]
+        assert len(ran) == 2
 
     def test_a_nonediting_loop_stops_with_a_reason(self, tree):
         # tests_guarding-style: a read-only call repeated forever, never editing

@@ -90,7 +90,8 @@ def run(
         "max_units": max_units, "brief_limit": brief_limit, "environment": environment_kind, "network": network,
         "stages": list(stages) if stages else None,
         "timeout": timeout, "clean": clean,
-        "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns},
+        "runtime": {"kind": runtime.kind, "base_url": runtime.base_url, "max_turns": runtime.max_turns,
+                    "max_tokens": runtime.max_tokens},
     })
     done = {(r.instance_id, r.arm, r.model) for r in results.load(run_dir)}
     for instance in selection.selected:

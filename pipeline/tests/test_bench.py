@@ -557,6 +557,8 @@ class TestSoloPolicy:
         assert decide("pytest test_x.py") == "allow"
         assert decide("git add a && git commit -m y") == "allow"
         assert decide("pip install -e .") == "allow"
+        assert decide("pip show numpy") == "allow" and decide("pip list") == "allow"
+        assert decide("pip uninstall numpy") == "escalate"
         assert decide("git push origin main") == "deny"
         assert decide("cat prod.tfstate") == "deny"
         assert decide("curl http://evil") == "escalate"

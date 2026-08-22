@@ -67,6 +67,11 @@ class Runtime:
     base_url: str = ""
     api_key_env: str = "HOBBES_LLM_API_KEY"
     max_turns: int = 60
+    #: Completion cap per turn, both arms. The first full-stage probe
+    #: spent 45% of its harness wall on ~2,800-token prose turns that
+    #: never called a tool; the cap cuts the essay and brings the nudge
+    #: forward. Big enough for a whole-file write of ~120 lines.
+    max_tokens: int = 1536
 
     def __post_init__(self) -> None:
         if self.kind not in RUNTIMES:
@@ -79,7 +84,7 @@ class Runtime:
         if self.kind != "openai":
             return []
         return ["--runtime", str(LOOP_PATH), "--llm-base-url", self.base_url,
-                "--max-turns", str(self.max_turns)]
+                "--max-turns", str(self.max_turns), "--max-tokens", str(self.max_tokens)]
 
 #: Harness-arm outcome classes — the error stream ADR-052 asked for.
 HARNESS_OUTCOMES = ("patch", "empty-patch", "no-seed", "plan-error", "run-error", "ingest-error", "env-error")
@@ -144,7 +149,8 @@ def run_pure_arm(
     bin_ = os.environ.get(CLAUDE_BIN_ENV, "claude")
     if runtime.kind == "openai" and environment is not None:
         loop = ["--base-url", runtime.base_url, "--model", model, "--api-key-env", runtime.api_key_env,
-                "--prompt", pure_prompt(instance), "--workdir", "/work", "--max-turns", str(runtime.max_turns)]
+                "--prompt", pure_prompt(instance), "--workdir", "/work", "--max-turns", str(runtime.max_turns),
+                "--max-tokens", str(runtime.max_tokens)]
         inner = [environment.runtime_python, "/hobbes/loop.py", *loop]
         if environment.pre:
             inner = ["/bin/sh", "-c", environment.pre + ' && exec "$@"', "hobbes-pre", *inner]
@@ -157,7 +163,8 @@ def run_pure_arm(
     elif runtime.kind == "openai":
         cmd = [sys.executable, str(LOOP_PATH), "--base-url", runtime.base_url, "--model", model,
                "--api-key-env", runtime.api_key_env, "--prompt", pure_prompt(instance),
-               "--workdir", str(workspace), "--max-turns", str(runtime.max_turns)]
+               "--workdir", str(workspace), "--max-turns", str(runtime.max_turns),
+               "--max-tokens", str(runtime.max_tokens)]
     else:
         cmd = [bin_, "-p", pure_prompt(instance), "--output-format", "json",
                "--permission-mode", permission_mode, "--allowedTools", allowed_tools]
