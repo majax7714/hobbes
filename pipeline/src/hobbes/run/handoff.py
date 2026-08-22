@@ -36,7 +36,14 @@ VERDICTS = {"pass": "pass", "passed": "pass", "passes": "pass", "ok": "pass", "g
             "amend": "amend", "revise": "amend", "reject": "amend", "change": "amend"}
 
 _KEYED = re.compile(r"^\s*(?:[-*•]\s*)?(?:#+\s*)?[`*_]*([A-Za-z][A-Za-z _]{1,24}?)[`*_]*\s*[:=]\s*(.*)$")
-_SPLIT = re.compile(r"[,\n;]+|\s+(?=(?:[\w./-]+))")
+#: A prose heading that ends in a colon — "The proposed changes touch the
+#: following files:", "Tests guarding this behavior:" — opens the field a
+#: word in it names. The first live 7B planner wrote exactly this shape
+#: (astropy-13398) and named a gold file under it; the strict key parse
+#: read `files: []`.
+_HEADING = re.compile(r"^\s*(?:[-*•#]+\s*)?[`*_]*([A-Za-z][^:`]{0,80}?)[`*_]*\s*:\s*(.*)$")
+#: A repo-relative path token: has a directory or an extension.
+_PATHISH = re.compile(r"^[\w.-]+(?:/[\w.-]+)+(?:\.\w+)?$|^[\w-]+\.(?:py|ts|tsx|js|go|rs|c|h|cfg|toml|yaml|yml|ini|txt|rst|md)$")
 
 
 def _clean(item: str) -> str:
@@ -69,6 +76,19 @@ def _norm_key(key: str) -> str | None:
     return None
 
 
+def _field_in_phrase(phrase: str) -> str | None:
+    """The field a heading phrase names by one of its words — "Symbols
+    to change", "Tests guarding this behavior", "the following files".
+    The last matching word wins ("files to test" is about tests)."""
+    words = re.findall(r"[a-z_]+", phrase.lower())
+    found = None
+    for w in words:
+        f = _norm_key(w)
+        if f:
+            found = f
+    return found
+
+
 def parse_handoff(text: str) -> dict:
     """Parse a handoff into ``{field: value}`` with list fields as lists.
 
@@ -94,17 +114,40 @@ def parse_handoff(text: str) -> dict:
                 out[field] = str(value).strip()
     else:
         current: str | None = None
+        loose: list[str] = []  # path-shaped bullets under no field
         for line in text.splitlines():
             m = _KEYED.match(line)
             field = _norm_key(m.group(1)) if m else None
+            rest = m.group(2).strip() if m else ""
+            if not field:
+                h = _HEADING.match(line)
+                if h:
+                    phrase, rest = h.group(1), h.group(2).strip()
+                    # "Handoff: The proposed changes touch the following files:"
+                    # — the field word may sit in the value's own heading.
+                    tail = re.match(r"^(.*?):\s*(.*)$", rest)
+                    field = _field_in_phrase(phrase)
+                    if tail and not field:
+                        field, rest = _field_in_phrase(tail.group(1)), tail.group(2).strip()
+                    elif tail and field and _field_in_phrase(tail.group(1)):
+                        field, rest = _field_in_phrase(tail.group(1)), tail.group(2).strip()
             if field:
                 current = field
-                out[field] = (out.get(field, "") + "\n" + m.group(2)).strip() if field in out else m.group(2).strip()
+                out[field] = (out[field] + "\n" + rest).strip() if field in out else rest
             elif current and line.strip():
                 out[current] = (out[current] + "\n" + line.strip()).strip()
+            elif line.strip():
+                item = _clean(line)
+                if _PATHISH.match(item):
+                    loose.append(item)
         for field in LIST_FIELDS:
             if field in out:
                 out[field] = _listify(out[field])
+        if not out.get("files") and loose:
+            # Named paths under no heading: kept as files, and said so —
+            # they were written, not inferred from prose.
+            out["files"] = _listify(loose)
+            out["files_source"] = "path-shaped"
     if "verdict" in out:
         word = re.findall(r"[A-Za-z]+", str(out["verdict"]).lower())
         verdict = next((VERDICTS[w] for w in word if w in VERDICTS), "")

@@ -549,6 +549,45 @@ class TestHandoffParsing:
         js = parse_handoff('{"files": ["x.py"], "verdict": "PASS"}')
         assert js["files"] == ["x.py"] and js["verdict"] == "pass" and js["verdict_source"] == "keyed"
 
+    def test_prose_headings_name_their_fields(self):
+        # the first live 7B planner's handoff, verbatim (astropy-13398):
+        # it named a gold file, and the strict key parse read files: []
+        from hobbes.run.handoff import parse_handoff
+        text = ("Handoff: The proposed changes touch the following files:\n\n"
+                "- astropy/coordinates/builtin_frames/altaz.py\n"
+                "- astropy/coordinates/builtin_frames/hadec.py\n"
+                "- astropy/coordinates/builtin_frames/itrs.py\n"
+                "- astropy/coordinates/transformations.py\n\n"
+                "Symbols to change: None\n\n"
+                "Tests guarding this behavior: test_intermediate_transformations.py\n\n"
+                "Approach: Implement direct transformations between ITRS, AltAz, and HADec frames.\n\n"
+                "Risks: Uncertainty about potential side effects on existing transformations.")
+        h = parse_handoff(text)
+        assert h["files"] == ["astropy/coordinates/builtin_frames/altaz.py",
+                              "astropy/coordinates/builtin_frames/hadec.py",
+                              "astropy/coordinates/builtin_frames/itrs.py",
+                              "astropy/coordinates/transformations.py"]
+        assert h["symbols"] == [] and h["tests"] == ["test_intermediate_transformations.py"]
+        assert h["approach"].startswith("Implement direct") and "files_source" not in h
+        # path-shaped bullets under no heading at all are kept, flagged as such
+        loose = parse_handoff("Affected:\n- src/a.py\n- src/b.py\nnot a path")
+        assert loose["files"] == ["src/a.py", "src/b.py"] and loose["files_source"] == "path-shaped"
+        # prose with no path names nothing
+        assert "files" not in parse_handoff("change the frame code and run the tests")
+
+    def test_dotted_symbol_names_resolve_to_their_module(self):
+        # the second live planner wrote `SlicedLowLevelWCS.world_to_pixel`
+        # (an inherited method — no such symbol id); the class is unique
+        from hobbes.derive.impact import resolve_terms
+        graph = {"nodes": [{"id": "pkg.sliced", "path": "pkg/sliced.py"}, {"id": "pkg.other", "path": "pkg/other.py"}],
+                 "symbols": [{"id": "pkg.sliced.Sliced", "name": "Sliced", "module": "pkg.sliced", "kind": "class"},
+                             {"id": "pkg.sliced.Sliced.run", "name": "run", "module": "pkg.sliced", "kind": "method"},
+                             {"id": "pkg.other.Other.run", "name": "run", "module": "pkg.other", "kind": "method"}]}
+        hits, misses = resolve_terms(graph, ["Sliced.run", "Sliced.missing", "Other.run", "Nope.run", "run"])
+        assert hits == ["pkg.sliced", "pkg.other"]
+        # `run` alone is ambiguous and `Nope.run` names nothing — neither is guessed
+        assert misses == ["Nope.run", "run"]
+
     def test_verdict_inference_is_marked_not_asserted(self):
         from hobbes.run.handoff import parse_handoff
         assert parse_handoff("everything passes")["verdict"] == "pass"

@@ -149,11 +149,15 @@ def _code_shaped(term: str) -> bool:
     return term != term.lower() and term != term.title()
 
 
-def build_lookup(graph: dict):
+def build_lookup(graph: dict, dotted_head: bool = False):
     """A ``term -> module id or None`` resolver over *graph*: exact node
     id, symbol id, symbol name, file path, or unambiguous path suffix /
-    stem (names case-insensitive). Shared by seed resolution and the
-    tolerant planner-handoff resolver (harness restructure)."""
+    stem (names case-insensitive), plus a unique symbol-id suffix for a
+    dotted name. Shared by seed resolution and the tolerant
+    planner-handoff resolver (harness restructure). *dotted_head* lets a
+    dotted name fall back to its leading segment (the class a planner
+    named) — the planner's resolver only; the lexical seeds never guess
+    a prose term by its head (C-36)."""
     by_id = {n["id"]: n for n in graph.get("nodes", [])}
     by_path: dict[str, str] = {}
     by_stem: dict[str, list[str]] = {}
@@ -186,6 +190,17 @@ def build_lookup(graph: dict):
             hits = sorted(set(index.get(lowered, [])))
             if len(hits) == 1:
                 return hits[0]
+        # A dotted name ("SlicedLowLevelWCS.world_to_pixel", "pkg.mod.Cls"):
+        # a unique symbol-id suffix first, then the leading segment (the
+        # class, usually unique) — the first live planner named the gold
+        # module exactly this way and the flat lookup missed it.
+        if "." in term and "/" not in term:
+            suffix_hits = sorted({m for sid, m in symbol_module.items() if sid.endswith("." + term)})
+            if len(suffix_hits) == 1:
+                return suffix_hits[0]
+            head = term.split(".", 1)[0]
+            if dotted_head and head and head != term:
+                return lookup(head)
         return None
 
     return lookup
@@ -196,7 +211,7 @@ def resolve_terms(graph: dict, terms: list[str]) -> tuple[list[str], list[str]]:
     module ids: returns (hits in order, unique; misses). A miss is
     reported, not raised (ADR-059) — the planner names things loosely
     and the caller records what did not resolve rather than failing."""
-    lookup = build_lookup(graph)
+    lookup = build_lookup(graph, dotted_head=True)
     hits: list[str] = []
     misses: list[str] = []
     for term in terms:
