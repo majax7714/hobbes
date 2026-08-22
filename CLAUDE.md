@@ -295,7 +295,9 @@ refusal, read-only pip) after the implement stage ran 21–36 min, and
 **unblocking the evaluator**: swebench 5.0.2's `--modal` is broken
 upstream (C-50), so eval runs **locally over the rootless-podman Docker
 socket** (`docker_host_env`), closing ADR-055's evaluator-socket item.
-**2026-08-22, later: ADR-065 — `hobbes bench run --instance-workers N` runs instances concurrently on the shared Modal endpoint (throughput-bound ~2–3×, not N×). ADR-064 — transcript persisted (`<session>/transcript.jsonl`), planner-nameless units not spawned (C-52), `write_file` refuses to overwrite an unread file (both arms). ADR-063 — parallel implementers in waves over the contract DAG, vLLM-gated (`--parallel auto`, C-51); measured: per-unit harness overhead ~1 s, decode at 28 tok/s is 85–90 % of a unit's wall. The role-context fix is built (ADR-062** — the planner handoff is projected per unit via `planner_slice`, the Interior section is never cut; 830 pytest). **A fresh session resumes from `docs/phase4-to-45set-handoff.md`** —
+**2026-08-22, later: ADR-065 — `hobbes bench run --instance-workers N` runs instances concurrently on the shared Modal endpoint (throughput-bound ~2–3×, not N×). ADR-064 — transcript persisted (`<session>/transcript.jsonl`), planner-nameless units not spawned (C-52), `write_file` refuses to overwrite an unread file (both arms). ADR-063 — parallel implementers in waves over the contract DAG, vLLM-gated (`--parallel auto`, C-51); measured: per-unit harness overhead ~1 s, decode at 28 tok/s is 85–90 % of a unit's wall. The role-context fix is built (ADR-062** — the planner handoff is projected per unit via `planner_slice`, the Interior section is never cut; 830 pytest). **2026-08-22, later still: ADR-066 — the two harness fixes the 5-fresh benchmark read surfaced: the handoff parser splits inline `field:` (xarray's one-line handoff now resolves both gold files) and a repeated identical edit is refused (django's stack). 843 pytest / Go green. THE SINGLE RESUME POINT IS NOW `docs/session-handoff.md` (the old per-phase handoffs are deleted; their history is in `docs/BUILDLOG.md`).**
+
+(Historical, from the phase-4 handoff, now in BUILDLOG:)
 it holds this session's build, the corrected 45-set command (local
 podman-socket eval, not `--eval-modal`), and the one decided-but-unbuilt
 fix: **role-specific implementer context** (the planner handoff is
@@ -305,7 +307,7 @@ the cut but the role-context derivation is the recommended next step
 before spending 45-set compute). 827 pytest / Go green.
 
 **2026-08-21 (run stopped for restructure — read
-`docs/harness-restructure-handoff.md`):** The first live 7B benchmark
+`docs/BUILDLOG.md`):** The first live 7B benchmark
 pass was shaken out over this session — **six** harness fixes (ADR-058:
 env binding C-43, unit cap C-44, brief-as-file+limit C-45, window-fit
 C-46, commit-on-exit, and the strict pipeline discipline) got it
@@ -348,7 +350,7 @@ never edits; fifth fix is a **bounded prose-plan nudge**
 (`--max-nudges 2`; makes the model act, never says what to write —
 H1 stays the model's). With it, `pytest-5787` produced a real
 **patch** end to end — harness confirmed. 794 pytest / Go green.
-`docs/bench-run-handoff.md` says what to check first.
+(that session's checklist is in `docs/BUILDLOG.md`).
 
 **2026-08-21 (small-model ladder live + the solo policy, ADR-057):**
 Focus benchmark set: **SWE-bench Verified, complex multi-step set** (45
@@ -365,7 +367,7 @@ policy** (`bench/bench.box.policy`, auto-passed via `--box` +
 `--escalation-timeout 5s`): allows a lone implementer tests+commit,
 guarantees stay denied by deny-overrides, sandbox unchanged. C-42
 registered. **The first full complex-set run is handed off to a fresh
-session — see `docs/bench-run-handoff.md`.** 769 pytest / Go green.
+session — its details are in `docs/BUILDLOG.md`.** 769 pytest / Go green.
 
 **2026-08-21 (the owned agent runtime, ADR-056 — step 1 of 3):** Max
 redirected the ladder to small open models on his own compute (Modal
